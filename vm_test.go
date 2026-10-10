@@ -50,7 +50,7 @@ func TestVMDefTiming(t *testing.T) {
 func TestVMRepeatRestoreOnError(t *testing.T) {
 	// エラー時も repeat 束縛は復元される（runtime.go の defer 対応）。
 	// REPL 的継続：同一機械で2入力。
-	prog1, _ := Parse("let x = 99\nrepeat 5 as x {\nmes(undefined_fn())\n}\n")
+	prog1, _ := Parse("x = 99\nrepeat 5 as x {\nmes(undefined_fn())\n}\n")
 	vprog1, _ := Compile(prog1)
 	var buf bytes.Buffer
 	in := NewInterpWithIO(&buf, strings.NewReader(""))
@@ -70,7 +70,7 @@ func TestVMRepeatRestoreOnError(t *testing.T) {
 }
 
 func TestVMRepeatShadowRestore(t *testing.T) {
-	out, err := runVMOnly(t, "let x = 1\nrepeat 3 as x {\nmes(x)\n}\nmes(x)\n")
+	out, err := runVMOnly(t, "x = 1\nrepeat 3 as x {\nmes(x)\n}\nmes(x)\n")
 	if err != nil || out != "0\n1\n2\n1\n" {
 		t.Fatalf("got out=%q err=%v", out, err)
 	}
@@ -78,12 +78,12 @@ func TestVMRepeatShadowRestore(t *testing.T) {
 
 func TestVMFuncScopeRule(t *testing.T) {
 	// 関数内新規代入は呼出ローカル（グローバルを作らない）。
-	out, err := runVMOnly(t, "def f() {\nlet q_local_xyz = 5\nreturn q_local_xyz\n}\nmes(f())\nmes(q_local_xyz)\n")
+	out, err := runVMOnly(t, "def f() {\nq_local_xyz = 5\nreturn q_local_xyz\n}\nmes(f())\nmes(q_local_xyz)\n")
 	if err == nil || !strings.Contains(err.Error(), "未定義の変数") {
 		t.Fatalf("want undefined variable, got out=%q err=%v", out, err)
 	}
 	// グローバル更新は可視。
-	out, err = runVMOnly(t, "let g = 1\ndef f() {\ng = 2\n}\nf()\nmes(g)\n")
+	out, err = runVMOnly(t, "g = 1\ndef f() {\ng = 2\n}\nf()\nmes(g)\n")
 	if err != nil || out != "2\n" {
 		t.Fatalf("got out=%q err=%v", out, err)
 	}
@@ -130,13 +130,13 @@ func TestVMTopLevelControl(t *testing.T) {
 
 func TestVMNestedIndexWriteOrder(t *testing.T) {
 	// 複層書込の診断位置（内側範囲外は inner.At）。
-	_, err := runVMOnly(t, "let a = [[1,2],[3,4]]\na[9] = 1\n")
+	_, err := runVMOnly(t, "a = [[1,2],[3,4]]\na[9] = 1\n")
 	_ = err
-	_, err = runVMOnly(t, "let a = [[1,2],[3,4]]\na[0][9] = 1\n")
+	_, err = runVMOnly(t, "a = [[1,2],[3,4]]\na[0][9] = 1\n")
 	if err == nil || !strings.Contains(err.Error(), "範囲外") {
 		t.Fatalf("want bounds error, got %v", err)
 	}
-	out, err := runVMOnly(t, "let a = [[1,2],[3,4]]\na[1][0] = 9\nmes(a[1][0])\n")
+	out, err := runVMOnly(t, "a = [[1,2],[3,4]]\na[1][0] = 9\nmes(a[1][0])\n")
 	if err != nil || out != "9\n" {
 		t.Fatalf("got out=%q err=%v", out, err)
 	}

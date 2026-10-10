@@ -48,7 +48,7 @@ func mustErr(t *testing.T, src, substr string) {
 }
 
 func TestArithmetic(t *testing.T) {
-	mustOut(t, "let x = 10 + 2 * 3\nmes(x)\n", "16\n")
+	mustOut(t, "x = 10 + 2 * 3\nmes(x)\n", "16\n")
 	mustOut(t, "mes((10 + 2) * 3)\n", "36\n")
 	mustOut(t, "mes(10 % 3)\n", "1\n")
 	mustOut(t, "mes(7 / 2)\nmes(7.0 / 2)\n", "3\n3.5\n")
@@ -61,7 +61,7 @@ func TestArithmetic(t *testing.T) {
 }
 
 func TestStrings(t *testing.T) {
-	mustOut(t, "let name = \"Alice\"\nmes(\"Hello, \" + name)\n", "Hello, Alice\n")
+	mustOut(t, "name = \"Alice\"\nmes(\"Hello, \" + name)\n", "Hello, Alice\n")
 	mustOut(t, "mes(\"n=\" + 42)\n", "n=42\n")
 	mustOut(t, "mes(\"a\" < \"b\")\n", "true\n")
 }
@@ -70,19 +70,19 @@ func TestStrictConditions(t *testing.T) {
 	mustOut(t, "if 1 < 2 && 2 < 3 || false {\nmes(\"y\")\n}\n", "y\n")
 	mustErr(t, "if 1 {\nmes(1)\n}\n", "bool 型")
 	mustErr(t, "if \"s\" {\nmes(1)\n}\n", "bool 型")
-	mustErr(t, "let x = 1 && true\n", "bool 型")
+	mustErr(t, "x = 1 && true\n", "bool 型")
 	mustErr(t, "mes(!1)\n", "bool 型")
 }
 
 func TestIfElse(t *testing.T) {
-	src := "let x = 7\nif x > 10 {\nmes(\"large\")\n} else if x > 5 {\nmes(\"middle\")\n} else {\nmes(\"small\")\n}\n"
+	src := "x = 7\nif x > 10 {\nmes(\"large\")\n} else if x > 5 {\nmes(\"middle\")\n} else {\nmes(\"small\")\n}\n"
 	mustOut(t, src, "middle\n")
-	mustOut(t, "let x = 3\nif x > 10 {\nmes(1)\n} else {\nmes(2)\n}\n", "2\n")
+	mustOut(t, "x = 3\nif x > 10 {\nmes(1)\n} else {\nmes(2)\n}\n", "2\n")
 }
 
 func TestRepeatCounter(t *testing.T) {
 	mustOut(t, "repeat 3 as i {\nmes(i)\n}\n", "0\n1\n2\n")
-	mustOut(t, "let s = 0\nrepeat 10 as i {\ns = s + i\n}\nmes(s)\n", "45\n")
+	mustOut(t, "s = 0\nrepeat 10 as i {\ns = s + i\n}\nmes(s)\n", "45\n")
 	mustErr(t, "repeat 2 as i {\nmes(i)\n}\nmes(i)\n", "未定義の変数")
 	mustErr(t, "repeat 2 as i {\ni = 100\n}\n", "読み取り専用")
 	mustErr(t, "repeat 2 as i {\ndef i() {\n}\n}\n", "トップレベル")
@@ -91,7 +91,7 @@ func TestRepeatCounter(t *testing.T) {
 }
 
 func TestBreakContinue(t *testing.T) {
-	mustOut(t, "let s = -1\nrepeat 100 as i {\nif i == 10 {\nbreak\n}\ns = i\n}\nmes(s)\n", "9\n")
+	mustOut(t, "s = -1\nrepeat 100 as i {\nif i == 10 {\nbreak\n}\ns = i\n}\nmes(s)\n", "9\n")
 	mustOut(t, "repeat 10 as i {\nif i % 2 == 0 {\ncontinue\n}\nmes(i)\n}\n", "1\n3\n5\n7\n9\n")
 	mustErr(t, "break\n", "ループ外の break")
 	mustErr(t, "continue\n", "ループ外の continue")
@@ -99,38 +99,38 @@ func TestBreakContinue(t *testing.T) {
 }
 
 func TestWhile(t *testing.T) {
-	mustOut(t, "let i = 0\nwhile i < 3 {\nmes(i)\ni = i + 1\n}\n", "0\n1\n2\n")
+	mustOut(t, "i = 0\nwhile i < 3 {\nmes(i)\ni = i + 1\n}\n", "0\n1\n2\n")
 	mustOut(t, "while false {\nmes(1)\n}\nmes(0)\n", "0\n")
-	mustOut(t, "let i = 0\nlet s = 0\nwhile true {\nif i >= 5 {\nbreak\n}\ns = s + i\ni = i + 1\n}\nmes(s)\n", "10\n")
-	mustOut(t, "let i = 0\nwhile i < 10 {\ni = i + 1\nif i % 2 == 0 {\ncontinue\n}\nmes(i)\n}\n", "1\n3\n5\n7\n9\n")
-	mustOut(t, "let i = 0\nwhile i < 3 {\nlet j = 0\nwhile j < 2 {\nmes(i * 10 + j)\nj = j + 1\n}\ni = i + 1\n}\n", "0\n1\n10\n11\n20\n21\n")
-	mustOut(t, "let i = 0\nwhile i < 5 {\ni = i + 1\nif i == 2 {\nbreak\n}\n}\nmes(i)\n", "2\n")
+	mustOut(t, "i = 0\ns = 0\nwhile true {\nif i >= 5 {\nbreak\n}\ns = s + i\ni = i + 1\n}\nmes(s)\n", "10\n")
+	mustOut(t, "i = 0\nwhile i < 10 {\ni = i + 1\nif i % 2 == 0 {\ncontinue\n}\nmes(i)\n}\n", "1\n3\n5\n7\n9\n")
+	mustOut(t, "i = 0\nwhile i < 3 {\nj = 0\nwhile j < 2 {\nmes(i * 10 + j)\nj = j + 1\n}\ni = i + 1\n}\n", "0\n1\n10\n11\n20\n21\n")
+	mustOut(t, "i = 0\nwhile i < 5 {\ni = i + 1\nif i == 2 {\nbreak\n}\n}\nmes(i)\n", "2\n")
 	mustErr(t, "while 1 {\nmes(1)\n}\n", "条件式は bool 型")
 	mustErr(t, "while \"x\" {\n}\n", "条件式は bool 型")
 }
 
 func TestSwitch(t *testing.T) {
-	mustOut(t, "let x = 2\nswitch x {\ncase 1 {\nmes(\"one\")\n}\ncase 2 {\nmes(\"two\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "two\n")
-	mustOut(t, "let x = 2\nswitch x {\ncase 1, 2, 3 {\nmes(\"few\")\n}\ndefault {\nmes(\"many\")\n}\n}\n", "few\n")
-	mustOut(t, "let x = 9\nswitch x {\ncase 1 {\nmes(\"one\")\n}\n}\nmes(\"done\")\n", "done\n")
-	mustOut(t, "let x = 9\nswitch x {\ncase 1 {\nmes(\"one\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "other\n")
+	mustOut(t, "x = 2\nswitch x {\ncase 1 {\nmes(\"one\")\n}\ncase 2 {\nmes(\"two\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "two\n")
+	mustOut(t, "x = 2\nswitch x {\ncase 1, 2, 3 {\nmes(\"few\")\n}\ndefault {\nmes(\"many\")\n}\n}\n", "few\n")
+	mustOut(t, "x = 9\nswitch x {\ncase 1 {\nmes(\"one\")\n}\n}\nmes(\"done\")\n", "done\n")
+	mustOut(t, "x = 9\nswitch x {\ncase 1 {\nmes(\"one\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "other\n")
 	// First match wins; no fallthrough.
-	mustOut(t, "let x = 1\nswitch x {\ncase 1 {\nmes(\"a\")\n}\ncase 1 {\nmes(\"b\")\n}\n}\n", "a\n")
-	mustOut(t, "let x = 1\nswitch x {\ncase 1 {\nmes(\"a\")\nbreak\nmes(\"unreached\")\n}\ndefault {\nmes(\"d\")\n}\n}\nmes(\"after\")\n", "a\nafter\n")
+	mustOut(t, "x = 1\nswitch x {\ncase 1 {\nmes(\"a\")\n}\ncase 1 {\nmes(\"b\")\n}\n}\n", "a\n")
+	mustOut(t, "x = 1\nswitch x {\ncase 1 {\nmes(\"a\")\nbreak\nmes(\"unreached\")\n}\ndefault {\nmes(\"d\")\n}\n}\nmes(\"after\")\n", "a\nafter\n")
 	// break in a switch inside a loop ends the switch, not the loop.
-	mustOut(t, "let i = 0\nrepeat 3 {\nswitch i {\ncase 1 {\nbreak\n}\ndefault {\nmes(i)\n}\n}\ni = i + 1\n}\n", "0\n2\n")
+	mustOut(t, "i = 0\nrepeat 3 {\nswitch i {\ncase 1 {\nbreak\n}\ndefault {\nmes(i)\n}\n}\ni = i + 1\n}\n", "0\n2\n")
 	// continue passes through the switch to the loop.
 	mustOut(t, "repeat 3 as i {\nswitch i {\ncase 1 {\ncontinue\n}\ndefault {\nmes(i)\n}\n}\n}\n", "0\n2\n")
 	// break inside repeat inside case ends the repeat.
-	mustOut(t, "let x = 1\nswitch x {\ncase 1 {\nlet s = -1\nrepeat 10 as i {\nif i == 2 {\nbreak\n}\ns = i\n}\nmes(s)\n}\n}\n", "1\n")
+	mustOut(t, "x = 1\nswitch x {\ncase 1 {\ns = -1\nrepeat 10 as i {\nif i == 2 {\nbreak\n}\ns = i\n}\nmes(s)\n}\n}\n", "1\n")
 	// Scrutinee evaluated once.
-	mustOut(t, "let n = 0\ndef next() {\nn = n + 1\nreturn n\n}\nswitch next() {\ncase 1 {\nmes(\"one\")\n}\ndefault {\nmes(\"other\")\n}\n}\nmes(n)\n", "one\n1\n")
+	mustOut(t, "n = 0\ndef next() {\nn = n + 1\nreturn n\n}\nswitch next() {\ncase 1 {\nmes(\"one\")\n}\ndefault {\nmes(\"other\")\n}\n}\nmes(n)\n", "one\n1\n")
 	// Type coercion and mismatch.
-	mustOut(t, "let x = 1.0\nswitch x {\ncase 1 {\nmes(\"int\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "int\n")
-	mustOut(t, "let x = 1\nswitch x {\ncase \"1\" {\nmes(\"str\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "other\n")
-	mustOut(t, "let s = \"b\"\nswitch s {\ncase \"a\" {\nmes(1)\n}\ncase \"b\" {\nmes(2)\n}\n}\n", "2\n")
+	mustOut(t, "x = 1.0\nswitch x {\ncase 1 {\nmes(\"int\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "int\n")
+	mustOut(t, "x = 1\nswitch x {\ncase \"1\" {\nmes(\"str\")\n}\ndefault {\nmes(\"other\")\n}\n}\n", "other\n")
+	mustOut(t, "s = \"b\"\nswitch s {\ncase \"a\" {\nmes(1)\n}\ncase \"b\" {\nmes(2)\n}\n}\n", "2\n")
 	// Nested switch.
-	mustOut(t, "let x = 1\nlet y = 2\nswitch x {\ncase 1 {\nswitch y {\ncase 2 {\nmes(\"1-2\")\n}\ndefault {\nmes(\"1-?\")\n}\n}\n}\ndefault {\nmes(\"outer\")\n}\n}\n", "1-2\n")
+	mustOut(t, "x = 1\ny = 2\nswitch x {\ncase 1 {\nswitch y {\ncase 2 {\nmes(\"1-2\")\n}\ndefault {\nmes(\"1-?\")\n}\n}\n}\ndefault {\nmes(\"outer\")\n}\n}\n", "1-2\n")
 	mustErr(t, "switch 1 {\ndefault {\n}\ndefault {\n}\n}\n", "default が重複")
 	mustErr(t, "switch 1 {\nmes(1)\n}\n", "case または default が必要")
 }
@@ -154,17 +154,17 @@ func TestBitwise(t *testing.T) {
 }
 
 func TestCompoundAssign(t *testing.T) {
-	mustOut(t, "let x = 10\nx += 5\nmes(x)\nx -= 3\nmes(x)\nx *= 2\nmes(x)\nx /= 4\nmes(x)\nx %= 5\nmes(x)\n", "15\n12\n24\n6\n1\n")
-	mustOut(t, "let x = 6\nx &= 3\nmes(x)\nx |= 8\nmes(x)\nx ^= 7\nmes(x)\nx <<= 2\nmes(x)\nx >>= 1\nmes(x)\n", "2\n10\n13\n52\n26\n")
-	mustOut(t, "let s = \"a\"\ns += \"b\"\nmes(s)\nlet f = 1.5\nf += 1\nmes(f)\n", "ab\n2.5\n")
-	mustOut(t, "let a = [1, 2]\na[0] += 10\na[1] *= 3\nmes(a)\n", "[11, 6]\n")
-	mustOut(t, "let p = [[1]]\np[0][0] += 41\nmes(p[0][0])\n", "42\n")
-	mustErr(t, "let x = 1\nx += true\n", "加算できません")
-	mustErr(t, "let x = 1.5\nx &= 1\n", "整数が必要です")
-	mustErr(t, "let x = 1\nx /= 0\n", "0 による除算")
+	mustOut(t, "x = 10\nx += 5\nmes(x)\nx -= 3\nmes(x)\nx *= 2\nmes(x)\nx /= 4\nmes(x)\nx %= 5\nmes(x)\n", "15\n12\n24\n6\n1\n")
+	mustOut(t, "x = 6\nx &= 3\nmes(x)\nx |= 8\nmes(x)\nx ^= 7\nmes(x)\nx <<= 2\nmes(x)\nx >>= 1\nmes(x)\n", "2\n10\n13\n52\n26\n")
+	mustOut(t, "s = \"a\"\ns += \"b\"\nmes(s)\nf = 1.5\nf += 1\nmes(f)\n", "ab\n2.5\n")
+	mustOut(t, "a = [1, 2]\na[0] += 10\na[1] *= 3\nmes(a)\n", "[11, 6]\n")
+	mustOut(t, "p = [[1]]\np[0][0] += 41\nmes(p[0][0])\n", "42\n")
+	mustErr(t, "x = 1\nx += true\n", "加算できません")
+	mustErr(t, "x = 1.5\nx &= 1\n", "整数が必要です")
+	mustErr(t, "x = 1\nx /= 0\n", "0 による除算")
 	// Single evaluation: the index expression runs exactly once.
-	mustOut(t, "let i = 0\ndef next() {\ni = i + 1\nreturn 0\n}\nlet a = [5]\na[next()] += 10\nmes(i)\nmes(a[0])\n", "1\n15\n")
-	mustOut(t, "let i = 0\ndef next() {\ni = i + 1\nreturn 0\n}\nlet m = [[7]]\nm[next()][0] *= 2\nmes(i)\nmes(m[0][0])\n", "1\n14\n")
+	mustOut(t, "i = 0\ndef next() {\ni = i + 1\nreturn 0\n}\na = [5]\na[next()] += 10\nmes(i)\nmes(a[0])\n", "1\n15\n")
+	mustOut(t, "i = 0\ndef next() {\ni = i + 1\nreturn 0\n}\nm = [[7]]\nm[next()][0] *= 2\nmes(i)\nmes(m[0][0])\n", "1\n14\n")
 	mustErr(t, "x += 1\n", "未定義の変数")
 	mustErr(t, "mes += 1\n", "未定義の変数")
 }
@@ -174,7 +174,7 @@ func TestMinInt64Literal(t *testing.T) {
 	// overflows int64, so it has no bare literal).
 	mustOut(t, "mes(-9223372036854775808)\n", "-9223372036854775808\n")
 	mustOut(t, "mes(-0x8000000000000000)\n", "-9223372036854775808\n")
-	mustOut(t, "let m = -9223372036854775808\nmes(m == -9223372036854775808)\nmes(m < 0)\n", "true\ntrue\n")
+	mustOut(t, "m = -9223372036854775808\nmes(m == -9223372036854775808)\nmes(m < 0)\n", "true\ntrue\n")
 	mustErr(t, "mes(9223372036854775808)\n", "不正な整数リテラル")
 	mustErr(t, "mes(0x8000000000000000)\n", "不正な整数リテラル")
 	// Integer arithmetic wraps (Go-like); only abs() refuses MinInt64.
@@ -195,7 +195,7 @@ func TestHardeningTraps(t *testing.T) {
 	// String concatenation no longer resurrects void as "null".
 	mustErr(t, "def f() {\n}\nmes(\"a\" + f())\n", "void値を使用できません")
 	// Builtin names cannot be assigned (they would shadow the builtin).
-	mustErr(t, "let mes = 1\n", "組み込み関数")
+	mustErr(t, "mes = 1\n", "組み込み関数")
 	mustErr(t, "length = 1\n", "組み込み関数")
 	// User functions cannot be redefined.
 	mustErr(t, "def f() {\n}\ndef f() {\n}\n", "既に定義されています")
@@ -224,33 +224,36 @@ func TestParseDepthLimit(t *testing.T) {
 
 func TestTryCatchAbolished(t *testing.T) {
 	// try/catch are ordinary identifiers now; try blocks are gone.
-	mustOut(t, "let try = 5\nmes(try)\n", "5\n")
+	mustOut(t, "try = 5\nmes(try)\n", "5\n")
 	mustErr(t, "try {\nmes(1)\n}\n", "予期しない '{'")
 	// throw() is abolished too: an ordinary undefined call.
 	mustErr(t, "throw(\"late\")\n", "未定義の関数")
 }
 
-func TestLet(t *testing.T) {
-	mustOut(t, "let x = 1\nmes(x)\n", "1\n")
+func TestDeclareByAssign(t *testing.T) {
+	// `let` 廃止後：通常代入が見える定義の更新、なければ宣言になる。
+	mustOut(t, "x = 1\nmes(x)\n", "1\n")
 	// Overwrite in the same scope is allowed (loops keep working).
-	mustOut(t, "let x = 1\nlet x = 2\nmes(x)\n", "2\n")
-	// let always binds the current scope: function-local shadows global.
-	mustOut(t, "let x = 1\ndef f() {\nlet x = 2\nmes(x)\n}\nf()\nmes(x)\n", "2\n1\n")
-	// ...while plain assignment updates the visible definition.
-	mustOut(t, "let x = 1\ndef f() {\nx = 2\n}\nf()\nmes(x)\n", "2\n")
+	mustOut(t, "x = 1\nx = 2\nmes(x)\n", "2\n")
+	// Shadowing declaration is gone: assignment inside a function
+	// updates the visible (here global) definition.
+	mustOut(t, "x = 1\ndef f() {\nx = 2\nmes(x)\n}\nf()\nmes(x)\n", "2\n2\n")
+	// ...while a name seen nowhere becomes a function local.
+	mustOut(t, "x = 1\ndef f() {\nx = 2\n}\nf()\nmes(x)\n", "2\n")
 	// Call-locals vanish after return.
-	mustErr(t, "def f() {\nlet y = 3\n}\nf()\nmes(y)\n", "未定義の変数")
-	// Blocks make no scope: let inside if lands in the enclosing scope.
-	mustOut(t, "if true {\nlet z = 9\n}\nmes(z)\n", "9\n")
-	// let in a loop body works every iteration.
-	mustOut(t, "repeat 3 as i {\nlet t = i * 2\nmes(t)\n}\n", "0\n2\n4\n")
+	mustErr(t, "def f() {\ny = 3\n}\nf()\nmes(y)\n", "未定義の変数")
+	// Blocks make no scope: assign inside if lands in the enclosing scope.
+	mustOut(t, "if true {\nz = 9\n}\nmes(z)\n", "9\n")
+	// Assign in a loop body works every iteration.
+	mustOut(t, "repeat 3 as i {\nt = i * 2\nmes(t)\n}\n", "0\n2\n4\n")
 	// Builtin names are rejected like assignment.
-	mustErr(t, "let mes = 1\n", "組み込み関数")
-	// void initializer is rejected.
-	mustErr(t, "def v() {\nreturn\n}\nlet x = v()\n", "void値を使用できません")
-	// = and an expression are required.
-	mustErr(t, "let x\n", "'='")
-	mustErr(t, "let 1 = 2\n", "識別子")
+	mustErr(t, "mes = 1\n", "組み込み関数")
+	// void assignment is rejected.
+	mustErr(t, "def v() {\nreturn\n}\nx = v()\n", "void値を使用できません")
+	// `let` is an ordinary identifier now (like goto/enum).
+	mustOut(t, "let = 5\nmes(let)\n", "5\n")
+	// A non-assignable target is still rejected.
+	mustErr(t, "5 = 2\n", "左辺に代入できません")
 }
 
 func TestRepeatArray(t *testing.T) {
@@ -259,32 +262,32 @@ func TestRepeatArray(t *testing.T) {
 	mustOut(t, "repeat [] as x {\nmes(\"bad\")\n}\nmes(\"ok\")\n", "ok\n")
 	mustOut(t, "repeat [1, 2, 3] {\nmes(\"n\")\n}\n", "n\nn\nn\n")
 	// break/continue work; total shows early exit.
-	mustOut(t, "let total = 0\nrepeat [1, 2, 3, 4] as x {\nif x == 3 {\nbreak\n}\ntotal += x\n}\nmes(total)\n", "3\n")
+	mustOut(t, "total = 0\nrepeat [1, 2, 3, 4] as x {\nif x == 3 {\nbreak\n}\ntotal += x\n}\nmes(total)\n", "3\n")
 	mustOut(t, "repeat [1, 2, 3] as x {\nif x == 2 {\ncontinue\n}\nmes(x)\n}\n", "1\n3\n")
 	// Element binding is a writable copy; the array is untouched and
 	// the variable is invisible after the loop.
-	mustOut(t, "let a = [1]\nrepeat a as x {\nx = 9\n}\nmes(a)\n", "[1]\n")
+	mustOut(t, "a = [1]\nrepeat a as x {\nx = 9\n}\nmes(a)\n", "[1]\n")
 	mustErr(t, "repeat [1] as x {\n}\nmes(x)\n", "未定義の変数")
 	// Index is read-only; outer bindings are restored afterwards.
-	mustOut(t, "let i = 100\nlet x = 200\nrepeat [7, 8] as i, x {\n}\nmes(str(i) + \",\" + str(x))\n", "100,200\n")
+	mustOut(t, "i = 100\nx = 200\nrepeat [7, 8] as i, x {\n}\nmes(str(i) + \",\" + str(x))\n", "100,200\n")
 	mustErr(t, "repeat [1] as i, x {\ni = 5\n}\n", "読み取り専用")
 	mustErr(t, "repeat 5 as i, x {\n}\n", "1 つまで")
 	mustErr(t, "repeat \"s\" {\n}\n", "整数または配列")
 	mustErr(t, "repeat 1.5 as x {\n}\n", "整数または配列")
 	// Length is fixed at loop start: push inside never extends it.
-	mustOut(t, "let a = [1]\nrepeat a as x {\npush(a, 2)\nmes(x)\n}\nmes(length(a))\n", "1\n2\n")
+	mustOut(t, "a = [1]\nrepeat a as x {\npush(a, 2)\nmes(x)\n}\nmes(length(a))\n", "1\n2\n")
 }
 
 func TestMapAbolished(t *testing.T) {
 	// Map literals are parse errors.
-	mustErr(t, "let m = {\"a\": 1}\n", "廃止")
-	mustErr(t, "let m = {}\n", "廃止")
+	mustErr(t, "m = {\"a\": 1}\n", "廃止")
+	mustErr(t, "m = {}\n", "廃止")
 	// Field access is a parse error.
 	mustErr(t, "mes(m.a)\n", "廃止")
 	mustErr(t, "m.a = 2\n", "廃止")
 	// String indexes are integer-index errors, not map lookups.
-	mustErr(t, "let m = [1]\nm[\"a\"] = 2\n", "整数である必要があります")
-	mustErr(t, "let m = [1]\nmes(m[\"a\"])\n", "整数である必要があります")
+	mustErr(t, "m = [1]\nm[\"a\"] = 2\n", "整数である必要があります")
+	mustErr(t, "m = [1]\nmes(m[\"a\"])\n", "整数である必要があります")
 	// Map builtins are gone.
 	mustErr(t, "mes(keys([1]))\n", "未定義の関数")
 	mustErr(t, "mes(has([1], \"a\"))\n", "未定義の関数")
@@ -297,29 +300,29 @@ func TestRadixLiterals(t *testing.T) {
 	mustOut(t, "mes(0xFF)\nmes(0b101)\nmes(0o17)\n", "255\n5\n15\n")
 	mustOut(t, "mes(0XAB + 0B1 + 0O7)\n", "179\n")
 	mustOut(t, "mes(0xFF & 0xF)\nmes(0b1000 >> 2)\nmes(0o10 | 1)\n", "15\n2\n9\n")
-	mustOut(t, "let x = 0x10\nmes(x * 2)\n", "32\n")
+	mustOut(t, "x = 0x10\nmes(x * 2)\n", "32\n")
 	mustErr(t, "mes(0x)\n", "不正な16進数リテラル")
 	mustErr(t, "mes(0b2)\n", "不正な2進数リテラル")
 	mustErr(t, "mes(0o8)\n", "不正な8進数リテラル")
 }
 
 func TestArrays(t *testing.T) {
-	mustOut(t, "let a = [1, 2, 3]\nmes(a[0])\nmes(a[2])\n", "1\n3\n")
-	mustOut(t, "let a = [10, \"hello\", true]\nmes(a)\n", "[10, hello, true]\n")
-	mustOut(t, "let a = [[1, 2, 3], [4, 5, 6]]\nmes(a[0][1])\nmes(a[1][2])\n", "2\n6\n")
-	mustOut(t, "let a = dim(1, 2)\na[0][1] = 123\nmes(a[0][1])\nmes(a)\n", "123\n[[0, 123]]\n")
-	mustOut(t, "let a = [1]\na[0] = [10, 20, 30]\nmes(a[0][2])\n", "30\n")
-	mustOut(t, "let a = dim(3)\na[0] = 100\na[2] = 300\nmes(a)\nmes(length(a))\n", "[100, 0, 300]\n3\n")
-	mustOut(t, "let a = dim(0)\nmes(a)\nmes(length(a))\n", "[]\n0\n")
-	mustOut(t, "let a = [1]\npush(a, 2, 3)\nmes(a)\n", "[1, 2, 3]\n")
-	mustErr(t, "let a = [1]\nmes(a[5])\n", "範囲外")
-	mustErr(t, "let a = [1]\na[1] = 2\n", "範囲外")
-	mustErr(t, "let a = []\na[0] = 1\n", "範囲外")
+	mustOut(t, "a = [1, 2, 3]\nmes(a[0])\nmes(a[2])\n", "1\n3\n")
+	mustOut(t, "a = [10, \"hello\", true]\nmes(a)\n", "[10, hello, true]\n")
+	mustOut(t, "a = [[1, 2, 3], [4, 5, 6]]\nmes(a[0][1])\nmes(a[1][2])\n", "2\n6\n")
+	mustOut(t, "a = dim(1, 2)\na[0][1] = 123\nmes(a[0][1])\nmes(a)\n", "123\n[[0, 123]]\n")
+	mustOut(t, "a = [1]\na[0] = [10, 20, 30]\nmes(a[0][2])\n", "30\n")
+	mustOut(t, "a = dim(3)\na[0] = 100\na[2] = 300\nmes(a)\nmes(length(a))\n", "[100, 0, 300]\n3\n")
+	mustOut(t, "a = dim(0)\nmes(a)\nmes(length(a))\n", "[]\n0\n")
+	mustOut(t, "a = [1]\npush(a, 2, 3)\nmes(a)\n", "[1, 2, 3]\n")
+	mustErr(t, "a = [1]\nmes(a[5])\n", "範囲外")
+	mustErr(t, "a = [1]\na[1] = 2\n", "範囲外")
+	mustErr(t, "a = []\na[0] = 1\n", "範囲外")
 	mustErr(t, "nosuch[0] = 1\n", "未定義の変数")
-	mustErr(t, "let a = [1]\nmes(a[0.5])\n", "整数である必要があります")
-	mustErr(t, "let a = [1]\nmes(a[-1])\n", "0 以上")
-	mustErr(t, "let a = [1]\na(0)\n", "[...]")
-	mustErr(t, "let x = 1\nmes(x[0])\n", "配列に対応しています")
+	mustErr(t, "a = [1]\nmes(a[0.5])\n", "整数である必要があります")
+	mustErr(t, "a = [1]\nmes(a[-1])\n", "0 以上")
+	mustErr(t, "a = [1]\na(0)\n", "[...]")
+	mustErr(t, "x = 1\nmes(x[0])\n", "配列に対応しています")
 	mustErr(t, "dim()\n", "1 個")
 	mustErr(t, "dim(-1)\n", "0 以上")
 	mustErr(t, "dim(\"x\")\n", "整数である必要があります")
@@ -328,7 +331,7 @@ func TestArrays(t *testing.T) {
 	// dim(0) stays valid, and the cap itself is allocatable.
 	mustErr(t, "dim(9223372036854775807)\n", "上限 1048576 を超えています")
 	mustErr(t, "dim(1024, 1025)\n", "上限 1048576 を超えています")
-	mustOut(t, "let a = dim(1024, 1024)\nmes(length(a))\nmes(length(a[0]))\n", "1024\n1024\n")
+	mustOut(t, "a = dim(1024, 1024)\nmes(length(a))\nmes(length(a[0]))\n", "1024\n1024\n")
 }
 
 func TestFunctions(t *testing.T) {
@@ -342,10 +345,10 @@ func TestFunctions(t *testing.T) {
 	mustErr(t, "def greet(name, mark=\"!\") {\n}\n", "デフォルト引数")
 	mustErr(t, "def f(a) {\n}\nf()\n", "1 個必要")
 	mustErr(t, "def f(a=1, b) {\n}\n", "デフォルト引数")
-	mustErr(t, "let x = 5\nx()\n", "関数ではありません")
+	mustErr(t, "x = 5\nx()\n", "関数ではありません")
 	// Functions are not values: names only call, never read or store.
 	mustErr(t, "def f() {\n}\nmes(f)\n", "未定義の変数")
-	mustErr(t, "def f() {\n}\nlet g = f\n", "未定義の変数")
+	mustErr(t, "def f() {\n}\ng = f\n", "未定義の変数")
 }
 
 func TestVoidValues(t *testing.T) {
@@ -353,10 +356,10 @@ func TestVoidValues(t *testing.T) {
 	mustOut(t, "def f() {\n}\nmes(f())\n", "\n")
 	mustOut(t, "def f() {\n}\nmes(\"a\", f(), \"b\")\n", "a b\n")
 	// Every other use is an error.
-	mustErr(t, "def f() {\n}\nlet x = f()\n", "void値")
+	mustErr(t, "def f() {\n}\nx = f()\n", "void値")
 	mustErr(t, "def g() {\n}\ndef h(a) {\nreturn a\n}\nmes(h(g()))\n", "void値")
 	mustErr(t, "def f() {\n}\nmes(str(f()))\n", "void値")
-	mustErr(t, "def f() {\n}\nlet a = [f()]\n", "void値")
+	mustErr(t, "def f() {\n}\na = [f()]\n", "void値")
 	mustErr(t, "def f() {\n}\nmes(f() == 1)\n", "void値")
 	mustErr(t, "def f() {\n}\nmes(1 == f())\n", "void値")
 	mustErr(t, "def f() {\n}\nswitch f() {\ncase 1 {\nmes(1)\n}\n}\n", "void値")
@@ -368,8 +371,8 @@ func TestVoidValues(t *testing.T) {
 
 func TestMes(t *testing.T) {
 	mustOut(t, "mes(\"Hello\")\n", "Hello\n")
-	mustOut(t, "let x = 10\nmes(x + 20)\n", "30\n")
-	mustOut(t, "let x = 1\nlet y = 2\nmes(\"x =\", x, \"y =\", y)\n", "x = 1 y = 2\n")
+	mustOut(t, "x = 10\nmes(x + 20)\n", "30\n")
+	mustOut(t, "x = 1\ny = 2\nmes(\"x =\", x, \"y =\", y)\n", "x = 1 y = 2\n")
 	mustOut(t, "mes()\n", "\n")
 	mustOut(t, "mes([1, [2, 3]])\n", "[1, [2, 3]]\n")
 	// Trailing style keywords are consumed as decoration (CUI: SGR).
@@ -389,15 +392,15 @@ func TestCommentsAndNewlines(t *testing.T) {
 
 func TestFormerKeywordsAreIdents(t *testing.T) {
 	// goto/gosub/elif carry no special meaning; they are ordinary names.
-	mustOut(t, "let goto = 5\nmes(goto)\n", "5\n")
-	mustOut(t, "let gosub = 6\nmes(gosub)\n", "6\n")
-	mustOut(t, "let elif = 7\nmes(elif)\n", "7\n")
+	mustOut(t, "goto = 5\nmes(goto)\n", "5\n")
+	mustOut(t, "gosub = 6\nmes(gosub)\n", "6\n")
+	mustOut(t, "elif = 7\nmes(elif)\n", "7\n")
 	if _, err := Parse("*label\n"); err == nil {
 		t.Fatal("labels should be rejected")
 	}
 	// `enum` is an ordinary identifier (the enum statement is abolished;
 	// sequential constants use valueless #define, tested in include_test).
-	mustOut(t, "let enum = 5\nmes(enum)\n", "5\n")
+	mustOut(t, "enum = 5\nmes(enum)\n", "5\n")
 }
 
 func TestSample19Golden(t *testing.T) {

@@ -7,7 +7,7 @@ chkbox(3, "同意する", 20, 350, 0)
 combox(4, 240, 350, 200, 36, ["red", "green", "blue"], 0)
 mesbox(5, 20, 60, 300, 200, "one\ntwo")
 
-let n = 0
+n = 0
 
 repeat 600 {
     cls()

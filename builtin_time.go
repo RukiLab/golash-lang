@@ -92,6 +92,11 @@ func init() {
 		if ms < 0 {
 			return Null(), argErr("sleep", 0, at, "0 以上である必要があります。%d が指定されました", ms)
 		}
+		// time.Duration(ms)*time.Millisecond が int64 ナノ秒に収まる上限。
+		// 超えると負数にラップして即時復帰してしまうためエラーにする。
+		if ms > math.MaxInt64/int64(time.Millisecond) {
+			return Null(), argErr("sleep", 0, at, "待機ミリ秒数が大きすぎます。%d が指定されました", ms)
+		}
 		in.be.Sleep(ms)
 		return Null(), nil
 	})

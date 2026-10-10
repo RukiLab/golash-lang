@@ -19,8 +19,13 @@
 // directory; absolute paths are used as-is. Tokens keep file-local
 // line numbers and carry the display path in Token.File. Directive and
 // inactive lines are blanked (never deleted) so every line number stays
-// intact. #define applies textually in line order: a use sees defines
-// from earlier lines only (same file or an earlier include).
+// intact. #define applies textually in line order within its file:
+// a use sees defines from earlier lines of the same file, or from
+// a library included before the use. Names defined inside a library
+// are not substituted into lines after its #include in the parent
+// (redefinition across the tree is still an error). Valueless
+// #define auto-numbers are assigned per file in include-preorder
+// (the parent file's directives first), sharing one counter per run.
 //
 // NOTE: directives are recognized before comments, so a `#` at a line
 // start inside a block comment still counts as a directive.
@@ -67,7 +72,9 @@ type includer struct {
 	done  map[string]bool // absolute paths already spliced (once)
 	stack []string        // absolute paths on the current chain (cycles)
 	// Preprocessor state, shared across the whole include tree so
-	// defines flow into (and out of) included files in line order.
+	// defines flow into included files in line order (a library sees
+	// defines from before its #include; see combineSource for the
+	// exact visibility rules).
 	defines map[string]ppDefine
 	// Auto-number counter for valueless #define (starts at 0 per run).
 	seq   int64
@@ -281,8 +288,12 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		}
 	}
 	byLine := map[int][]Token{}
+	eofLine, eofCol := len(lines), 1
 	for i := range toks {
 		if toks[i].Type == TokEOF {
+			// Lex の EOF 位置を保持する（0:0 のままだと
+			// 「ブロックが閉じられていません」等が 0:0 になる）。
+			eofLine, eofCol = toks[i].Line, toks[i].Column
 			continue
 		}
 		toks[i].File = display
@@ -320,7 +331,7 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		}
 		out = append(out, byLine[ln]...)
 	}
-	out = append(out, Token{Type: TokEOF, File: display})
+	out = append(out, Token{Type: TokEOF, File: display, Line: eofLine, Column: eofCol})
 	return out, nil
 }
 
@@ -363,8 +374,16 @@ func parseDirective(line string) (*directive, error) {
 	}
 	word, tail := rest[:i], strings.TrimLeft(rest[i:], " \t")
 	// A sharp alone (`#`) or `# 123`: no directive word.
+	// `# 123` は `#` だけでなく `123` も落とさず報告する。
 	unknown := func() (*directive, error) {
-		return nil, fmt.Errorf("不明なディレクティブ %q です（#include/#define/#ifdef/#ifndef/#else/#endif/#error/#mode を使用してください）", "#"+word)
+		got := "#" + word
+		if word == "" {
+			got = "#" + strings.TrimSpace(rest)
+			if got == "#" {
+				// `#` 単体はそのまま。
+			}
+		}
+		return nil, fmt.Errorf("不明なディレクティブ %q です（#include/#define/#ifdef/#ifndef/#else/#endif/#error/#mode を使用してください）", got)
 	}
 	switch word {
 	case "include":
@@ -470,7 +489,7 @@ func (st *includer) defineValue(rest string) (ppDefine, error) {
 	if def.typ == TokInt {
 		v, err := strconv.ParseInt(def.lit, 10, 64)
 		if err != nil {
-			return ppDefine{}, err
+			return ppDefine{}, fmt.Errorf("不正な #define 値です（整数 %q が範囲外です）", def.lit)
 		}
 		if v == math.MaxInt64 {
 			return ppDefine{}, fmt.Errorf("連番カウンタが上限を超えました")

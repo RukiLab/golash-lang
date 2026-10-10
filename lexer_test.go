@@ -32,20 +32,21 @@ func TestLexBasic(t *testing.T) {
 }
 
 func TestLexKeywordsAndOps(t *testing.T) {
-	types := lexTypes(t, "def if else repeat while switch case default as break continue return let == != <= >= && || & | ^ ~ << >> += -= *= /= %= &= |= ^= <<= >>= ! < > + - * / % = , : . ( ) [ ] { }")
+	types := lexTypes(t, "def if else repeat while switch case default as break continue return == != <= >= && || & | ^ ~ << >> += -= *= /= %= &= |= ^= <<= >>= ! < > + - * / % = , : . ( ) [ ] { }")
 	found := map[TokenType]bool{}
 	for _, ty := range types {
 		found[ty] = true
 	}
 	// try/catch are ordinary identifiers now (like goto/gosub/elif).
-	for _, word := range []string{"try", "catch", "goto"} {
+	// `let` was abolished and is an ordinary identifier too.
+	for _, word := range []string{"try", "catch", "goto", "let"} {
 		types := lexTypes(t, word)
 		if len(types) == 0 || types[0] != TokIdent {
 			t.Fatalf("%s should lex as IDENT, got %v", word, types)
 		}
 	}
 	for _, want := range []TokenType{TokDef, TokIf, TokElse, TokRepeat, TokWhile, TokSwitch, TokCase, TokDefault, TokAs, TokBreak,
-		TokContinue, TokReturn, TokLet, TokEq, TokNotEq, TokLtEq, TokGtEq, TokAnd, TokOr,
+		TokContinue, TokReturn, TokEq, TokNotEq, TokLtEq, TokGtEq, TokAnd, TokOr,
 		TokBitAnd, TokBitOr, TokBitXor, TokBitNot, TokShl, TokShr,
 		TokPlusAssign, TokMinusAssign, TokStarAssign, TokSlashAssign, TokModAssign,
 		TokBitAndAssign, TokBitOrAssign, TokBitXorAssign, TokShlAssign, TokShrAssign,

@@ -4,7 +4,7 @@ def greet(p) {
     mes("Hello, " + p[0])
 }
 
-let people = [
+people = [
     ["Alice", 20],
     ["Bob", 25],
 ]
@@ -13,7 +13,7 @@ repeat 2 as i {
     greet(people[i])
 }
 
-let x = 15
+x = 15
 
 if x % 2 == 0 {
     mes("even")

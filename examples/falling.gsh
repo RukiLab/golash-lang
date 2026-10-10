@@ -35,10 +35,10 @@
 #define PIECE_L
 
 // ガイドライン準拠 落下速度テーブル (Lv 1 〜 Lv 15+) [フレーム数]
-let speed_table = [60, 50, 42, 34, 27, 21, 16, 12, 9, 6, 5, 4, 3, 2, 1]
+speed_table = [60, 50, 42, 34, 27, 21, 16, 12, 9, 6, 5, 4, 3, 2, 1]
 
 // SRS準拠 各ミノの4回転状態 [type][rot][y][x]
-let piece_shapes = [
+piece_shapes = [
     // 0: I
     [
         [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
@@ -91,7 +91,7 @@ let piece_shapes = [
 ]
 
 // SRS ウォールキックデータ
-let kick_jlstz = [
+kick_jlstz = [
     [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],  // 0 -> 1
     [[0,0], [1,0], [1,1], [0,-2], [1,-2]],    // 1 -> 0
     [[0,0], [1,0], [1,1], [0,-2], [1,-2]],    // 1 -> 2
@@ -102,7 +102,7 @@ let kick_jlstz = [
     [[0,0], [1,0], [1,-1], [0,2], [1,2]]      // 0 -> 3
 ]
 
-let kick_i = [
+kick_i = [
     [[0,0], [-2,0], [1,0], [-2,1], [1,-2]],   // 0 -> 1
     [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],   // 1 -> 0
     [[0,0], [-1,0], [2,0], [-1,-2], [2,1]],   // 2 -> 1
@@ -114,7 +114,7 @@ let kick_i = [
 ]
 
 // フィールド
-let field = dim(ROWS, COLS)
+field = dim(ROWS, COLS)
 repeat ROWS as r {
     repeat COLS as c {
         field[r][c] = 0
@@ -122,27 +122,27 @@ repeat ROWS as r {
 }
 
 // 消去ラインフラグ
-let clearing_lines = dim(ROWS)
+clearing_lines = dim(ROWS)
 repeat ROWS as r {
     clearing_lines[r] = 0
 }
-let clear_timer = 0
+clear_timer = 0
 
 // 7-Bag 乱数生成器
-let bag = dim(7)
-let bag_index = 7
+bag = dim(7)
+bag_index = 7
 
 // ゲーム変数
-let game_state = STATE_PLAY
-let score = 0
-let lines_cleared = 0
-let level = 1
-let is_running = true
+game_state = STATE_PLAY
+score = 0
+lines_cleared = 0
+level = 1
+is_running = true
 
 // ピース情報
 // 配列で表現: [P_TYPE, P_ROT, P_COL, P_ROW, P_BLOCKS]
 // 型を混ぜられるので、整数と配列を同じ配列に入れられる
-let piece = dim(5)
+piece = dim(5)
 piece[P_TYPE]   = PIECE_I
 piece[P_ROT]    = 0
 piece[P_COL]    = 3
@@ -150,26 +150,26 @@ piece[P_ROW]    = 0
 piece[P_BLOCKS] = piece_shapes[PIECE_I][0]
 
 // タイマー・カウンタ
-let right_das = 0
-let left_das = 0
-let arr_timer = 0
-let gravity_timer = 0
-let gravity_interval = 60
-let lock_delay = 30
-let lock_reset_count = 0
-let lowest_row = 0
-let mino_img = 0
-let sfx_move = 0
+right_das = 0
+left_das = 0
+arr_timer = 0
+gravity_timer = 0
+gravity_interval = 60
+lock_delay = 30
+lock_reset_count = 0
+lowest_row = 0
+mino_img = 0
+sfx_move = 0
 
 // キーフラグ
-let was_right_pressed = false
-let was_left_pressed = false
-let was_up_pressed = false
-let was_down_pressed = false
-let was_z_pressed = false
-let was_x_pressed = false
-let was_space_pressed = false
-let was_esc_pressed = false
+was_right_pressed = false
+was_left_pressed = false
+was_up_pressed = false
+was_down_pressed = false
+was_z_pressed = false
+was_x_pressed = false
+was_space_pressed = false
+was_esc_pressed = false
 
 def get_kick_id(from_rot, to_rot) {
     if from_rot == 0 && to_rot == 1 { return 0 }
@@ -189,20 +189,20 @@ def get_next_piece_type() {
             bag[i] = i
         }
         repeat 7 as i {
-            let swap_idx = rnd(7 - i) + i
-            let tmp = bag[i]
+            swap_idx = rnd(7 - i) + i
+            tmp = bag[i]
             bag[i] = bag[swap_idx]
             bag[swap_idx] = tmp
         }
         bag_index = 0
     }
-    let next_type = bag[bag_index]
+    next_type = bag[bag_index]
     bag_index += 1
     return next_type
 }
 
 def update_speed() {
-    let idx = level - 1
+    idx = level - 1
     if idx > 14 {
         idx = 14
     }
@@ -229,7 +229,7 @@ def init_game() {
 
 // 21段目・22段目へのスポーン処理
 def spawn_piece() {
-    let new_type = get_next_piece_type()
+    new_type = get_next_piece_type()
     piece[P_TYPE]   = new_type
     piece[P_ROT]    = 0
     piece[P_COL]    = 3
@@ -258,8 +258,8 @@ def can_put(blocks, c, r) {
     repeat 4 as y {
         repeat 4 as x {
             if blocks[y][x] == 1 {
-                let target_col = c + x
-                let target_row = r + y
+                target_col = c + x
+                target_row = r + y
                 if (target_col < 0) || (COLS <= target_col) {
                     return false
                 }
@@ -305,7 +305,7 @@ def soft_drop() {
 }
 
 def hard_drop() {
-    let drop_dist = 0
+    drop_dist = 0
     while can_move(0, 1) {
         drop_piece()
         drop_dist += 1
@@ -319,14 +319,14 @@ def rotate(dir) {
         return
     }
 
-    let old_rot = piece[P_ROT]
-    let new_rot = (old_rot + dir + 4) % 4
-    let next_blocks = piece_shapes[piece[P_TYPE]][new_rot]
-    let kick_id = get_kick_id(old_rot, new_rot)
+    old_rot = piece[P_ROT]
+    new_rot = (old_rot + dir + 4) % 4
+    next_blocks = piece_shapes[piece[P_TYPE]][new_rot]
+    kick_id = get_kick_id(old_rot, new_rot)
 
     repeat 5 as i {
-        let test_dx = 0
-        let test_dy = 0
+        test_dx = 0
+        test_dy = 0
         if piece[P_TYPE] == PIECE_I {
             test_dx = kick_i[kick_id][i][0]
             test_dy = kick_i[kick_id][i][1]
@@ -348,7 +348,7 @@ def rotate(dir) {
 
 def lock_piece() {
     // Lock Out 判定: 全ブロックが画面外（21段目以上: r < BUFFER_ROWS）で固定されたらゲームオーバー
-    let all_above = true
+    all_above = true
     repeat 4 as y {
         repeat 4 as x {
             if piece[P_BLOCKS][y][x] == 1 {
@@ -366,10 +366,10 @@ def lock_piece() {
     fix_piece()
 
     // 揃っているラインの検出
-    let has_line = false
+    has_line = false
     repeat ROWS as r {
         clearing_lines[r] = 0
-        let is_full = true
+        is_full = true
         repeat COLS as c {
             if field[r][c] == 0 {
                 is_full = false
@@ -393,8 +393,8 @@ def fix_piece() {
     repeat 4 as y {
         repeat 4 as x {
             if piece[P_BLOCKS][y][x] == 1 {
-                let target_y = piece[P_ROW] + y
-                let target_x = piece[P_COL] + x
+                target_y = piece[P_ROW] + y
+                target_x = piece[P_COL] + x
                 if target_y >= 0 && target_y < ROWS && target_x >= 0 && target_x < COLS {
                     field[target_y][target_x] = 1
                 }
@@ -404,12 +404,12 @@ def fix_piece() {
 }
 
 def finish_line_clear() {
-    let cleared_count = 0
-    let r = ROWS - 1
+    cleared_count = 0
+    r = ROWS - 1
     while r >= 0 {
         if clearing_lines[r] == 1 {
             cleared_count += 1
-            let shift_r = r
+            shift_r = r
             while shift_r > 0 {
                 repeat COLS as c {
                     field[shift_r][c] = field[shift_r - 1][c]
@@ -435,7 +435,7 @@ def finish_line_clear() {
     lines_cleared += cleared_count
 
     // 10ライン消去ごとにレベルアップ＆落下速度更新
-    let new_level = (lines_cleared / 10) + 1
+    new_level = (lines_cleared / 10) + 1
     if new_level != level {
         level = new_level
         update_speed()
@@ -620,8 +620,8 @@ def draw_block(c, r) {
     if r < BUFFER_ROWS {
         return
     }
-    let px = c * MINO_SIZE
-    let py = (r - BUFFER_ROWS) * MINO_SIZE
+    px = c * MINO_SIZE
+    py = (r - BUFFER_ROWS) * MINO_SIZE
     pos(px, py)
     gcopy(mino_img, 0, 0, MINO_SIZE, MINO_SIZE)
 }

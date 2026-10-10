@@ -5,7 +5,7 @@ package main
 var guiBuiltinNames = []string{
 	"screen", "gsel",
 	"pset", "pget", "line", "boxf", "circle",
-	"gcopy", "gmode", "picload",
+	"gcopy", "gsquare", "gtritex", "gmode", "picload",
 	"pngsave", "galpha", "paint", "font",
 	"getkey", "mousex", "mousey", "clicked", "mousewheel", "fullscreen", "closing", "screensize", "cursor",
 	"padcount", "padbtn", "padaxis", "padname", "resizable",

@@ -236,16 +236,21 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
+		// ネットワーク I/O より先に全引数を検証する（型エラー時に
+		// 無駄な fetch・サーバ側副作用を起こさないため）。
+		var path string
+		if len(args) == 2 {
+			path, err = needString("httpget", args, 1, at)
+			if err != nil {
+				return Null(), err
+			}
+		}
 		body, err := httpFetch(url)
 		if err != nil {
 			return Null(), rtErrf(at, "httpget：%s", err.Error())
 		}
 		if len(args) == 1 {
 			return Str(string(body)), nil
-		}
-		path, err := needString("httpget", args, 1, at)
-		if err != nil {
-			return Null(), err
 		}
 		if err := os.WriteFile(in.resolvePath(path), body, 0o666); err != nil {
 			return Null(), rtErrf(at, "httpget：%s", err.Error())
@@ -273,15 +278,20 @@ func init() {
 				return Null(), err
 			}
 		}
+		// POST 前に path の型も検証する（httpget と同様、副作用前の失敗を優先）。
+		var path string
+		hasPath := len(args) == 4
+		if hasPath {
+			path, err = needString("httppost", args, 3, at)
+			if err != nil {
+				return Null(), err
+			}
+		}
 		body, err := httpPost(url, reqBody, contentType)
 		if err != nil {
 			return Null(), rtErrf(at, "httppost：%s", err.Error())
 		}
-		if len(args) == 4 {
-			path, err := needString("httppost", args, 3, at)
-			if err != nil {
-				return Null(), err
-			}
+		if hasPath {
 			if err := os.WriteFile(in.resolvePath(path), body, 0o666); err != nil {
 				return Null(), rtErrf(at, "httppost：%s", err.Error())
 			}

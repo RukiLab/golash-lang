@@ -18,8 +18,9 @@ import (
 const (
 	// codecMagic はペイロード先頭の識別子。
 	codecMagic = "GSHBC01\x00"
-	// codecVersion はペイロード形式の版。
-	codecVersion = 1
+	// codecVersion はペイロード形式の版（`let` 廃止による
+	// DEFG/DEFN 撤去で 1→2。旧バンドルは版エラーで拒否）。
+	codecVersion = 2
 	// bundleMagic は exe 末尾 trailer の識別子。
 	bundleMagic = "GSHBNDL\x00"
 )
@@ -219,6 +220,23 @@ func (r *codecReader) raw(n int) []byte {
 	return b
 }
 
+// count は可変長配列の要素数を読み、巨大値による make での
+// panic/OOM を防ぐため残りバイト数と上限で検証する。
+// 各要素は最低1バイトを消費するため、要素数が残りバイトを
+// 超えることは正規バンドルではあり得ない。
+func (r *codecReader) count() int {
+	n := r.u64()
+	if r.err != nil {
+		return 0
+	}
+	const maxCount = 1 << 28 // 256M: 正規バンドルを十分上回る上限
+	if n > uint64(len(r.data)-r.off) || n > maxCount {
+		r.err = fmt.Errorf("バンドルの読み込みに失敗しました（壊れています）")
+		return 0
+	}
+	return int(n)
+}
+
 func (r *codecReader) str() string {
 	n := r.u64()
 	if r.err != nil {
@@ -266,7 +284,7 @@ func (r *codecReader) value() Value {
 func (r *codecReader) proto() *VMProto {
 	p := &VMProto{}
 	p.Name = r.str()
-	np := int(r.u64())
+	np := r.count()
 	p.Params = make([]string, np)
 	for i := range p.Params {
 		p.Params[i] = r.str()
@@ -279,22 +297,27 @@ func (r *codecReader) proto() *VMProto {
 	p.NumSlots = int(r.u64())
 	p.NumRegs = int(r.u64())
 	p.MaxArgs = int(r.u64())
-	nc := int(r.u64())
+	// レジスタ数・引数上限は8bit operandの範囲に収まるはず。
+	if p.NumRegs < 0 || p.NumRegs > 0xFF || p.MaxArgs < 0 || p.MaxArgs > 0xFF {
+		r.err = fmt.Errorf("バンドルの読み込みに失敗しました（壊れています）")
+		return nil
+	}
+	nc := r.count()
 	p.Code = make([]Instr, nc)
 	for i := range p.Code {
 		p.Code[i] = Instr(r.u64())
 	}
-	nk := int(r.u64())
+	nk := r.count()
 	p.Consts = make([]Value, nk)
 	for i := range p.Consts {
 		p.Consts[i] = r.value()
 	}
-	nn := int(r.u64())
+	nn := r.count()
 	p.Names = make([]string, nn)
 	for i := range p.Names {
 		p.Names[i] = r.str()
 	}
-	ns := int(r.u64())
+	ns := r.count()
 	p.Strs = make([]string, ns)
 	for i := range p.Strs {
 		p.Strs[i] = r.str()
@@ -303,7 +326,7 @@ func (r *codecReader) proto() *VMProto {
 	for i := range p.Positions {
 		p.Positions[i] = r.pos()
 	}
-	nslots := int(r.u64())
+	nslots := r.count()
 	if nslots > 0 {
 		p.Slots = make(map[string]int, nslots)
 		for i := 0; i < nslots; i++ {
@@ -314,6 +337,17 @@ func (r *codecReader) proto() *VMProto {
 	}
 	if r.err != nil {
 		return nil
+	}
+	// 2ワード命令の切り詰めを検出する（末尾の INCCHK/REPINC に
+	// word1 が無い不正バンドルは実行時の範囲外参照panicになる）。
+	for i := 0; i < len(p.Code); i++ {
+		if op, _, _, _, _ := p.Code[i].Decode(); op == OpIncChk || op == OpRepInc {
+			if i+1 >= len(p.Code) {
+				r.err = fmt.Errorf("バンドルの読み込みに失敗しました（壊れています）")
+				return nil
+			}
+			i++
+		}
 	}
 	return p
 }
@@ -338,7 +372,7 @@ func UnmarshalVMProgram(data []byte) (*VMProgram, string, error) {
 	mode := r.str()
 	prog := &VMProgram{}
 	prog.Main = r.proto()
-	np := int(r.u64())
+	np := r.count()
 	prog.Protos = make([]*VMProto, np)
 	for i := range prog.Protos {
 		prog.Protos[i] = r.proto()

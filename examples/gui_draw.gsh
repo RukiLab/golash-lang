@@ -37,6 +37,9 @@ pos(224, 400)
 gcopy(1, 0, 0, 60, 40)
 galpha(255)
 
+gsquare(1, 0, 0, 60, 40, 300, 300, 420, 300, 390, 380, 270, 380)
+gtritex(1, 0, 0, 60, 0, 0, 40, 460, 300, 580, 300, 460, 380)
+
 color(255, 0, 0)
 pset(5, 470)
 assert(pget(5, 470) == 255 * 65536, "pget roundtrip")
@@ -49,6 +52,7 @@ mes("draw demo")
 font(16)
 mes("pset/line/boxf/circle OK")
 mes("paint/gcopy/galpha/font/pngsave OK")
+mes("gsquare/gtritex OK")
 
 pngsave("draw_demo.png")
 mes("saved draw_demo.png")

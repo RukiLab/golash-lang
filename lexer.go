@@ -37,7 +37,6 @@ const (
 	TokBreak    TokenType = "BREAK"
 	TokContinue TokenType = "CONTINUE"
 	TokReturn   TokenType = "RETURN"
-	TokLet      TokenType = "LET"
 
 	TokPlus         TokenType = "PLUS"         // +
 	TokMinus        TokenType = "MINUS"        // -
@@ -126,7 +125,6 @@ var keywords = map[string]TokenType{
 	"break":    TokBreak,
 	"continue": TokContinue,
 	"return":   TokReturn,
-	"let":      TokLet,
 	"true":     TokTrue,
 	"false":    TokFalse,
 }
@@ -510,6 +508,12 @@ func (l *lexer) readNumber() (Token, error) {
 			l.advance()
 		}
 		if !isDigit(l.peek()) {
+			// `10else` のような英字接着は指数エラーではなく
+			// 不正な数値リテラル（一族: 1_000・123abc）として
+			// 先頭位置で報告する。
+			if c := l.peek(); isAlpha(c) || c == '_' {
+				return Token{}, &LexError{Line: line, Column: col, Msg: "不正な数値リテラルです"}
+			}
 			return Token{}, &LexError{Line: l.line, Column: l.col, Msg: "数値の指数部の形式が不正です"}
 		}
 		isFloat = true
@@ -572,6 +576,11 @@ func (l *lexer) readRadix(line, col, base int, name string) (Token, error) {
 	}
 	if l.peek() == '.' && isDigit(l.peekAt(1)) {
 		return Token{}, &LexError{Line: line, Column: col, Msg: fmt.Sprintf("%sの浮動小数はサポートされていません", name)}
+	}
+	// `3.` が不正な数値リテラルになるのと同様、基数リテラルの直後の
+	// `.` も不正とする（`0x1.` → INT DOT ではなく字句エラー）。
+	if l.peek() == '.' {
+		return Token{}, &LexError{Line: line, Column: col, Msg: fmt.Sprintf("不正な%sリテラルです", name)}
 	}
 	v, err := strconv.ParseInt(digits, base, 64)
 	if err != nil {

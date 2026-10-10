@@ -20,7 +20,7 @@ mes(Max)
 #define Dir_West
 mes(Dir_West)
 
-let d = Dir_South
+d = Dir_South
 switch d {
     case Dir_North {
         mes("north")
@@ -34,6 +34,6 @@ switch d {
 }
 
 // 字句解析の作例（エディタ支援向け）
-let t = lextokens("x = 1")
+t = lextokens("x = 1")
 mes(t[0][0])
 mes(t[0][1])

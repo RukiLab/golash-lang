@@ -39,7 +39,7 @@ func countOp(p *VMProto, op Op) int {
 
 func TestCompilePositions(t *testing.T) {
 	// 命令と位置は 1:1 に対応する。
-	vprog := mustCompileSrc(t, "let x = 1 + 2\nmes(x)\n")
+	vprog := mustCompileSrc(t, "x = 1 + 2\nmes(x)\n")
 	if len(vprog.Main.Code) != len(vprog.Main.Positions) {
 		t.Fatalf("code/positions mismatch: %d vs %d", len(vprog.Main.Code), len(vprog.Main.Positions))
 	}
@@ -67,28 +67,25 @@ func TestCompileCallOrder(t *testing.T) {
 	}
 }
 
-func TestCompileLetDefN(t *testing.T) {
-	// Top-level let defines a global like assignment (STOREG, no DEFN).
-	vprog := mustCompileSrc(t, "let x = 1\nmes(x)\n")
-	if hasOp(vprog.Main, OpDefN) {
-		t.Fatalf("top-level let must not use DEFN")
+func TestCompileAssignDeclares(t *testing.T) {
+	// `let` 廃止後：通常代入が宣言を兼ねる（STOREG/STOREN のみ）。
+	// DEFG/DEFN は撤去済みのため現れてはならない。
+	vprog := mustCompileSrc(t, "x = 1\nmes(x)\n")
+	if !hasOp(vprog.Main, OpStoreG) {
+		t.Fatalf("top-level assign must use STOREG")
 	}
-	if !hasOp(vprog.Main, OpDefG) {
-		t.Fatalf("top-level let must use DEFG")
-	}
-	// Function let always binds the slot (DEFN, never a global fallback).
-	vprog = mustCompileSrc(t, "let x = 1\ndef f() {\nlet x = 2\nmes(x)\n}\n")
+	vprog = mustCompileSrc(t, "x = 1\ndef f() {\nx = 2\nmes(x)\n}\n")
 	if len(vprog.Protos) != 1 {
 		t.Fatalf("protos = %d, want 1", len(vprog.Protos))
 	}
-	if !hasOp(vprog.Protos[0], OpDefN) {
-		t.Fatalf("function let must use DEFN")
+	if !hasOp(vprog.Protos[0], OpStoreN) {
+		t.Fatalf("function assign must use STOREN")
 	}
 }
 
 func TestCompileCompoundSingle(t *testing.T) {
 	// 複合代入の添字評価は各1回（GETI/SETI の発行で確認）。
-	vprog := mustCompileSrc(t, "let a = [1,2]\na[0] += 5\nmes(a[0])\n")
+	vprog := mustCompileSrc(t, "a = [1,2]\na[0] += 5\nmes(a[0])\n")
 	if !hasOp(vprog.Main, OpSetI) {
 		t.Fatalf("compound index assign must use SETI")
 	}
@@ -96,7 +93,7 @@ func TestCompileCompoundSingle(t *testing.T) {
 
 func TestCompileRepeatShapes(t *testing.T) {
 	// 整数・配列の両経路（REPDISP 分岐＋FORILOOP/FORALOOP）が発行される。
-	vprog := mustCompileSrc(t, "repeat 3 as i {\nmes(i)\n}\nlet a = [1]\nrepeat a as x {\nmes(x)\n}\n")
+	vprog := mustCompileSrc(t, "repeat 3 as i {\nmes(i)\n}\na = [1]\nrepeat a as x {\nmes(x)\n}\n")
 	for _, op := range []Op{OpRepDisp, OpForIPrep, OpForILoop, OpForAPrep, OpForALoop, OpPopLoop, OpSaveVar} {
 		if !hasOp(vprog.Main, op) {
 			t.Fatalf("missing op %s", op)
@@ -129,7 +126,7 @@ func TestCompileFuncProto(t *testing.T) {
 
 func TestCompileRegsBound(t *testing.T) {
 	// レジスタ数は 255 以内（8bit operand）。
-	vprog := mustCompileSrc(t, "let x = 1 + 2 * 3 - 4 / 2\nmes(x)\n")
+	vprog := mustCompileSrc(t, "x = 1 + 2 * 3 - 4 / 2\nmes(x)\n")
 	if vprog.Main.NumRegs > 0xFF {
 		t.Fatalf("too many regs: %d", vprog.Main.NumRegs)
 	}

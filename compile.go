@@ -289,15 +289,6 @@ func (f *fcomp) stmt(s Stmt) error {
 			f.emit(OpCkVal, rv, 0, 0, 0, n.Target.Pos())
 		}
 		return f.assign(n.Target, rv)
-	case *LetStmt:
-		rv, err := f.expr(n.Value)
-		if err != nil {
-			return err
-		}
-		if !nonVoidLit(n.Value) {
-			f.emit(OpCkVal, rv, 0, 0, 0, n.At)
-		}
-		return f.defineVar(n.Name, rv, n.At)
 	case *CompoundAssignStmt:
 		return f.compoundStmt(n)
 	case *DefStmt:
@@ -399,9 +390,6 @@ func collectSlots(b *BlockStmt, slots map[string]int) {
 			walkE(n.Value)
 		case *CompoundAssignStmt:
 			walkE(n.Target)
-			walkE(n.Value)
-		case *LetStmt:
-			add(n.Name)
 			walkE(n.Value)
 		case *IfStmt:
 			walkE(n.Cond)
@@ -773,6 +761,9 @@ func (f *fcomp) switchStmt(n *SwitchStmt) error {
 		defLabel = f.nextLabel()
 	}
 	// 第一パス：一致探索（case 値を逐次評価・短絡）。
+	// 各 case 値の一時レジスタは比較後に不要になるため、値ごとに
+	// 解放して再利用する（sv はそれより下に生き残る）。解放しないと
+	// case 数の多い switch でレジスタを使い果たしてしまう。
 	for _, c := range n.Cases {
 		if c.Default {
 			continue
@@ -780,6 +771,7 @@ func (f *fcomp) switchStmt(n *SwitchStmt) error {
 		armLabel := f.nextLabel()
 		arms = append(arms, caseArm{label: armLabel})
 		for _, vx := range c.Values {
+			m := f.mark()
 			vv, err := f.expr(vx)
 			if err != nil {
 				return err
@@ -792,6 +784,7 @@ func (f *fcomp) switchStmt(n *SwitchStmt) error {
 			}
 			f.emit(OpEq, cmp, sv, vv, 0, n.At)
 			f.emitJump(OpJmpT, cmp, armLabel, n.At)
+			f.reset(m)
 		}
 	}
 	if hasDefault {
@@ -849,29 +842,9 @@ func (f *fcomp) storeVar(name string, src uint8, at Pos) error {
 	return nil
 }
 
-// --- let ---
-
-// defineVar emits `let name = RHS` (RHS already in rv, CKVAL done):
-// main defines the global via DEFG; a function always binds its own
-// slot (shadowing globals) via the dedicated DEFN op.
-func (f *fcomp) defineVar(name string, src uint8, at Pos) error {
-	ni, err := f.nameIdx(name)
-	if err != nil {
-		return err
-	}
-	if f.isMain {
-		f.emit(OpDefG, src, 0, 0, ni, at)
-		return nil
-	}
-	slot, ok := f.slots[name]
-	if !ok {
-		return fmt.Errorf("内部エラー：スロット未割当 %q", name)
-	}
-	f.emit(OpDefN, src, 0, uint8(slot), ni, at)
-	return nil
-}
-
 // assign は `target = RHS済` を発行する（RHS の CKVAL は呼出側で発行済み）。
+// 通常代入は可視定義の更新、なければ宣言になる（トップレベル：グローバル、
+// 関数内：ローカルスロット。実行時に STOREG/STOREN が解決する）。
 func (f *fcomp) assign(target Expr, rv uint8) error {
 	switch t := target.(type) {
 	case *VarExpr:
@@ -904,6 +877,9 @@ func (f *fcomp) assignIndex(t *IndexExpr, rv uint8) error {
 		}
 		f.emit(OpCkArr, bv, 0, 0, 0, inner.At)
 		f.emit(OpCkInt, ii, 0, 0, 0, inner.Index.Pos())
+		// 中間段の負数は範囲外に畳む（DESIGN_VM 1.6。CKBND が負数分岐を
+		// 持たないことで再現し、assignCompound の中間段と一致）。
+		f.emit(OpCkBnd, ii, bv, 0, 0, inner.At)
 		ev, err := f.alloc()
 		if err != nil {
 			return err

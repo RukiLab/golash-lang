@@ -14,7 +14,7 @@ import (
 // グローバル名で解決し直す。
 func (m *vmachine) fmtInstr(proto *VMProto, pc int) string {
 	ins := proto.Code[pc]
-	op, a, b, c, d := ins.Decode()
+	op, a, b, _, d := ins.Decode()
 	r := func(x uint8) string { return fmt.Sprintf("R%d", x) }
 	gname := func(gidx uint32) string {
 		if int(gidx) < len(m.globals.names) {
@@ -30,9 +30,10 @@ func (m *vmachine) fmtInstr(proto *VMProto, pc int) string {
 	case OpPutG:
 		return fmt.Sprintf("PUTG %s, G[%s]", r(a), gname(d))
 	case OpSaveVar:
-		if c&SaveIsGlobal != 0 {
-			return fmt.Sprintf("SAVEVAR S%d, flags=%d, G[%s]", b, c, gname(d))
+		if b&SaveIsGlobal != 0 {
+			return fmt.Sprintf("SAVEVAR G[%s], flags=%d", gname(d), b)
 		}
+		return fmt.Sprintf("SAVEVAR S%d, flags=%d", a, b)
 	}
 	return formatInstr(proto, pc)
 }
@@ -45,23 +46,31 @@ func formatInstrProg(prog *VMProgram, proto *VMProto, pc int) string {
 	ins := proto.Code[pc]
 	op, a, b, c, d := ins.Decode()
 	r := func(x uint8) string { return fmt.Sprintf("R%d", x) }
+	name := func(idx uint32) string {
+		if int(idx) < len(proto.Names) {
+			return proto.Names[idx]
+		}
+		return fmt.Sprintf("#%d", idx)
+	}
+	kval := func(idx uint32) string {
+		if int(idx) < len(proto.Consts) {
+			return valueRepr(proto.Consts[idx])
+		}
+		return "?"
+	}
 	switch op {
 	case OpMove:
 		return fmt.Sprintf("MOVE %s, %s", r(a), r(b))
 	case OpLoadK:
-		return fmt.Sprintf("LOADK %s, K%d (%s)", r(a), d, valueRepr(proto.Consts[d]))
+		return fmt.Sprintf("LOADK %s, K%d (%s)", r(a), d, kval(d))
 	case OpLoadG:
-		return fmt.Sprintf("LOADG %s, G[%s]", r(a), proto.Names[d])
+		return fmt.Sprintf("LOADG %s, G[%s]", r(a), name(d))
 	case OpStoreG:
-		return fmt.Sprintf("STOREG %s, G[%s]", r(a), proto.Names[d])
-	case OpDefG:
-		return fmt.Sprintf("DEFG %s, G[%s]", r(a), proto.Names[d])
+		return fmt.Sprintf("STOREG %s, G[%s]", r(a), name(d))
 	case OpLoadN:
-		return fmt.Sprintf("LOADN %s, N[%s], S%d", r(a), proto.Names[d], c)
+		return fmt.Sprintf("LOADN %s, N[%s], S%d", r(a), name(d), c)
 	case OpStoreN:
-		return fmt.Sprintf("STOREN %s, N[%s], S%d", r(a), proto.Names[d], c)
-	case OpDefN:
-		return fmt.Sprintf("DEFN %s, N[%s], S%d", r(a), proto.Names[d], c)
+		return fmt.Sprintf("STOREN %s, N[%s], S%d", r(a), name(d), c)
 	case OpCkVal:
 		return fmt.Sprintf("CKVAL %s", r(a))
 	case OpTest:
@@ -85,6 +94,9 @@ func formatInstrProg(prog *VMProgram, proto *VMProto, pc int) string {
 	case OpSetI:
 		return fmt.Sprintf("SETI %s, %s, %s", r(a), r(b), r(c))
 	case OpNewArr:
+		if d == 0 {
+			return fmt.Sprintf("NEWARR %s (empty)", r(a))
+		}
 		return fmt.Sprintf("NEWARR %s, %s..%s", r(a), r(b), r(uint8(int(b)+int(d)-1)))
 	case OpAppend:
 		return fmt.Sprintf("APPEND %s, %s", r(a), r(b))
@@ -108,7 +120,7 @@ func formatInstrProg(prog *VMProgram, proto *VMProto, pc int) string {
 	case OpForAPrep:
 		return fmt.Sprintf("FORAPREP %s", r(a))
 	case OpSaveVar:
-		return fmt.Sprintf("SAVEVAR S%d, flags=%d, %s", b, c, saveVarName(proto, b, c, d))
+		return fmt.Sprintf("SAVEVAR %s, flags=%d", saveVarName(proto, a, b, d), b)
 	case OpForILoop:
 		return fmt.Sprintf("FORILOOP %s, %d", r(a), pc+1+int(ins.SBx()))
 	case OpForALoop:
@@ -116,19 +128,23 @@ func formatInstrProg(prog *VMProgram, proto *VMProto, pc int) string {
 	case OpPutN:
 		return fmt.Sprintf("PUTN S%d, %s", a, r(b))
 	case OpPutG:
-		return fmt.Sprintf("PUTG %s, G[%s]", r(a), proto.Names[d])
+		return fmt.Sprintf("PUTG %s, G[%s]", r(a), name(d))
 	case OpPopLoop:
 		return "POPLOOP"
 	case OpFuncDef:
 		return fmt.Sprintf("FUNCDEF P%d (%s)", d, mprogProtoName(prog, int(d)))
 	case OpCkCall:
-		return fmt.Sprintf("CKCALL argc=%d, %s", c, proto.Names[d])
+		return fmt.Sprintf("CKCALL argc=%d, %s", c, name(d))
 	case OpCallF:
-		return fmt.Sprintf("CALLF %s, args=%s+%d, %s", r(a), r(b), c, proto.Names[d])
+		return fmt.Sprintf("CALLF %s, args=%s+%d, %s", r(a), r(b), c, name(d))
 	case OpCallB:
 		return fmt.Sprintf("CALLB %s, args=%s+%d, %s", r(a), r(b), c, builtinNameByID(int(d)))
 	case OpCallV:
-		return fmt.Sprintf("CALLV %s, %q", r(a), proto.Strs[d])
+		s := "?"
+		if int(d) < len(proto.Strs) {
+			s = proto.Strs[d]
+		}
+		return fmt.Sprintf("CALLV %s, %q", r(a), s)
 	case OpRet:
 		if c == 1 {
 			return fmt.Sprintf("RET %s", r(a))
@@ -170,11 +186,17 @@ func incSlot(b uint8) string {
 	return fmt.Sprintf("S%d", b)
 }
 
-func saveVarName(proto *VMProto, b, c uint8, d uint32) string {
-	if c&SaveIsGlobal != 0 {
-		return "G[" + proto.Names[d] + "]"
+// saveVarName は SAVEVAR の退避先を表示する。
+// エンコードは A=スロット(NoRegでグローバル)・B=フラグ・D=名前表
+// （compile.go saveVar / vm.go OpSaveVar と一致）。
+func saveVarName(proto *VMProto, slot, flags uint8, d uint32) string {
+	if flags&SaveIsGlobal != 0 {
+		if int(d) < len(proto.Names) {
+			return "G[" + proto.Names[d] + "]"
+		}
+		return fmt.Sprintf("G#%d", d)
 	}
-	return fmt.Sprintf("S%d", b)
+	return fmt.Sprintf("S%d", slot)
 }
 
 func valueRepr(v Value) string {
@@ -222,9 +244,19 @@ func Disassemble(prog *VMProgram) string {
 			}
 		}
 		for pc := 0; pc < len(p.Code); pc++ {
-			fmt.Fprintf(&sb, "  %4d  %-28s ; %s\n", pc, formatInstrProg(prog, p, pc), p.Positions[pc])
+			pos := ""
+			if pc < len(p.Positions) {
+				pos = p.Positions[pc].String()
+			}
+			fmt.Fprintf(&sb, "  %4d  %-28s ; %s\n", pc, formatInstrProg(prog, p, pc), pos)
 			if op, _, _, _, _ := p.Code[pc].Decode(); op == OpIncChk || op == OpRepInc {
 				// word1（名前表 index／REPINC は上位に低速 sBx）を表示して読み飛ばす。
+				// 切り詰めバンドル対策：範囲外参照では panic せず表示する。
+				if pc+1 >= len(p.Code) {
+					pc++
+					fmt.Fprintf(&sb, "  %4d  %-28s ; %s\n", pc, "DATA (missing)", "")
+					break
+				}
 				w1 := uint64(p.Code[pc+1])
 				ni := uint32(w1)
 				name := fmt.Sprintf("N%d", ni)
@@ -236,7 +268,11 @@ func Disassemble(prog *VMProgram) string {
 					name = fmt.Sprintf("%s slow=%d", name, pc+1+int(slowOff))
 				}
 				pc++
-				fmt.Fprintf(&sb, "  %4d  %-28s ; %s\n", pc, "DATA "+name, p.Positions[pc])
+				dpos := ""
+				if pc < len(p.Positions) {
+					dpos = p.Positions[pc].String()
+				}
+				fmt.Fprintf(&sb, "  %4d  %-28s ; %s\n", pc, "DATA "+name, dpos)
 			}
 		}
 	}

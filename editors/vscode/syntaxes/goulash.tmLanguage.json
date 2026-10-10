@@ -98,7 +98,7 @@
       "patterns": [
         {
           "name": "keyword.control.goulash",
-          "match": "\\b(def|if|else|repeat|while|switch|case|default|as|break|continue|return|let)\\b"
+          "match": "\\b(def|if|else|repeat|while|switch|case|default|as|break|continue|return)\\b"
         }
       ]
     },
@@ -114,7 +114,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.goulash",
-          "match": "\\b(abs|args|asc|assert|atan|await|bcopy|bload|boxf|bsave|button|chdir|checked|chkbox|chr|circle|clicked|clipboard_get|clipboard_set|closing|clrobj|cls|color|combox|cursor|delete|dialog|dim|direxe|dirlist|dlgopen|dlgsave|dropfiles|dropload|end|exec|exist|exp|find|float|font|fullscreen|galpha|gcopy|getcwd|getenv|getkey|getpath|getstr|gettext|gettime|gmode|gsel|homedir|httpget|httppost|ime|imeget|imeclause|imepos|input|inputbox|insert|instr|int|join|length|lextokens|limit|line|listbox|log|logmes|lower|lpeek|lpoke|max|mes|mesbox|mkdir|min|mmload|mmplay|mmstop|mmvol|mousewheel|mousex|mousey|nanotime|noteadd|notedel|noteget|noteload|notemax|notesave|objprm|open|padaxis|padbtn|padcount|padname|paint|parsetree|peek|picload|pipeexec|pngsave|poke|pop|pos|pow|pressed|print|pget|pset|push|randomize|remove|replace|resizable|reverse|rnd|screen|screensize|selected|setenv|setstr|sleep|slice|sort|split|sqrt|str|strf|strlen|strmid|strtrim|strwidth|tick|title|tmpdir|touchcount|touchx|touchy|upper|vartype|winmove|wpeek|wpoke)\\b"
+          "match": "\\b(abs|args|asc|assert|atan|await|bcopy|bload|boxf|bsave|button|chdir|checked|chkbox|chr|circle|clicked|clipboard_get|clipboard_set|closing|clrobj|cls|color|combox|cursor|delete|dialog|dim|direxe|dirlist|dlgopen|dlgsave|dropfiles|dropload|end|exec|exist|exp|find|float|font|fullscreen|galpha|gcopy|gsquare|gtritex|getcwd|getenv|getkey|getpath|getstr|gettext|gettime|gmode|gsel|homedir|httpget|httppost|ime|imeget|imeclause|imepos|input|inputbox|insert|instr|int|join|length|lextokens|limit|line|listbox|log|logmes|lower|lpeek|lpoke|max|mes|mesbox|mkdir|min|mmload|mmplay|mmstop|mmvol|mousewheel|mousex|mousey|nanotime|noteadd|notedel|noteget|noteload|notemax|notesave|objprm|open|padaxis|padbtn|padcount|padname|paint|parsetree|peek|picload|pipeexec|pngsave|poke|pop|pos|pow|pressed|print|pget|pset|push|randomize|remove|replace|resizable|reverse|rnd|screen|screensize|selected|setenv|setstr|sleep|slice|sort|split|sqrt|str|strf|strlen|strmid|strtrim|strwidth|tick|title|tmpdir|touchcount|touchx|touchy|upper|vartype|winmove|wpeek|wpoke)\\b"
         }
       ]
     },

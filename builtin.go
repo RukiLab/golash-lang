@@ -5,8 +5,8 @@
 // out-params become return values, predicates return bool, failures are
 // runtime errors.
 //
-// GUI words live in builtin_gui*.go (G1-G5):
-// screen, gsel, pset, pget, line, boxf, circle, gcopy, gmode,
+// GUI words live in builtin_gui*.go (G1-G6):
+// screen, gsel, pset, pget, line, boxf, circle, gcopy, gsquare, gtritex, gmode,
 // picload, pngsave, paint, font,
 // getkey, mousex, mousey, clicked,
 // mmload, mmplay, mmstop, mmvol, button, pressed, inputbox, gettext,

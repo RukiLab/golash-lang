@@ -103,7 +103,13 @@ type WindowBackend struct {
 	// Game thread only; keyed per buffer size below.
 	scrollScratch map[[2]int]*ebiten.Image
 	blend         ebiten.CompositeMode
-	queue         []func()
+	// persp is the shared perspective-correct texture shader for
+	// gsquare()/gtritex() (compiled once on the game thread; see
+	// persp.go). perspErr pins a compile failure so every later draw
+	// takes the affine fallback instead of retrying each frame.
+	persp    *ebiten.Shader
+	perspErr error
+	queue    []func()
 	// pending はフレーム構築中の canvas コマンド置き場。yieldedOnce 以後は
 	// enqueue がここへ溜め、await()/sleep()/end のフレーム境界で queue へ
 	// 一括移動する。これで cls() 直後の空 canvas や描きかけが1フレーム

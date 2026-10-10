@@ -156,7 +156,7 @@ func TestMath(t *testing.T) {
 }
 
 func TestRandom(t *testing.T) {
-	got, _, _, err := runIO(t, "randomize(42)\nlet a = rnd(100)\nrandomize(42)\nlet b = rnd(100)\nmes(a == b)\nmes(a >= 0 && a < 100)\n", "")
+	got, _, _, err := runIO(t, "randomize(42)\na = rnd(100)\nrandomize(42)\nb = rnd(100)\nmes(a == b)\nmes(a >= 0 && a < 100)\n", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestBuiltinStrings(t *testing.T) {
 	mustErrIO(t, "mes(instr(\"hello\", 99, \"h\"))\n", "範囲外")
 	mustErrIO(t, "mes(instr(\"hello\", -1, \"h\"))\n", "範囲外")
 	mustOutIO(t, "mes(\"[\" + strtrim(\"  hi  \") + \"]\")\nmes(strtrim(\"xxhiix\", \"x\"))\nmes(strtrim(\"xxhi\", \"x\", 1))\nmes(strtrim(\"hixx\", \"x\", 2))\n", "", "[hi]\nhii\nhi\nhi\n")
-	mustOutIO(t, "let a = split(\"a,b,c\", \",\")\nmes(a[1])\nmes(length(a))\n", "", "b\n3\n")
+	mustOutIO(t, "a = split(\"a,b,c\", \",\")\nmes(a[1])\nmes(length(a))\n", "", "b\n3\n")
 	mustOutIO(t, "mes(strf(\"%02d\", 5))\nmes(strf(\"%s=%d\", \"n\", 7))\n", "", "05\nn=7\n")
 	mustErrIO(t, "mes(strmid(\"abc\", 9, 1))\n", "範囲外")
 	mustErrIO(t, "mes(strmid(\"abc\", 0, -1))\n", "0 以上")
@@ -189,7 +189,7 @@ func TestBuiltinStrings(t *testing.T) {
 }
 
 func TestGetpath(t *testing.T) {
-	mustOutIO(t, "let p = \"C:\\\\a\\\\b.exe\"\nmes(getpath(p))\nmes(getpath(p, \"dir\", \"base\"))\nmes(getpath(p, \"ext\"))\nmes(getpath(p, \"file\"))\nmes(getpath(p, \"base\"))\nmes(getpath(p, \"dir\"))\nmes(getpath(p, \"lower\"))\n", "",
+	mustOutIO(t, "p = \"C:\\\\a\\\\b.exe\"\nmes(getpath(p))\nmes(getpath(p, \"dir\", \"base\"))\nmes(getpath(p, \"ext\"))\nmes(getpath(p, \"file\"))\nmes(getpath(p, \"base\"))\nmes(getpath(p, \"dir\"))\nmes(getpath(p, \"lower\"))\n", "",
 		"C:\\a\\b.exe\nC:\\a\\b\n.exe\nb.exe\nb\nC:\\a\\\nc:\\a\\b.exe\n")
 	mustOutIO(t, "mes(getpath(\"/x/y.txt\", \"file\"))\nmes(getpath(\"/x/y.txt\", \"dir\"))\n", "", "y.txt\n/x/\n")
 	// Composition: dir+file, base+ext (= file), dir lowercased.
@@ -218,7 +218,7 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 	// A wait whose target tick is unrepresentable is an error, not an
 	// immediate return via wrap.
 	mustErrIO(t, "await(9223372036854775807)\n", "大きすぎます")
-	mustOutIO(t, "let a = nanotime()\nmes(a > 0 && nanotime() >= a)\n", "", "true\n")
+	mustOutIO(t, "a = nanotime()\nmes(a > 0 && nanotime() >= a)\n", "", "true\n")
 	_, _, in, err := runIO(t, "mes(\"hi\")\nend(3)\nmes(\"bye\")\n", "")
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 	// The GUI frontend reads ExitCode() after the loop while the script
 	// goroutine may still run; concurrent access must be race-free
 	// (meaningful under -race).
-	prog, err := Parse("let n = 0\nwhile n < 10000 {\nn = n + 1\n}\nend(3)\n")
+	prog, err := Parse("n = 0\nwhile n < 10000 {\nn = n + 1\n}\nend(3)\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 		t.Fatalf("concurrent exit code: %d, %v", code, ok)
 	}
 	// nanotime() is monotonic (process-start anchored, never backward).
-	mustOutIO(t, "let a = nanotime()\nlet b = nanotime()\nmes(b >= a)\nmes(a >= 0)\n", "", "true\ntrue\n")
+	mustOutIO(t, "a = nanotime()\nb = nanotime()\nmes(b >= a)\nmes(a >= 0)\n", "", "true\ntrue\n")
 	mustOutIO(t, "assert(true)\nassert(1 < 2, \"math broke\")\nmes(\"ok\")\n", "", "ok\n")
 	mustErrIO(t, "assert(false)\n", "assertion failed")
 	mustErrIO(t, "assert(false, \"custom\")\n", "custom")
@@ -490,10 +490,10 @@ func TestSplitStyleArgs(t *testing.T) {
 }
 
 func TestInput(t *testing.T) {
-	mustOutIO(t, "let s = input()\nmes(s)\n", "hello\n", "hello\n")
-	mustOutIO(t, "let s = input(\"name? \")\nmes(s)\n", "bob\n", "name? bob\n")
+	mustOutIO(t, "s = input()\nmes(s)\n", "hello\n", "hello\n")
+	mustOutIO(t, "s = input(\"name? \")\nmes(s)\n", "bob\n", "name? bob\n")
 	mustOutIO(t, "mes(input())\n", "", "\n")                        // EOF yields ""
-	mustOutIO(t, "let s = input()\nmes(s == \"\")\n", "", "true\n") // EOF
+	mustOutIO(t, "s = input()\nmes(s == \"\")\n", "", "true\n") // EOF
 }
 
 // runScriptDir runs src with the working directory and script directory
@@ -583,7 +583,7 @@ func TestFiles(t *testing.T) {
 		"true\na\nb\n")
 
 	// bsave/bload roundtrip with size clip.
-	mustOutIO(t, "bsave(\""+join("b.bin")+"\", [65, 66, 67])\nlet a = bload(\""+join("b.bin")+"\")\nmes(a)\nmes(length(a))\nbsave(\""+join("c.bin")+"\", [1, 2, 3], 2)\nmes(length(bload(\""+join("c.bin")+"\")))\n", "",
+	mustOutIO(t, "bsave(\""+join("b.bin")+"\", [65, 66, 67])\na = bload(\""+join("b.bin")+"\")\nmes(a)\nmes(length(a))\nbsave(\""+join("c.bin")+"\", [1, 2, 3], 2)\nmes(length(bload(\""+join("c.bin")+"\")))\n", "",
 		"[65, 66, 67]\n3\n2\n")
 	mustErrIO(t, "bsave(\""+join("x.bin")+"\", [256])\n", "0 から 255")
 	// A huge size is a range error, never a Go panic, and writes nothing.
@@ -610,7 +610,7 @@ func TestFiles(t *testing.T) {
 	if err := os.WriteFile("z.gsh", []byte("x"), 0o666); err != nil {
 		t.Fatal(err)
 	}
-	mustOutIO(t, "let a = dirlist(\"*.gsh\")\nmes(a)\n", "", "[z.gsh]\n")
+	mustOutIO(t, "a = dirlist(\"*.gsh\")\nmes(a)\n", "", "[z.gsh]\n")
 }
 
 func TestDirs(t *testing.T) {
@@ -629,7 +629,7 @@ func TestNotes(t *testing.T) {
 }
 
 func TestPeekPoke(t *testing.T) {
-	mustOutIO(t, "let a = [0, 0, 0, 0]\npoke(a, 0, 65)\nmes(peek(a, 0))\nwpoke(a, 1, 16961)\nmes(wpeek(a, 1))\nlpoke(a, 0, 16909060)\nmes(lpeek(a, 0))\nmes(a)\n", "",
+	mustOutIO(t, "a = [0, 0, 0, 0]\npoke(a, 0, 65)\nmes(peek(a, 0))\nwpoke(a, 1, 16961)\nmes(wpeek(a, 1))\nlpoke(a, 0, 16909060)\nmes(lpeek(a, 0))\nmes(a)\n", "",
 		"65\n16961\n16909060\n[4, 3, 2, 1]\n")
 	mustErrIO(t, "mes(peek([1], 5))\n", "範囲外")
 	mustErrIO(t, "mes(peek([1], -1))\n", "範囲外")
@@ -645,31 +645,31 @@ func TestPeekPoke(t *testing.T) {
 }
 
 func TestPushPopJoin(t *testing.T) {
-	mustOutIO(t, "let a = []\nmes(push(a, 1))\nmes(push(a, 2, 3))\nmes(a)\n", "", "1\n3\n[1, 2, 3]\n")
-	mustOutIO(t, "let a = [1, 2, 3]\nmes(pop(a))\nmes(a)\n", "", "3\n[1, 2]\n")
+	mustOutIO(t, "a = []\nmes(push(a, 1))\nmes(push(a, 2, 3))\nmes(a)\n", "", "1\n3\n[1, 2, 3]\n")
+	mustOutIO(t, "a = [1, 2, 3]\nmes(pop(a))\nmes(a)\n", "", "3\n[1, 2]\n")
 	mustOutIO(t, "mes(join([1, 2, 3]))\nmes(join([\"a\", \"b\"], \"-\"))\nmes(join([], \",\"))\n", "", "1,2,3\na-b\n\n")
 	// Shared reference: push through an alias is visible.
-	mustOutIO(t, "let a = [1]\nlet b = a\npush(b, 2)\nmes(a)\n", "", "[1, 2]\n")
+	mustOutIO(t, "a = [1]\nb = a\npush(b, 2)\nmes(a)\n", "", "[1, 2]\n")
 	mustErrIO(t, "mes(pop([]))\n", "配列が空")
 	mustErrIO(t, "push(1, 2)\n", "配列である必要があります")
 	mustErrIO(t, "mes(join([1], 2))\n", "文字列である必要があります")
 }
 
 func TestArrayExtras(t *testing.T) {
-	mustOutIO(t, "let a = [3, 1, 2]\nmes(sort(a))\n", "", "[1, 2, 3]\n")
-	mustOutIO(t, "let a = [\"b\", \"a\"]\nsort(a)\nmes(a)\n", "", "[a, b]\n")
-	mustOutIO(t, "let a = [1, 2, 3]\nreverse(a)\nmes(a)\n", "", "[3, 2, 1]\n")
-	mustOutIO(t, "let a = [1, 3]\nmes(insert(a, 1, 2))\nmes(a)\n", "", "3\n[1, 2, 3]\n")
-	mustOutIO(t, "let a = [1, 2, 3, 4]\nmes(remove(a, 1, 2))\nmes(a)\n", "", "[2, 3]\n[1, 4]\n")
-	mustOutIO(t, "let a = [1, 2, 3]\nmes(remove(a, 0))\nmes(a)\n", "", "[1]\n[2, 3]\n")
-	mustOutIO(t, "let a = [1, 2, 3, 4]\nmes(slice(a, 1, 3))\nmes(slice(a, -2))\nmes(slice(a, 0, -1))\n", "", "[2, 3]\n[3, 4]\n[1, 2, 3]\n")
-	mustOutIO(t, "let a = [\"x\", \"y\"]\nmes(find(a, \"y\"))\nmes(find(a, \"z\"))\nmes(find(a, 1))\n", "", "1\n-1\n-1\n")
+	mustOutIO(t, "a = [3, 1, 2]\nmes(sort(a))\n", "", "[1, 2, 3]\n")
+	mustOutIO(t, "a = [\"b\", \"a\"]\nsort(a)\nmes(a)\n", "", "[a, b]\n")
+	mustOutIO(t, "a = [1, 2, 3]\nreverse(a)\nmes(a)\n", "", "[3, 2, 1]\n")
+	mustOutIO(t, "a = [1, 3]\nmes(insert(a, 1, 2))\nmes(a)\n", "", "3\n[1, 2, 3]\n")
+	mustOutIO(t, "a = [1, 2, 3, 4]\nmes(remove(a, 1, 2))\nmes(a)\n", "", "[2, 3]\n[1, 4]\n")
+	mustOutIO(t, "a = [1, 2, 3]\nmes(remove(a, 0))\nmes(a)\n", "", "[1]\n[2, 3]\n")
+	mustOutIO(t, "a = [1, 2, 3, 4]\nmes(slice(a, 1, 3))\nmes(slice(a, -2))\nmes(slice(a, 0, -1))\n", "", "[2, 3]\n[3, 4]\n[1, 2, 3]\n")
+	mustOutIO(t, "a = [\"x\", \"y\"]\nmes(find(a, \"y\"))\nmes(find(a, \"z\"))\nmes(find(a, 1))\n", "", "1\n-1\n-1\n")
 	// Chaining: sort returns the array itself.
 	mustOutIO(t, "mes(join(sort([3, 1, 2]), \"-\"))\n", "", "1-2-3\n")
 	// sort accepts ints, floats, and mixed numerics; strings sort
 	// separately; anything else is an error.
-	mustOutIO(t, "let a = [2.5, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2.5, 10]\n")
-	mustOutIO(t, "let a = [2, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2, 10]\n")
+	mustOutIO(t, "a = [2.5, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2.5, 10]\n")
+	mustOutIO(t, "a = [2, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2, 10]\n")
 	mustErrIO(t, "sort([1, \"a\"])\n", "すべて数値かすべて文字列")
 	mustErrIO(t, "sort([true])\n", "すべて数値かすべて文字列")
 	mustErrIO(t, "insert([1], 5, 2)\n", "範囲外")
@@ -695,21 +695,21 @@ func TestVartypeFunc(t *testing.T) {
 }
 
 func TestLexTokens(t *testing.T) {
-	mustOutIO(t, "let t = lextokens(\"x = 1\")\nmes(length(t))\nmes(t[0][0])\nmes(t[0][1])\nmes(t[1][1])\nmes(t[2][1])\nmes(t[0][2])\nmes(t[0][3])\n", "", "3\nIDENT\nx\n=\n1\n1\n1\n")
-	mustOutIO(t, "let t = lextokens(\"if x {\\n}\")\nmes(t[0][0])\nmes(t[2][0])\nmes(t[3][0])\n", "", "IF\nLBRACE\nNEWLINE\n")
+	mustOutIO(t, "t = lextokens(\"x = 1\")\nmes(length(t))\nmes(t[0][0])\nmes(t[0][1])\nmes(t[1][1])\nmes(t[2][1])\nmes(t[0][2])\nmes(t[0][3])\n", "", "3\nIDENT\nx\n=\n1\n1\n1\n")
+	mustOutIO(t, "t = lextokens(\"if x {\\n}\")\nmes(t[0][0])\nmes(t[2][0])\nmes(t[3][0])\n", "", "IF\nLBRACE\nNEWLINE\n")
 	mustErrIO(t, "lextokens(\"'a'\")\n", "シングルクォート")
 	mustErrIO(t, "lextokens(1)\n", "文字列である必要があります")
 }
 
 func TestParsetree(t *testing.T) {
-	mustOutIO(t, "let t = parsetree(\"def f(a, b) {\\nreturn a\\n}\\nmes(f(1, 2))\\n\")\nmes(t[0])\nmes(length(t[4]))\nmes(t[4][0][4])\nmes(t[4][0][5][1][4])\nmes(t[4][1][0])\nmes(t[4][0][1])\n", "",
+	mustOutIO(t, "t = parsetree(\"def f(a, b) {\\nreturn a\\n}\\nmes(f(1, 2))\\n\")\nmes(t[0])\nmes(length(t[4]))\nmes(t[4][0][4])\nmes(t[4][0][5][1][4])\nmes(t[4][1][0])\nmes(t[4][0][1])\n", "",
 		"program\n2\nf\nb\ncall\n1\n")
 	// Absent optionals are "" (readable into variables, testable with ==).
-	mustOutIO(t, "let t = parsetree(\"if true {\\nmes(1)\\n}\\n\")\nmes(t[4][0][6] == \"\")\n", "", "true\n")
-	mustOutIO(t, "let t = parsetree(\"def f() {\\nreturn\\n}\\n\")\nmes(t[4][0][6][0][4] == \"\")\n", "", "true\n")
-	mustOutIO(t, "let t = parsetree(\"repeat 3 {\\n}\\n\")\nmes(t[4][0][5] == \"\")\n", "", "true\n")
+	mustOutIO(t, "t = parsetree(\"if true {\\nmes(1)\\n}\\n\")\nmes(t[4][0][6] == \"\")\n", "", "true\n")
+	mustOutIO(t, "t = parsetree(\"def f() {\\nreturn\\n}\\n\")\nmes(t[4][0][6][0][4] == \"\")\n", "", "true\n")
+	mustOutIO(t, "t = parsetree(\"repeat 3 {\\n}\\n\")\nmes(t[4][0][5] == \"\")\n", "", "true\n")
 	// Operators use source symbols; expression statements unwrap.
-	mustOutIO(t, "let t = parsetree(\"x = 1 + 2 * 3\\n\")\nmes(t[4][0][0])\nmes(t[4][0][5][4])\nmes(t[4][0][5][6][0])\n", "", "assign\n+\nbinary\n")
+	mustOutIO(t, "t = parsetree(\"x = 1 + 2 * 3\\n\")\nmes(t[4][0][0])\nmes(t[4][0][5][4])\nmes(t[4][0][5][6][0])\n", "", "assign\n+\nbinary\n")
 	mustOutIO(t, "mes(vartype(parsetree(\"x = 1\")))\n", "", "array\n")
 	mustErrIO(t, "parsetree(1)\n", "文字列である必要があります")
 	mustErrIO(t, "mes(parsetree(\"mes(\"))\n", "が必要です")

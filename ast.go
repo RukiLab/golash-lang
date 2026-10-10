@@ -90,20 +90,6 @@ func (n *AssignStmt) String() string {
 	return fmt.Sprintf("%s = %s", n.Target.String(), n.Value.String())
 }
 
-// LetStmt is `let name = value`: always binds in the current scope
-// (shadowing outer bindings). The initializer is required.
-type LetStmt struct {
-	Name  string
-	Value Expr
-	At    Pos
-}
-
-func (n *LetStmt) Pos() Pos  { return n.At }
-func (n *LetStmt) stmtNode() {}
-func (n *LetStmt) String() string {
-	return fmt.Sprintf("let %s = %s", n.Name, n.Value.String())
-}
-
 // CompoundAssignStmt is `target op= value` (e.g. `x += 1`). Unlike the
 // old desugar, the target address is evaluated exactly once.
 type CompoundAssignStmt struct {
@@ -333,6 +319,9 @@ func (n *NullLit) String() string { return "null" }
 type VarExpr struct {
 	Name string
 	At   Pos
+	// Paren は `(x)` のように括弧で囲まれていた場合に真。
+	// 代入先としては認めない（`(x)=1` はエラー）。
+	Paren bool
 }
 
 func (n *VarExpr) Pos() Pos       { return n.At }
@@ -358,6 +347,9 @@ type IndexExpr struct {
 	Base  Expr
 	Index Expr
 	At    Pos // position of '['
+	// Paren は `(a[0])` のように全体が括弧で囲まれていた場合に真。
+	// 代入先としては認めない。
+	Paren bool
 }
 
 func (n *IndexExpr) Pos() Pos  { return n.At }

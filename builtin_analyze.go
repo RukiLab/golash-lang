@@ -104,8 +104,6 @@ func stmtValue(s Stmt) Value {
 		return nodeArr("assign", n.Pos(), n.String(), exprValue(n.Target), exprValue(n.Value))
 	case *CompoundAssignStmt:
 		return nodeArr("compound", n.Pos(), n.String(), exprValue(n.Target), Str(opSymbol(n.Op)), exprValue(n.Value))
-	case *LetStmt:
-		return nodeArr("let", n.Pos(), n.String(), Str(n.Name), exprValue(n.Value))
 	case *ExprStmt:
 		return exprValue(n.X)
 	case *IfStmt:

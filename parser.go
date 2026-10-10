@@ -168,8 +168,6 @@ func tokName(t TokenType) string {
 		return "'continue'"
 	case TokReturn:
 		return "'return'"
-	case TokLet:
-		return "'let'"
 	case TokPlus:
 		return "'+'"
 	case TokMinus:
@@ -325,8 +323,6 @@ func (p *parser) parseStmt(top bool) (Stmt, error) {
 		return &ContinueStmt{At: posOf(t)}, nil
 	case TokReturn:
 		return p.parseReturn()
-	case TokLet:
-		return p.parseLet()
 	case TokRBrace:
 		return nil, p.errAt(t, "予期しない '}' です")
 	case TokStar:
@@ -542,6 +538,7 @@ func (p *parser) parseSwitch() (Stmt, error) {
 		case TokCase:
 			t := p.next()
 			c.At = posOf(t)
+			p.skipNewlines()
 			for {
 				v, err := p.parseOr(false)
 				if err != nil {
@@ -590,23 +587,10 @@ func (p *parser) parseReturn() (Stmt, error) {
 	return &ReturnStmt{Value: v, At: posOf(kw)}, nil
 }
 
-func (p *parser) parseLet() (Stmt, error) {
-	kw := p.next() // let
-	name, err := p.expect(TokIdent)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := p.expect(TokAssign); err != nil {
-		return nil, err
-	}
-	v, err := p.parseOr(true)
-	if err != nil {
-		return nil, err
-	}
-	return &LetStmt{Name: name.Lit, Value: v, At: posOf(kw)}, nil
-}
-
 // parseAssignOrExpr parses either `target = value` or a bare expression.
+// Plain `=` declares when nothing visible exists (top-level: global,
+// function: local slot); `let` was abolished, so there is no shadowing
+// declaration anymore.
 func (p *parser) parseAssignOrExpr() (Stmt, error) {
 	x, err := p.parseOr(true)
 	if err != nil {
@@ -672,9 +656,11 @@ func compoundOp(t TokenType) (TokenType, bool) {
 }
 
 func assignable(x Expr) bool {
-	switch x.(type) {
-	case *VarExpr, *IndexExpr:
-		return true
+	switch n := x.(type) {
+	case *VarExpr:
+		return !n.Paren
+	case *IndexExpr:
+		return !n.Paren
 	}
 	return false
 }
@@ -874,6 +860,10 @@ func (p *parser) parseMultiplicative(litOK bool) (Expr, error) {
 func (p *parser) parseUnary(litOK bool) (Expr, error) {
 	switch p.peek().Type {
 	case TokMinus, TokBang, TokBitNot:
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
+		defer p.leave()
 		op := p.next()
 		// Fold -9223372036854775808 to MinInt64: the positive half
 		// overflows int64, so parse it as unsigned here. The bare
@@ -1003,6 +993,15 @@ func (p *parser) parsePrimary(litOK bool) (Expr, error) {
 		p.skipNewlines()
 		if _, err := p.expect(TokRParen); err != nil {
 			return nil, err
+		}
+		// 括弧で囲まれた全体は代入先になれない（`(x)=1`・`(a[0])=1` は
+		// `'=' の左辺に代入できません`）。基底の括弧 `(a)[0]` は外側が
+		// 括弧ではないため引き続き代入可。
+		switch n := x.(type) {
+		case *VarExpr:
+			n.Paren = true
+		case *IndexExpr:
+			n.Paren = true
 		}
 		return x, nil
 	case TokLBrace:

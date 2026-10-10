@@ -82,7 +82,7 @@ const (
 	OpRepIntErr           // REPITMERR       整数 repeat の as i,x 形エラー（無条件）
 	OpForIPrep            // FORIPREP A      整数ループ準備（負数検査・制御 push）
 	OpForAPrep            // FORAPREP A      配列ループ準備（スナップショット・制御 push）
-	OpSaveVar             // SAVEVAR B,C,D   ループ変数の退避（B:スロット C:フラグ D:名前）
+	OpSaveVar             // SAVEVAR A,B,D   ループ変数の退避（A:スロット/NoRegでグローバル B:フラグ D:名前）
 	OpForILoop            // FORILOOP A,sBx  整数ループ継続判定（R[A] = 現在値）
 	OpForALoop            // FORALOOP A,B,sBx 配列ループ継続判定（R[A]=添字 R[B]=要素）
 	OpPutN                // PUTN A,B        slot[A] = R[B]（検査なし・ループ変数書込用）
@@ -99,14 +99,12 @@ const (
 	OpBrkTop              // BRKTOP          トップレベルの break エラー
 	OpContTop             // CONTTOP         トップレベルの continue エラー
 	OpRetTop              // RETTOP          トップレベルの return エラー
-	OpHalt                // HALT
-	OpDefN                // DEFN A,C,D      define slot (let: always binds, no global fallback)
-	OpDefG                // DEFG A,D        define global (top-level let)            実行終了
+	OpHalt // HALT 実行終了
 
 	OpCount // 命令数（番兵）
 )
 
-// SaveVar フラグ（OpSaveVar の C オペランド）。
+// SaveVar フラグ（OpSaveVar の B オペランド）。
 const (
 	SaveIsGlobal = 1 << iota // 束縛先がグローバル（B は未使用）
 	SaveReadonly             // ループ期間中 readonly 化（カウンタ・添字用）

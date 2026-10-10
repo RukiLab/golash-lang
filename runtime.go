@@ -28,9 +28,10 @@ import (
 //     exp/pow overflow, float("nan"/"inf"), and out-of-range int()
 //     conversions are all errors.
 //   - Compound assignment evaluates its target address exactly once.
-//   - Assignment updates the visible scope holding the name, or errors
-//     when the name is undeclared (declare it with let first; the VM
-//     resolves the store target at runtime and reports the same error).
+//   - Assignment updates the visible scope holding the name, or declares
+//     it in the current scope when nothing visible exists (top-level:
+//     global; function: local slot). The VM resolves the store target
+//     at runtime.
 //   - Recursion is capped at maxCallDepth; source nesting at maxParseDepth.
 
 // RuntimeError is an execution error with source position.

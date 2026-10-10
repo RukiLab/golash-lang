@@ -4,7 +4,7 @@ title("Goulash audio demo")
 mes("audio demo: mmload/mmplay/mmvol/mmstop")
 mes("")
 if exist("se.wav") {
-    let se = mmload("se.wav")
+    se = mmload("se.wav")
     mmvol(se, 80)
     mes("press Z for SE, ESC to quit")
     repeat 100000 {

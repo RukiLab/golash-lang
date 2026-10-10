@@ -6,7 +6,7 @@ button(2, "終了", 500, 400, 120, 40)
 inputbox(3, 20, 350, 300, 36, "にほんご")
 listbox(4, 340, 60, 280, 200, ["apple", "banana", "cherry"])
 
-let n = 0
+n = 0
 
 repeat 100000 {
     cls()
@@ -14,7 +14,7 @@ repeat 100000 {
     mes("")
     mes("count=" + str(n))
     mes("input=" + gettext(3))
-    let sel = selected(4)
+    sel = selected(4)
     if sel >= 0 {
         mes("fruit #" + str(sel))
     }
@@ -30,7 +30,7 @@ repeat 100000 {
     await()
 }
 
-let r = dialog("bye?", "yesno")
+r = dialog("bye?", "yesno")
 mes("dialog=" + str(r))
 
 end(0)

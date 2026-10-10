@@ -22,7 +22,7 @@ func mustParseB(b *testing.B, src string) *Program {
 	return prog
 }
 
-const benchLoopSrc = "let i = 0\nwhile i < 1000000 {\ni = i + 1\n}\n"
+const benchLoopSrc = "i = 0\nwhile i < 1000000 {\ni = i + 1\n}\n"
 
 const benchFibSrc = "def fib(n) {\nif n < 2 {\nreturn n\n}\nreturn fib(n - 1) + fib(n - 2)\n}\nmes(fib(24))\n"
 
@@ -47,8 +47,8 @@ func vmAllocsPerRun(b *testing.B, src string, runs int) float64 {
 // 反復回数を 10 倍にしても 1 実行の割当てが増えなければ、
 // 増分（＝ループ本体）は割当てゼロである。
 func TestVMZeroAllocLoop(t *testing.T) {
-	small := "let i = 0\nwhile i < 100000 {\ni = i + 1\n}\n"
-	large := "let i = 0\nwhile i < 1000000 {\ni = i + 1\n}\n"
+	small := "i = 0\nwhile i < 100000 {\ni = i + 1\n}\n"
+	large := "i = 0\nwhile i < 1000000 {\ni = i + 1\n}\n"
 	aSmall := vmAllocsPerRunT(t, small)
 	aLarge := vmAllocsPerRunT(t, large)
 	t.Logf("allocs/run small=%v large=%v", aSmall, aLarge)
@@ -79,7 +79,7 @@ func vmAllocsPerRunT(t *testing.T, src string) float64 {
 // TestVMRepIncClosedForm は単一加算ループの閉形最適化を検証する。
 // 1000万回の反復が一括適用で完結すること（値の正確さ＋余裕ある時間内）。
 func TestVMRepIncClosedForm(t *testing.T) {
-	src := "let i = 0\nrepeat 10000000 {\ni += 1\n}\nmes(i)\n"
+	src := "i = 0\nrepeat 10000000 {\ni += 1\n}\nmes(i)\n"
 	prog, err := Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)

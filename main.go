@@ -454,6 +454,9 @@ func cmdRepl() {
 				} else if v.K != KNull {
 					fmt.Println(Stringify(v))
 				}
+				if code, ok := in.ExitCode(); ok {
+					os.Exit(code)
+				}
 				buf.Reset()
 				prompt = "> "
 				continue

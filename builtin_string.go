@@ -83,7 +83,7 @@ func init() {
 		// Out-of-range starts are an error, never a silent clamp
 		// (the 2-arg form defaults to 0, which is always valid).
 		if start < 0 || start > int64(len(r)) {
-			return Null(), argErr("instr", 1, at, "start %d は範囲外です（長さ %d）", args[1].I, len(r))
+			return Null(), argErr("instr", 1, at, "start %d は範囲外です（長さ %d）", start, len(r))
 		}
 		rel := strings.Index(string(r[start:]), sub)
 		if rel < 0 {
@@ -198,23 +198,47 @@ func init() {
 	})
 
 	// strf(format, args...): formatted string (C/Go-style %d %f %s %x %c %%).
+	// 対応指定子は MANUAL の6種のみ（%d %f %s %x %c %%。フラグ・幅・精度付き可）。
+	// それ以外の動詞（%v %T %p 等）・引数の過不足・型の不一致は、
+	// Go の "%!d(MISSING)" 等の素通しではなくスクリプトエラーにする。
 	register("strf", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		format, err := needString("strf", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
+		verbs, err := parseStrfVerbs(format)
+		if err != nil {
+			return Null(), rtErrf(at, "strf：%s", err.Error())
+		}
+		if len(verbs) != len(args)-1 {
+			return Null(), argErr("strf", 0, at, "書式指定子は %d 個ですが、引数は %d 個です", len(verbs), len(args)-1)
+		}
 		fargs := make([]any, len(args)-1)
-		for i, a := range args[1:] {
-			switch a.K {
-			case KInt:
+		for i, v := range verbs {
+			a := args[i+1]
+			switch v {
+			case 'd', 'x':
+				if a.K != KInt {
+					return Null(), argErr("strf", i+1, at, "%%%c には int が必要です。%s が指定されました", v, typeNameOf(a))
+				}
 				fargs[i] = a.I
-			case KFloat:
-				fargs[i] = a.F
-			case KString:
-				fargs[i] = a.S
-			case KBool:
-				fargs[i] = a.B
-			default:
+			case 'c':
+				if a.K != KInt {
+					return Null(), argErr("strf", i+1, at, "%%c には int が必要です。%s が指定されました", typeNameOf(a))
+				}
+				if a.I < 0 || a.I > 0x10FFFF || (a.I >= 0xD800 && a.I <= 0xDFFF) {
+					return Null(), argErr("strf", i+1, at, "%%c に無効なコードポイント %d です", a.I)
+				}
+				fargs[i] = a.I
+			case 'f':
+				if a.K == KFloat {
+					fargs[i] = a.F
+				} else if a.K == KInt {
+					fargs[i] = float64(a.I)
+				} else {
+					return Null(), argErr("strf", i+1, at, "%%f には数値が必要です。%s が指定されました", typeNameOf(a))
+				}
+			case 's':
 				fargs[i] = Stringify(a)
 			}
 		}
@@ -314,4 +338,51 @@ func init() {
 		}
 		return Str(string(rune(c))), nil
 	})
+}
+
+// parseStrfVerbs は strf 書式から動詞列を取り出す。
+// 対応は %d %f %s %x %c %% のみ（フラグ・幅・精度付き可）。
+// `*`（幅・精度の引数取り）は対応しない。
+func parseStrfVerbs(format string) ([]rune, error) {
+	var verbs []rune
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		i++
+		if i >= len(format) {
+			return nil, fmt.Errorf("書式の末尾に %% があります")
+		}
+		if format[i] == '%' {
+			continue
+		}
+		for i < len(format) && strings.ContainsRune("-+ #0", rune(format[i])) {
+			i++
+		}
+		if i < len(format) && format[i] == '*' {
+			return nil, fmt.Errorf("幅の * には対応していません")
+		}
+		for i < len(format) && format[i] >= '0' && format[i] <= '9' {
+			i++
+		}
+		if i < len(format) && format[i] == '.' {
+			i++
+			if i < len(format) && format[i] == '*' {
+				return nil, fmt.Errorf("精度の * には対応していません")
+			}
+			for i < len(format) && format[i] >= '0' && format[i] <= '9' {
+				i++
+			}
+		}
+		if i >= len(format) {
+			return nil, fmt.Errorf("書式の末尾に %% があります")
+		}
+		switch format[i] {
+		case 'd', 'f', 's', 'x', 'c':
+			verbs = append(verbs, rune(format[i]))
+		default:
+			return nil, fmt.Errorf("対応していない書式 %%%c です（%%d %%f %%s %%x %%c %%%% のみ）", format[i])
+		}
+	}
+	return verbs, nil
 }

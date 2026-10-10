@@ -95,7 +95,7 @@ func TestModeDirective(t *testing.T) {
 
 func TestIncludeBasic(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "lib.gsh"), "def double(x) {\nreturn x * 2\n}\nlet answer = 20\n")
+	writeFile(t, filepath.Join(dir, "lib.gsh"), "def double(x) {\nreturn x * 2\n}\nanswer = 20\n")
 	writeFile(t, filepath.Join(dir, "main.gsh"), "#include \"lib.gsh\"\nmes(double(21))\nmes(answer + 1)\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil {
@@ -164,7 +164,7 @@ func TestIncludeMalformed(t *testing.T) {
 		}
 	}
 	// Inline # is not a directive: the lexer rejects it.
-	writeFile(t, filepath.Join(dir, "main.gsh"), "let x = 1 #include \"a.gsh\"\n")
+	writeFile(t, filepath.Join(dir, "main.gsh"), "x = 1 #include \"a.gsh\"\n")
 	if _, err := ParseFile(filepath.Join(dir, "main.gsh")); err == nil || !strings.Contains(err.Error(), "不正な文字") {
 		t.Fatalf("want illegal character error, got %v", err)
 	}
@@ -194,7 +194,7 @@ func TestIncludeErrorPosition(t *testing.T) {
 
 func TestIncludeArrayAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "types.gsh"), "let point = [3, 4]\n")
+	writeFile(t, filepath.Join(dir, "types.gsh"), "point = [3, 4]\n")
 	writeFile(t, filepath.Join(dir, "main.gsh"), "#include \"types.gsh\"\nmes(point[0])\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil {
@@ -398,7 +398,7 @@ func runParsePP(src string) (*Program, error) {
 
 func TestCombineSource(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "lib.gsh"), "let v = 42\n")
+	writeFile(t, filepath.Join(dir, "lib.gsh"), "v = 42\n")
 	toks, err := CombineSource("", "#include \""+filepath.Join(dir, "lib.gsh")+"\"\nmes(v)\n", "")
 	if err != nil {
 		t.Fatalf("combine: %v", err)

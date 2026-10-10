@@ -7,12 +7,12 @@ repeat 5 as i {
     mes("  " + str(rnd(6) + 1))
 }
 
-let s = "  Hello, HSP World!  "
+s = "  Hello, HSP World!  "
 mes("len=" + str(strlen(s)))
 mes("mid=" + strmid(s, 2, 5))
 mes("pos=" + str(instr(s, "HSP")))
 mes("trim=[" + strtrim(s) + "]")
-let words = split("a,b,c", ",")
+words = split("a,b,c", ",")
 mes("split:", words, "n=" + str(length(words)))
 
 mes(strf("%04d", 42))
@@ -24,22 +24,22 @@ mes("path base=" + getpath("C:\\work\\app.gsh", "base"))
 mes("path ext=" + getpath("C:\\work\\app.gsh", "ext"))
 mes("year=" + str(gettime(0)) + " month=" + str(gettime(1)))
 
-let t = "one\ntwo\nthree"
+t = "one\ntwo\nthree"
 mes("lines=" + str(notemax(t)) + " line2=" + noteget(t, 1))
 mes(noteadd(t, 3, "four"))
 
-let buf = [0, 0, 0, 0]
+buf = [0, 0, 0, 0]
 poke(buf, 0, 65)
 wpoke(buf, 1, 0 + 66 + 67 * 256)
 mes("peek=" + str(peek(buf, 0)) + " wpeek=" + str(wpeek(buf, 1)))
 mes("types:", vartype(1), vartype("s"), vartype(buf))
 
-let stack = []
+stack = []
 push(stack, 1, 2, 3)
 mes("stack:", join(stack, "-"), "pop=" + str(pop(stack)))
-let u = ["Alice", 98]
+u = ["Alice", 98]
 mes("user:", u[0], u[1])
-let total = 0
+total = 0
 repeat [1, 2, 3] as x {
     total += x
 }

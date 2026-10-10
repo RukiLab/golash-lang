@@ -201,25 +201,40 @@ func (m *vmachine) addProg(prog *VMProgram) {
 			ins := p.Code[i]
 			op, a, b, c, d := ins.Decode()
 			switch op {
-			case OpLoadG, OpStoreG, OpPutG, OpDefG:
-				p.Code[i] = EncodeInstr(op, a, b, c, uint32(m.globals.index[p.Names[d]]))
+			case OpLoadG, OpStoreG, OpPutG:
+				// 不正バンドル対策：範囲外の名前参照は書換えず、
+				// 実行時に未定義エラーとして報告させる（panic回避）。
+				if int(d) < len(p.Names) {
+					p.Code[i] = EncodeInstr(op, a, b, c, uint32(m.globals.index[p.Names[d]]))
+				}
 			case OpSaveVar:
-				if b&SaveIsGlobal != 0 {
+				if b&SaveIsGlobal != 0 && int(d) < len(p.Names) {
 					p.Code[i] = EncodeInstr(op, a, b, c, uint32(m.globals.index[p.Names[d]]))
 				}
 			case OpIncChk:
 				// word1（名前表 index）はグローバル形のみ gidx へ。
+				// 切り詰め・範囲外は実行時/検証時に報告させる。
+				if i+1 >= len(p.Code) {
+					break
+				}
 				if b == NoReg {
 					ni := uint32(p.Code[i+1])
-					p.Code[i+1] = EncodeInstr(0, 0, 0, 0, uint32(m.globals.index[p.Names[ni]]))
+					if int(ni) < len(p.Names) {
+						p.Code[i+1] = EncodeInstr(0, 0, 0, 0, uint32(m.globals.index[p.Names[ni]]))
+					}
 				}
 				i++ // word1 を飛ばす
 			case OpRepInc:
 				// word1 下位（名前表 index）を gidx へ。上位の低速 sBx は保持。
+				if i+1 >= len(p.Code) {
+					break
+				}
 				w1 := uint64(p.Code[i+1])
 				ni := uint32(w1)
-				gi := uint32(m.globals.index[p.Names[ni]])
-				p.Code[i+1] = Instr(w1&0xFFFFFFFF00000000 | uint64(gi))
+				if int(ni) < len(p.Names) {
+					gi := uint32(m.globals.index[p.Names[ni]])
+					p.Code[i+1] = Instr(w1&0xFFFFFFFF00000000 | uint64(gi))
+				}
 				i++ // word1 を飛ばす
 			}
 		}
@@ -330,7 +345,7 @@ func (m *vmachine) dropFrames(baseFrames int) {
 
 // evalOne は単一式を評価する（REPL の bare-expression echo 用）。
 // 共有の globals/funcs を使い、結果レジスタの値を返す。
-func (m *vmachine) evalOne(x Expr, at Pos) (Value, error) {
+func (m *vmachine) evalOne(x Expr, at Pos) (out Value, err error) {
 	g := &vmcGlobal{
 		constMap: map[string]int{},
 		nameMap:  map[string]int{},
@@ -351,6 +366,19 @@ func (m *vmachine) evalOne(x Expr, at Pos) (Value, error) {
 	m.prog = prog
 	baseFrames := len(m.frames)
 	baseDepth := m.depth
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(endSignal); ok {
+				m.unwindAll()
+				m.dropFrames(baseFrames)
+				m.depth = baseDepth
+				out = Null()
+				err = nil
+				return
+			}
+			panic(r)
+		}
+	}()
 	fr := m.takeFrame()
 	fr.proto = proto
 	fr.regs = m.takeRegs(proto.NumRegs)
@@ -362,7 +390,7 @@ func (m *vmachine) evalOne(x Expr, at Pos) (Value, error) {
 		m.depth = baseDepth
 		return Null(), err
 	}
-	out := fr.regs[rv]
+	out = fr.regs[rv]
 	m.dropFrames(baseFrames)
 	m.depth = baseDepth
 	return out, nil
@@ -408,7 +436,11 @@ func (m *vmachine) loop(pc int) error {
 				}
 				m.globals.vals[gi] = v
 			} else {
-				return rtErrf(pos, "未定義の変数 %q です", name)
+				// `let` 廃止後：未定義への代入は宣言になる
+				// （見える定義の更新、なければ現在のスコープに作成）。
+				m.globals.vals[gi] = v
+				m.globals.has[gi] = true
+				m.globals.ro[gi] = false
 			}
 		case OpLoadN:
 			name := proto.Names[d]
@@ -444,36 +476,12 @@ func (m *vmachine) loop(pc int) error {
 					}
 					m.globals.vals[gi] = v
 				} else {
-					return rtErrf(pos, "未定義の変数 %q です", name)
+					// `let` 廃止後：可視定義がなければ関数ローカルに作る。
+					regs[slot] = v
+					fr.ro[slot] = false
 				}
 			}
-		case OpDefG:
-			// Top-level `let`: define the global (declare, never just store).
-			gi := int(d)
-			name := m.globals.names[gi]
-			v := regs[a]
-			if err := requireValue(v, pos); err != nil {
-				return err
-			}
-			if isBuiltin(name) {
-				return rtErrf(pos, "%q に代入できません：組み込み関数です", name)
-			}
-			m.globals.vals[gi] = v
-			m.globals.has[gi] = true
-			m.globals.ro[gi] = false
-		case OpDefN:
-			// `let` in a function: always bind the slot (shadow globals).
-			name := proto.Names[d]
-			slot := int(c)
-			v := regs[a]
-			if err := requireValue(v, pos); err != nil {
-				return err
-			}
-			if isBuiltin(name) {
-				return rtErrf(pos, "%q に代入できません：組み込み関数です", name)
-			}
-			regs[slot] = v
-			fr.ro[slot] = false
+
 		case OpCkVal:
 			// requireValue のインライン化（文言同一）。
 			if regs[a].K == KNull {
@@ -853,6 +861,10 @@ func (m *vmachine) loop(pc int) error {
 			// 複合代入(+/-)融合の高速経路。word1 が名前表 index
 			// （グローバル形は addProg で gidx へ書換え済み）。
 			// 低速（非整数）は sBx 先のスタブへ。
+			// 不正バンドル対策：切り詰めは内部エラーで返す（panic回避）。
+			if pc+1 >= len(proto.Code) {
+				return rtErrf(pos, "内部エラー：壊れたバイトコードです")
+			}
 			nameIdx := uint32(proto.Code[pc+1])
 			next = pc + 2
 			var rhs Value
@@ -934,6 +946,9 @@ func (m *vmachine) loop(pc int) error {
 			// 高速閉形：整数同士の反復加算は中間状態が観測不能
 			// （カウンタなし・本体単一・再入なし）のため、残り回数分を
 			// 一括適用する（mod 2^64 で反復と等価）。非整数は低速へ。
+			if pc+1 >= len(proto.Code) {
+				return rtErrf(pos, "内部エラー：壊れたバイトコードです")
+			}
 			w1 := uint64(proto.Code[pc+1])
 			next = pc + 2
 			top := fr.cur
