@@ -536,6 +536,60 @@ func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 	return nil
 }
 
+// UpdateList replaces an existing listbox's entries in place via
+// widget.List.SetEntries. It keeps the same ebitenui widget, so the list's
+// scroll offset and focus survive the update. Recreating the widget (as a
+// second listbox() call would) throws that state away, which is what made
+// the editor's outline visibly jump on every keystroke.
+func (b *WindowBackend) UpdateList(id int, items []string) error {
+	entries := make([]any, len(items))
+	for i, s := range items {
+		entries[i] = s
+	}
+	b.mu.Lock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wList || e.list == nil {
+		b.mu.Unlock()
+		return nil
+	}
+	// Mirror the new items and clear the cached selection synchronously
+	// (under mu) so a same-frame selected() read never sees the pre-update
+	// index; the widget itself swaps its buttons on the game thread.
+	e.items = append([]string(nil), items...)
+	e.selIdx = -1
+	list := e.list
+	b.mu.Unlock()
+	b.runOnLoop(func() {
+		list.SetEntries(entries)
+	})
+	return nil
+}
+
+// SelectList sets a listbox's selected entry by index (0-based) without
+// firing the EntrySelectedHandler, so a programmatic selection (e.g. the
+// editor syncing its outline after a "go to definition") does not look like
+// a user click. The cached index is updated under mu for a consistent read.
+func (b *WindowBackend) SelectList(id, index int) error {
+	b.mu.Lock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wList || e.list == nil {
+		b.mu.Unlock()
+		return nil
+	}
+	if index < 0 || index >= len(e.items) {
+		b.mu.Unlock()
+		return nil
+	}
+	entry := e.items[index]
+	e.selIdx = index
+	list := e.list
+	b.mu.Unlock()
+	b.runOnLoop(func() {
+		list.SetSelectedEntry(entry)
+	})
+	return nil
+}
+
 // listEntryTextPos is the shared entry text alignment for listbox and
 // combox: left/top, like the hand-drawn outline in the Golash editor.
 // Centering adds a second int() rounding on top of the scroll offset's
