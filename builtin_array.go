@@ -80,13 +80,13 @@ func init() {
 	})
 
 	// join(arr [, delim]): concatenate stringified elements.
-	// The delimiter defaults to ",".
+	// The delimiter defaults to "" (no separator; pass "," for commas).
 	register("join", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("join", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		delim := ","
+		delim := ""
 		if len(args) == 2 {
 			var err error
 			delim, err = needString("join", args, 1, at)

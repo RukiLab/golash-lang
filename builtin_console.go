@@ -28,8 +28,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// cls(): clear the screen. GUIではキャンバス/テキストに加え
-	// ウィジェットもまとめて消去します (clrobj 相当)。
+	// cls(): clear the screen. GUIではキャンバス/テキストを消去します。
+	// ウィジェットは残ります（消去は clrobj() のみ）。
 	register("cls", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		in.be.Clear()
 		return Null(), nil
@@ -38,7 +38,7 @@ func init() {
 	// color(r, g, b [, a]): set text/draw color (0-255 each).
 	// a is the alpha (0 transparent .. 255 opaque, default 255).
 	// Terminals cannot render text alpha, so CUI ignores it.
-	// color(rgb): set color with a 0xRRGGBB integer (pget()/objprm()形式).
+	// color(rgb): set color with a 0xRRGGBB integer (pget()形式).
 	// color() resets the color.
 	register("color", 0, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if len(args) == 0 {

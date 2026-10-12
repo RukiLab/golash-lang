@@ -221,11 +221,46 @@ func init() {
 		return Int(0), nil
 	})
 
+	// piperun(name, args...): run an external command and capture it,
+	// returning [exit code, stdout, stderr]. Unlike pipeexec(), a
+	// non-zero exit is a value (not an error) and stderr is captured
+	// instead of passing through, so editors can show failures
+	// in-window without dying (there is no try/catch to contain a
+	// pipeexec error). Only a failure to START the command is folded
+	// into the value as [-1, "", message]. Stdin is detached (null)
+	// like pipeexec; completion is waited for (blocking, no timeout).
+	register("piperun", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		name, err := needString("piperun", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		argv := make([]string, len(args)-1)
+		for i := range args[1:] {
+			s, err := needString("piperun", args, i+1, at)
+			if err != nil {
+				return Null(), err
+			}
+			argv[i] = s
+		}
+		cmd := exec.Command(name, argv...)
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			if exit, ok := err.(*exec.ExitError); ok {
+				return ArrayOf([]Value{Int(int64(exit.ExitCode())), Str(stdout.String()), Str(stderr.String())}), nil
+			}
+			return ArrayOf([]Value{Int(-1), Str(""), Str(fmt.Sprintf("piperun：%s", err.Error()))}), nil
+		}
+		return ArrayOf([]Value{Int(0), Str(stdout.String()), Str(stderr.String())}), nil
+	})
+
 	// pipeexec(name, args...): run an external command, return its
 	// stdout as a string. Stdin is detached (null device) so the
 	// child can never steal script input; stderr passes through.
 	// Failure to start, or a non-zero exit, is an error (the plain
 	// exec() twin returns codes instead of capturing output).
+	// Error output as a value is piperun() instead.
 	register("pipeexec", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("pipeexec", args, 0, at)
 		if err != nil {

@@ -1,4 +1,4 @@
-// Goulash v0.2 レジスタ型VMの実行ループ。
+// Golash レジスタ型VMの実行ループ。
 //
 // runtime.go との観測一致が最優先：純粋な値演算は runtime.go の関数
 // （add/arith/bitwise/shift/compare/valuesEqual/applyBinary/setIndex

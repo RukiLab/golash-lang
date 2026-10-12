@@ -3,36 +3,17 @@ package gui
 import (
 	"image"
 	"testing"
-	"time"
 )
 
-// TestIMEBoundsPriority locks candidate-window placement: the manual
-// imepos() anchor wins, then the focused inputbox caret, then the
-// (0,0) fallback.
-func TestIMEBoundsPriority(t *testing.T) {
-	// Automatic caret wins over the (0,0) fallback.
-	got := imeBounds(false, 0, 0, true, 10.4, 20.6, 20)
-	want := image.Rect(10, 21, 11, 41)
-	if got != want {
-		t.Fatalf("caret bounds = %v, want %v", got, want)
+// TestIMECandidateBoundsOrigin locks the fixed candidate-window
+// placement: the rect spans the composition bar height, so the list
+// top lands right under the bar.
+func TestIMECandidateBoundsOrigin(t *testing.T) {
+	if got, want := imeCandidateBounds(20), image.Rect(0, 0, 1, 20); got != want {
+		t.Fatalf("bounds = %v, want %v", got, want)
 	}
-	// Manual imepos wins over the caret.
-	got = imeBounds(true, 123, 45, true, 10.4, 20.6, 20)
-	want = image.Rect(123, 45, 124, 65)
-	if got != want {
-		t.Fatalf("anchor bounds = %v, want %v", got, want)
-	}
-	// Manual imepos also wins with no focused editor.
-	got = imeBounds(true, 5, 6, false, 0, 0, 20)
-	want = image.Rect(5, 6, 6, 26)
-	if got != want {
-		t.Fatalf("anchor-only bounds = %v, want %v", got, want)
-	}
-	// Neither anchor nor caret: the (0,0) fallback.
-	got = imeBounds(false, 0, 0, false, 0, 0, 20)
-	want = image.Rect(0, 0, 1, 20)
-	if got != want {
-		t.Fatalf("fallback bounds = %v, want %v", got, want)
+	if got := imeCandidateBounds(20); got.Max.Y != 20 {
+		t.Fatalf("list opens at Max.Y = %d, want 20", got.Max.Y)
 	}
 }
 
@@ -40,7 +21,7 @@ func TestIMEBoundsPriority(t *testing.T) {
 // Windows backend keeps reporting a stale composition after the
 // unconfirmed string becomes empty (zero-length COMPSTR is dropped
 // silently, cancel sends nothing), so an OS-side empty must clear the
-// mirror that imeget() reads.
+// mirror behind the fixed bar.
 func TestReconcileCompositionLen(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -116,7 +97,7 @@ func TestImeClauseOf(t *testing.T) {
 }
 
 // TestIMEClause locks the clause snapshot: text with its rune offsets
-// into the imeget() string. Unfocused reads stay zero.
+// into the composition string. Unfocused reads stay zero.
 func TestIMEClause(t *testing.T) {
 	b := mustNew(t)
 	b.imeField.Focus()
@@ -135,50 +116,6 @@ func TestIMEClause(t *testing.T) {
 	}
 }
 
-// TestIMEAnchorHeadless locks the anchor flag: imepos set/clear
-// toggles automatic caret-following.
-func TestIMEAnchorHeadless(t *testing.T) {
-	b := mustNew(t)
-	if _, _, ok := b.IMEAnchor(); ok {
-		t.Fatal("default anchor should be automatic (!ok)")
-	}
-	b.IMESetAnchor(48, 96)
-	if x, y, ok := b.IMEAnchor(); !ok || x != 48 || y != 96 {
-		t.Fatalf("IMEAnchor = %d,%d,%v, want 48,96,true", x, y, ok)
-	}
-	b.IMEClearAnchor()
-	if _, _, ok := b.IMEAnchor(); ok {
-		t.Fatal("after clear anchor should be automatic (!ok)")
-	}
-	b.IMESetAnchor(8, 20)
-	if x, y, ok := b.IMEAnchor(); !ok || x != 8 || y != 20 {
-		t.Fatalf("IMEAnchor = (%d,%d,%v), want (8,20,true)", x, y, ok)
-	}
-}
-
-// TestCaretPixelsHeadless locks the caret anchor: no editor reports
-// !ok, a focused editor reports its caret position.
-func TestCaretPixelsHeadless(t *testing.T) {
-	b := mustNew(t)
-	if _, _, ok := b.caretPixels(); ok {
-		t.Fatal("no editor should report !ok")
-	}
-	done := make(chan struct{})
-	go func() {
-		_ = b.AddInput(5, 10, 20, 160, 36, "あxy")
-		close(done)
-	}()
-	if !pumpUntil(b, done, 10*time.Second) {
-		t.Fatal("AddInput never completed")
-	}
-	b.mu.Lock()
-	b.widgets[5].edit.focused = true
-	b.mu.Unlock()
-	x, y, ok := b.caretPixels()
-	if !ok || x <= 0 || y != 20 {
-		t.Fatalf("caretPixels = %v,%v,%v", x, y, ok)
-	}
-}
 // TestPlanEditFocus locks the box-focus ↔ IME-field coupling: this is
 // the path that made conversion dead inside inputbox (nothing focused
 // the field on a box click) and the guards that keep ime(0) sticky
@@ -215,6 +152,61 @@ func TestPlanEditFocus(t *testing.T) {
 					p, tc.wantFocus, tc.wantBlur, tc.wantEnable)
 			}
 		})
+	}
+}
+
+// TestEditKeysOwnedByField locks who owns Backspace/Delete/arrows:
+// the IME field only while converting or holding undrained text.
+// Otherwise the field is an empty slate that would swallow them
+// (Backspace no-ops in an empty field), so the box must handle them.
+// This is the path that made Backspace dead inside a focused inputbox.
+func TestEditKeysOwnedByField(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		imeOn                    bool
+		comp, fieldText, pending string
+		want                     bool
+	}{
+		{"field off", false, "", "", "", false},
+		{"idle focused box", true, "", "", "", false},
+		{"converting", true, "かく", "", "", true},
+		{"undrained field text", true, "", "a", "", true},
+		{"undrained pending", true, "", "", "a", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := editKeysOwnedByField(tc.imeOn, tc.comp, tc.fieldText, tc.pending); got != tc.want {
+				t.Fatalf("editKeysOwnedByField(%v, %q, %q, %q) = %v, want %v",
+					tc.imeOn, tc.comp, tc.fieldText, tc.pending, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCompSpans locks the composition underline split: thin runs
+// around the thick conversion-target clause, empties skipped,
+// out-of-range ends clamped.
+func TestCompSpans(t *testing.T) {
+	spans := compSpans(5, 1, 3)
+	want := []compSpan{{0, 1, false}, {1, 3, true}, {3, 5, false}}
+	if len(spans) != len(want) {
+		t.Fatalf("spans = %v, want %v", spans, want)
+	}
+	for i := range want {
+		if spans[i] != want[i] {
+			t.Fatalf("spans[%d] = %v, want %v", i, spans[i], want[i])
+		}
+	}
+	// Empty clause: one thin run.
+	if spans := compSpans(3, 0, 0); len(spans) != 1 || spans[0] != (compSpan{0, 3, false}) {
+		t.Fatalf("empty clause spans = %v", spans)
+	}
+	// Whole string is the clause.
+	if spans := compSpans(2, 0, 2); len(spans) != 1 || !spans[0].thick {
+		t.Fatalf("full clause spans = %v", spans)
+	}
+	// Clamping.
+	if spans := compSpans(4, -2, 99); len(spans) != 1 || spans[0] != (compSpan{0, 4, true}) {
+		t.Fatalf("clamped spans = %v", spans)
 	}
 }
 

@@ -68,8 +68,29 @@ func init() {
 		return Bool(c), nil
 	})
 
-	// cursor([v]): without arguments reports cursor visibility (1/0);
-	// with v shows (nonzero) or hides (0) the system cursor.
+	// mousedown([btn]): whether the button is held right now (0 left,
+	// 1 middle, 2 right). Never consumed, unlike clicked(): latch it
+	// with a press to implement dragging (scrollbars, sliders).
+	register("mousedown", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "mousedown")
+		if err != nil {
+			return Null(), err
+		}
+		btn := int64(0)
+		if len(args) == 1 {
+			btn, err = needInt("mousedown", args, 0, at)
+			if err != nil {
+				return Null(), err
+			}
+		}
+		d, err := wb.MouseDown(int(btn))
+		if err != nil {
+			return Null(), rtErrf(at, "%s", err.Error())
+		}
+		return Bool(d), nil
+	})
+
+	// cursor([v]): query (no args) or set (nonzero = on) IME input.
 	register("cursor", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "cursor")
 		if err != nil {
@@ -237,14 +258,16 @@ func init() {
 		return Int(int64(id)), nil
 	})
 
-	// screensize(): [fullscreen width, height, monitor count] for
-	// resolution-aware layouts.
+	// screensize(): [window width, height] in pixels — the real OS
+	// window, not the monitor and not the logical screen() canvas. While
+	// resizable() is allowed, the canvas follows the window, so these
+	// are also the drawing pixels.
 	register("screensize", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if _, err := guiBE(in, at, "screensize"); err != nil {
 			return Null(), err
 		}
-		w, h, m := gui.ScreenSize()
-		return ArrayOf([]Value{Int(int64(w)), Int(int64(h)), Int(int64(m))}), nil
+		w, h := gui.WindowSize()
+		return ArrayOf([]Value{Int(int64(w)), Int(int64(h))}), nil
 	})
 
 	// winmove(x, y): move the window (desktop pixels from the

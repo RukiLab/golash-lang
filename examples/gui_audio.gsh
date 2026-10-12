@@ -1,5 +1,5 @@
 screen(640, 480)
-title("Goulash audio demo")
+title("Golash audio demo")
 
 mes("audio demo: mmload/mmplay/mmvol/mmstop")
 mes("")

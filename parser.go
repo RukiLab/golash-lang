@@ -1,4 +1,4 @@
-// Recursive-descent parser for HSP successor language v0.2.
+// Recursive-descent parser for HSP successor language.
 package main
 
 import (
@@ -436,7 +436,7 @@ func (p *parser) parseIf() (Stmt, error) {
 		return nil, err
 	}
 	stmt := &IfStmt{Cond: cond, Then: then, At: posOf(kw)}
-	// Allow `} else {` on one line or across newlines? v0.2 samples put
+	// Allow `} else {` on one line or across newlines? The samples put
 	// `} else {` on one line. Tolerate newlines before else as well.
 	save := p.pos
 	p.skipNewlines()

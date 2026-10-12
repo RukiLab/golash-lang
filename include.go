@@ -1,4 +1,4 @@
-// Preprocessor (#include, #define, conditionals) for Goulash v0.2.
+// Preprocessor (#include, #define, conditionals) for Golash.
 //
 // A directive is a whole line whose first non-space character is `#`.
 // Supported directives (minimal set):
@@ -19,13 +19,15 @@
 // directory; absolute paths are used as-is. Tokens keep file-local
 // line numbers and carry the display path in Token.File. Directive and
 // inactive lines are blanked (never deleted) so every line number stays
-// intact. #define applies textually in line order within its file:
-// a use sees defines from earlier lines of the same file, or from
-// a library included before the use. Names defined inside a library
-// are not substituted into lines after its #include in the parent
-// (redefinition across the tree is still an error). Valueless
-// #define auto-numbers are assigned per file in include-preorder
-// (the parent file's directives first), sharing one counter per run.
+// intact. #define applies textually in stream order (include-expansion
+// order): a use sees defines from earlier stream positions only —
+// earlier lines of the same file, defines from before the #include
+// (which libraries also see), and names a library defined (visible to
+// lines after its #include in the parent and to later siblings).
+// A define after the #include never reaches the already-expanded
+// library. Redefinition across the tree is still an error. Valueless
+// #define auto-numbers are assigned in stream order, sharing one
+// counter per run.
 //
 // NOTE: directives are recognized before comments, so a `#` at a line
 // start inside a block comment still counts as a directive.
@@ -71,10 +73,11 @@ func CombineSource(display, src, parentDir string) ([]Token, error) {
 type includer struct {
 	done  map[string]bool // absolute paths already spliced (once)
 	stack []string        // absolute paths on the current chain (cycles)
-	// Preprocessor state, shared across the whole include tree so
-	// defines flow into included files in line order (a library sees
-	// defines from before its #include; see combineSource for the
-	// exact visibility rules).
+	// Preprocessor state, shared across the whole include tree in
+	// stream order: defines flow into included files (a library sees
+	// defines from before its #include) and back out to later lines
+	// (a use after the #include sees library defines); see
+	// combineSource for the exact visibility rules.
 	defines map[string]ppDefine
 	// Auto-number counter for valueless #define (starts at 0 per run).
 	seq   int64
@@ -153,11 +156,18 @@ func (st *includer) combineFile(path, parentDir string) ([]Token, error) {
 }
 
 // ownDef is a validated #define with its 1-based line, applied to the
-// shared table in line order (see combineSource).
+// shared table in stream order (see combineSource).
 type ownDef struct {
 	line int
 	name string
 	def  ppDefine
+}
+
+// childEv is one library contribution: defines a child file added,
+// taking effect at the #include line (upward sharing).
+type childEv struct {
+	line int
+	adds map[string]ppDefine
 }
 
 // combineSource runs the preprocessor line pass (conditionals, #define
@@ -171,8 +181,9 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 	active := make([]bool, len(lines))
 	blanked := make([]string, len(lines))
 	// base is the define set inherited at file entry (for own-token
-	// substitution). live tracks base plus this file's defines in line
-	// order (for #ifdef checks and redefinition detection).
+	// substitution). live tracks base plus this file's defines and
+	// child contributions in stream order (for #ifdef checks and
+	// redefinition detection).
 	base := make(map[string]ppDefine, len(st.defines))
 	for k, v := range st.defines {
 		base[k] = v
@@ -182,6 +193,27 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		live[k] = v
 	}
 	var own []ownDef
+	// pubIdx counts own entries already published to the shared table.
+	// Phase 1 publishes early ones before recursing into includes so
+	// children see exactly the earlier defines; phase 3 publishes the
+	// rest in the same sweep order.
+	pubIdx := 0
+	publishUntil := func(line int) error {
+		for pubIdx < len(own) && own[pubIdx].line < line {
+			o := own[pubIdx]
+			if _, ok := st.defines[o.name]; ok {
+				return &LexError{File: display, Line: o.line, Column: 1, Msg: fmt.Sprintf("#define %q は既に定義されています", o.name)}
+			}
+			st.defines[o.name] = o.def
+			pubIdx++
+		}
+		return nil
+	}
+	// chevs records library contributions in sweep order; incToks
+	// caches each active include's splice tokens so phase 3 does not
+	// reprocess files.
+	var chevs []childEv
+	incToks := map[int][]Token{}
 
 	// Phase 1: directive pass in line order.
 	for i, ln := range lines {
@@ -203,7 +235,41 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		active[i] = st.curActive()
 		switch d.kind {
 		case dirInclude:
-			// Handled in phase 3 (only when active).
+			if !active[i] {
+				continue
+			}
+			// Stream order: publish this file's earlier defines so
+			// the child sees them, then process the child inline.
+			// The child's defines merge into live, becoming visible
+			// to later lines of this file (upward sharing).
+			if err := publishUntil(i + 1); err != nil {
+				return nil, err
+			}
+			child, err := st.combineFile(d.arg, parentDir)
+			if err != nil {
+				return nil, err
+			}
+			var sp []Token
+			for _, t := range child {
+				if t.Type == TokEOF {
+					continue
+				}
+				sp = append(sp, t)
+			}
+			sp = append(sp, Token{Type: TokNewline, Lit: "\n", File: display, Line: i + 1, Column: 1})
+			incToks[i+1] = sp
+			added := map[string]ppDefine{}
+			for k, v := range st.defines {
+				if _, ok := live[k]; !ok {
+					added[k] = v
+				}
+			}
+			for k, v := range added {
+				live[k] = v
+			}
+			if len(added) > 0 {
+				chevs = append(chevs, childEv{line: i + 1, adds: added})
+			}
 		case dirDefine:
 			if !active[i] {
 				continue
@@ -219,8 +285,9 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 			own = append(own, ownDef{line: i + 1, name: d.arg, def: def})
 		case dirIfdef, dirIfndef:
 			parent := st.curActive()
-			// live holds base plus this file's defines from earlier
-			// lines only, so line order is honored.
+			// live holds base plus this file's defines and child
+			// contributions from earlier stream positions only, so
+			// stream order is honored.
 			_, defined := live[d.arg]
 			met := defined == (d.kind == dirIfdef)
 			st.conds = append(st.conds, ppFrame{parentActive: parent, active: parent && met, taken: met})
@@ -261,7 +328,8 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 	}
 
 	// Phase 2: lex live lines, substituting #define uses. A use sees
-	// defines from earlier lines only (base + own up to its line).
+	// defines from earlier stream positions only (base + own up to its
+	// line + child contributions from earlier includes).
 	toks, err := Lex(strings.Join(blanked, "\n"))
 	if err != nil {
 		if le, ok := err.(*LexError); ok {
@@ -274,11 +342,20 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 	for k, v := range base {
 		eff[k] = v
 	}
-	oi := 0
+	// Timeline walk in line order: own defines and child contributions
+	// (both collected in sweep order) apply to tokens at their position
+	// or later.
+	oi, ci := 0, 0
 	for i := range toks {
 		for oi < len(own) && own[oi].line <= toks[i].Line {
 			eff[own[oi].name] = own[oi].def
 			oi++
+		}
+		for ci < len(chevs) && chevs[ci].line <= toks[i].Line {
+			for k, v := range chevs[ci].adds {
+				eff[k] = v
+			}
+			ci++
 		}
 		if toks[i].Type == TokIdent && !(i > 0 && toks[i-1].Type == TokDot) {
 			if def, ok := eff[toks[i].Lit]; ok {
@@ -300,32 +377,17 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		byLine[toks[i].Line] = append(byLine[toks[i].Line], toks[i])
 	}
 
-	// Phase 3: sweep lines in order; publish own defines and splice
-	// active includes so children see exactly the earlier defines.
+	// Phase 3: sweep lines in order; publish the remaining own defines
+	// and splice the cached child tokens (processed inline in phase 1
+	// in stream order).
 	var out []Token
-	di := 0
 	for ln := 1; ln <= len(lines)+1; ln++ {
-		for di < len(own) && own[di].line < ln {
-			o := own[di]
-			if _, ok := st.defines[o.name]; ok {
-				return nil, &LexError{File: display, Line: o.line, Column: 1, Msg: fmt.Sprintf("#define %q は既に定義されています", o.name)}
-			}
-			st.defines[o.name] = o.def
-			di++
+		if err := publishUntil(ln); err != nil {
+			return nil, err
 		}
 		if ln <= len(lines) {
 			if d := dirs[ln-1]; d != nil && d.kind == dirInclude && active[ln-1] {
-				child, err := st.combineFile(d.arg, parentDir)
-				if err != nil {
-					return nil, err
-				}
-				for _, t := range child {
-					if t.Type == TokEOF {
-						continue
-					}
-					out = append(out, t)
-				}
-				out = append(out, Token{Type: TokNewline, Lit: "\n", File: display, Line: ln, Column: 1})
+				out = append(out, incToks[ln]...)
 				continue
 			}
 		}

@@ -1,4 +1,4 @@
-// Goulash v0.2 AST → レジスタVMバイトコード・コンパイラ。
+// Golash AST → レジスタVMバイトコード・コンパイラ。
 //
 // 意味論の対応付け（詳細は docs/DESIGN_VM.md）：
 //   - 評価順序は runtime.go と同一（RHS先行・L→R・添字系の内外順序まで再現）。

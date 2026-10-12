@@ -1,4 +1,4 @@
-// AST definitions for HSP successor language v0.2.
+// AST definitions for HSP successor language.
 package main
 
 import (

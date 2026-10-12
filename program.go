@@ -1,4 +1,4 @@
-// Goulash v0.2 レジスタVMのプログラム表現。
+// Golash レジスタVMのプログラム表現。
 //
 // ast.Program（構文木）との混同を避けるため、バイトコード側は
 // VMProgram / VMProto と名付ける。ソース位置は ast.Pos をそのまま使い

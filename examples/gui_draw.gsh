@@ -1,5 +1,5 @@
 screen(640, 480)
-title("Goulash draw demo")
+title("Golash draw demo")
 
 color(40, 40, 120)
 boxf(0, 0, 640, 480)
@@ -37,8 +37,16 @@ pos(224, 400)
 gcopy(1, 0, 0, 60, 40)
 galpha(255)
 
-gsquare(1, 0, 0, 60, 40, 300, 300, 420, 300, 390, 380, 270, 380)
-gtritex(1, 0, 0, 60, 0, 0, 40, 460, 300, 580, 300, 460, 380)
+gquad(1,
+    [300, 420, 390, 270], [300, 300, 380, 380],
+    [0, 60, 60, 0], [0, 0, 40, 40],
+    [16777215, 16777215, 16777215, 16777215])
+gquad(1,
+    [460, 580, 460, 300, 460, 580, 300, 460],
+    [300, 300, 380, 380, 390, 390, 470, 470],
+    [0, 60, 0, 0, 0, 60, 0, 0],
+    [0, 0, 40, 40, 0, 0, 40, 40],
+    [16777215, 16777215, 16777215, 16777215, 16711680, 65280, 255, 16777215])
 
 color(255, 0, 0)
 pset(5, 470)
@@ -52,7 +60,7 @@ mes("draw demo")
 font(16)
 mes("pset/line/boxf/circle OK")
 mes("paint/gcopy/galpha/font/pngsave OK")
-mes("gsquare/gtritex OK")
+mes("gquad OK")
 
 pngsave("draw_demo.png")
 mes("saved draw_demo.png")

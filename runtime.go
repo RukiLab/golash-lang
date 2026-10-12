@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 )
 
-// Decisions (v0.2):
+// Decisions:
 //   - `/` on two ints is truncating integer division (Go-like); any float
 //     operand yields a float. `%` accepts ints only.
 //   - Conditions are strictly bool; `if 1` is an error.

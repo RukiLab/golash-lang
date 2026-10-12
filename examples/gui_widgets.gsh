@@ -1,5 +1,5 @@
 screen(640, 480)
-title("Goulash widgets demo")
+title("Golash widgets demo")
 
 button(1, "Count", 20, 400, 120, 40)
 button(2, "終了", 500, 400, 120, 40)

@@ -1,5 +1,5 @@
 screen(640, 480)
-title("Goulash input demo")
+title("Golash input demo")
 
 repeat 100000 {
     cls()

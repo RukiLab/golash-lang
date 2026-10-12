@@ -163,10 +163,10 @@ func init() {
 		return Null(), nil
 	})
 
-	// Clipboard (text only): clipboard_get polls the cached text,
-	// clipboard_set writes it. External copies surface through a
+	// Clipboard (text only): clipget polls the cached text,
+	// clipset writes it. External copies surface through a
 	// background watcher; our own writes update the cache at once.
-	register("clipboard_get", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
+	register("clipget", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if err := clipEnsure(); err != nil {
 			return Null(), rtErrf(at, "clipboard：%s", err.Error())
 		}
@@ -174,8 +174,8 @@ func init() {
 		defer clipMu.Unlock()
 		return Str(clipText), nil
 	})
-	register("clipboard_set", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("clipboard_set", args, 0, at)
+	register("clipset", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		s, err := needString("clipset", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
@@ -195,18 +195,15 @@ func init() {
 	// path is never a real selection, so it doubles as the sentinel).
 	// filter is "名前|*.png;*.jpg" (one group).
 	register("dlgopen", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		b := dialog.File().Title("開く")
+		filter := ""
 		if len(args) == 1 {
-			f, err := needString("dlgopen", args, 0, at)
+			var err error
+			filter, err = needString("dlgopen", args, 0, at)
 			if err != nil {
 				return Null(), err
 			}
-			desc, exts := parseDlgFilter(f)
-			if len(exts) > 0 {
-				b = b.Filter(desc, exts...)
-			}
 		}
-		path, err := b.Load()
+		path, err := dlgFileBuilder(in, "開く", filter, "").Load()
 		if err != nil {
 			if errors.Is(err, dialog.ErrCancelled) {
 				return Str(""), nil
@@ -216,9 +213,27 @@ func init() {
 		return Str(path), nil
 	})
 
-	// dlgsave(): file-save dialog, or "" on cancel.
-	register("dlgsave", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		path, err := dialog.File().Title("保存").Save()
+	// dlgsave([filter] [, name]): file-save dialog, or "" on cancel.
+	// filter is "名前|*.png;*.jpg" (one group; pass "" to skip it) and name
+	// pre-fills the file name box. The dialog itself asks before
+	// overwriting an existing file (the OS prompt), so a returned path is
+	// always confirmed by the user.
+	register("dlgsave", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		filter, name := "", ""
+		var err error
+		if len(args) >= 1 {
+			filter, err = needString("dlgsave", args, 0, at)
+			if err != nil {
+				return Null(), err
+			}
+		}
+		if len(args) == 2 {
+			name, err = needString("dlgsave", args, 1, at)
+			if err != nil {
+				return Null(), err
+			}
+		}
+		path, err := dlgFileBuilder(in, "保存", filter, name).Save()
 		if err != nil {
 			if errors.Is(err, dialog.ErrCancelled) {
 				return Str(""), nil
@@ -315,4 +330,38 @@ func init() {
 		}
 		return Null(), nil
 	})
+}
+
+// dlgStartDir is the initial folder of a file dialog: the script's own
+// directory when it exists, else the working directory. It mirrors the
+// font() search order, so a script picks files next to itself by default
+// ("" when neither is a usable directory, leaving the OS to decide).
+func dlgStartDir(in *Interp) string {
+	if d := in.ScriptDir(); d != "" {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			return d
+		}
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return ""
+}
+
+// dlgFileBuilder configures a common file dialog: the start folder
+// (dlgStartDir), an optional filter ("名前|*.png;*.jpg", one group) and,
+// for save dialogs, a pre-filled file name. No OS window opens until
+// Load()/Save(), so the configuration is testable without a session.
+func dlgFileBuilder(in *Interp, title, filter, name string) *dialog.FileBuilder {
+	b := dialog.File().Title(title)
+	if dir := dlgStartDir(in); dir != "" {
+		b = b.SetStartDir(dir)
+	}
+	if desc, exts := parseDlgFilter(filter); len(exts) > 0 {
+		b = b.Filter(desc, exts...)
+	}
+	if name != "" {
+		b = b.SetStartFile(name)
+	}
+	return b
 }

@@ -17,7 +17,15 @@ import (
 // Text is rendered with an OS system font; no font file is bundled.
 // GOULASH_FONT (path to a .ttf/.otf/.ttc file) overrides discovery.
 // Otherwise the first readable, parseable candidate for the current OS
-// wins; Japanese-capable fonts are listed before Latin-only fallbacks.
+// wins. Candidates are ordered by line pitch fit first: one text line is
+// lineHeight tall (16px at the default 16px face size), so a font whose
+// ascent+descent is exactly 16px packs lines with neither overlap nor
+// gap (MS Gothic, MS Mincho, BIZ UD Gothic), while a taller line box
+// (Yu Gothic ~17.6px, Noto ~19.2px, Meiryo 24px) crowds them. Character
+// advances are the font's own widths — pos() places text at an exact
+// pixel, so a proportional face flows naturally, it just looks less
+// terminal-like than a fixed-pitch one. Fonts missing on the machine
+// are skipped, then the OS UI font, and last a Latin-only fallback.
 const fontEnvOverride = "GOULASH_FONT"
 
 // systemFontCandidates lists font files in preference order.
@@ -30,11 +38,11 @@ func systemFontCandidates() []string {
 		}
 		dir := filepath.Join(root, "Fonts")
 		names := []string{
-			"YuGothR.ttc",       // Yu Gothic Regular (default Japanese UI font)
+			"msgothic.ttc",      // MS Gothic (default: 16px line box = the line pitch)
+			"YuGothR.ttc",       // Yu Gothic Regular
 			"meiryo.ttc",        // Meiryo
 			"NotoSansJP-VF.ttf", // Noto Sans JP (variable font, default instance)
 			"BIZ-UDGothicR.ttc", // BIZ UD Gothic
-			"msgothic.ttc",      // MS Gothic
 			"msmincho.ttc",      // MS Mincho
 			"YuGothM.ttc",       // Yu Gothic Medium
 			"segoeui.ttf",       // Latin-only last resort
@@ -45,7 +53,12 @@ func systemFontCandidates() []string {
 		}
 		return out
 	case "darwin":
+		// Osaka ships with many macOS releases and matches the 8x16 cell
+		// grid; the ProN files are the Roman-named Hiragino faces of
+		// newer releases. Missing files are just skipped.
 		return []string{
+			"/System/Library/Fonts/Osaka.ttf",
+			"/System/Library/Fonts/ヒラギノ角ゴ ProN W3.ttc",
 			"/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
 			"/System/Library/Fonts/Hiragino Sans GB.ttc",
 			"/Library/Fonts/Hiragino Sans GB.ttc",
@@ -53,11 +66,16 @@ func systemFontCandidates() []string {
 			"/System/Library/Fonts/Helvetica.ttc",
 		}
 	default: // linux and other unix-likes
+		// Grid-fitting monospace Japanese faces first (present only when
+		// their font package is installed), then Noto CJK/JP, which is
+		// the common default but proportional.
 		return []string{
+			"/usr/share/fonts/truetype/migu/migu-1m-regular.ttf",
+			"/usr/share/fonts/truetype/vlgothic/VL-Gothic-Regular.ttf",
+			"/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
 			"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
 			"/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
 			"/usr/share/fonts/truetype/noto/NotoSansJP-Regular.ttf",
-			"/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
 			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 		}
 	}

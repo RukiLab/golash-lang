@@ -70,7 +70,7 @@ func init() {
 
 	// font(size) / font(spec) / font(spec, size): text face size in
 	// pixels (cell grid scales with it). spec is a font file path or a
-	// system font name (e.g. "YuGothR.ttc", "meiryo.ttc").
+	// system font name (e.g. "msgothic.ttc", "YuGothR.ttc").
 	register("font", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "font")
 		if err != nil {

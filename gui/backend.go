@@ -19,8 +19,7 @@ import (
 
 const (
 	fontSize   = 16.0
-	lineHeight = 20.0
-	charWidth  = 8.0
+	lineHeight = 16.0
 	// italicShear slants faux-italic glyphs (~11 degrees).
 	italicShear = 0.2
 )
@@ -59,21 +58,35 @@ func ParseTextStyle(s string) (TextStyle, bool) {
 type WindowBackend struct {
 	mu   sync.Mutex
 	w, h int
+	// followWindow mirrors resizable(): while the window may be dragged,
+	// Layout returns the window size so the drawing resolution follows it
+	// (the canvas is re-created at the window size, 1:1 pixels) instead of
+	// pinning the screen() size and scaling the view.
+	followWindow bool
 	// Text layout state (guarded by mu). Text is rasterized into the
 	// canvas buffer (targets[sel]) exactly like pset()/line()/boxf(), so
 	// text and shapes share one layer and the call order decides what
 	// covers what (HSP-like). These fields are only the script-side
 	// cursor: nothing is drawn until the frame boundary applies the
 	// queued draw commands.
-	curX int // cursor column in character cells
-	curY int // cursor row in character cells
+	// Text layout state (guarded by mu), in device pixels: pos() places
+	// the text origin exactly (1px granularity, no cell rounding), and
+	// each mes()/print() fragment advances the cursor by the width it
+	// actually drew, so a proportional face flows naturally.
+	curX float64
+	curY float64
+	// lineStartX is the x the current text line started at: 0 after a
+	// full-line break, the pos() origin otherwise. Embedded newlines
+	// (\n inside one string) return the cursor here instead of to 0,
+	// so a multi-line mes() prints as a block from its anchor.
+	lineStartX float64
 	// textBatch spools consecutive mes()/print() calls on the script side
 	// so a burst shares one queued closure and adjacent repeated scrolls
 	// collapse (guarded by mu).
 	textBatch *textBatch
 	// scrollExact is the exact accumulated scroll height and scrollDone
-	// the pixels already shifted, so a fractional line height (odd font
-	// sizes) never drifts the baked text off the cell grid.
+	// the pixels already shifted, so the scroll never drifts the baked
+	// text off the cell grid even for a fractional line height.
 	scrollExact float64
 	scrollDone  int
 	// yieldedOnce: the script has parked in await()/sleep() at least once.
@@ -85,11 +98,10 @@ type WindowBackend struct {
 
 	gx, gy int // pixel cursor for graphics (gcopy destination)
 	fg     color.NRGBA
-	// Font state (guarded by mu): face plus the cell metrics derived
-	// from it, so the mes/pos grid stays aligned at any size.
+	// Font state (guarded by mu): face plus the line pitch derived from
+	// it (one mes()/print() line is lineH tall), at any size.
 	face     *text.GoTextFace
 	fontSize float64
-	charW    float64
 	lineH    float64
 	fontPath string // resolved font file in use ("": discovery default)
 	wantDone bool   // script finished; keep window open
@@ -104,7 +116,7 @@ type WindowBackend struct {
 	scrollScratch map[[2]int]*ebiten.Image
 	blend         ebiten.CompositeMode
 	// persp is the shared perspective-correct texture shader for
-	// gsquare()/gtritex() (compiled once on the game thread; see
+	// gquad() (compiled once on the game thread; see
 	// persp.go). perspErr pins a compile failure so every later draw
 	// takes the affine fallback instead of retrying each frame.
 	persp    *ebiten.Shader
@@ -138,8 +150,8 @@ type WindowBackend struct {
 	// Immediate-input repeat state (input(); guarded by mu).
 	charSt charRep
 	ctrlSt []ctrlState // one slot per ctrlKeys entry
-	// IME state (ime/imeget; Field is pumped on the game thread only,
-	// mirrors are guarded by mu for script-side reads).
+	// IME state (ime only; Field is pumped on the game thread only,
+	// mirrors are guarded by mu for bar/draw reads).
 	imeField   textinput.Field
 	imePrev    string // previous tick's committed field text (diff base)
 	imePending string // committed text awaiting input()
@@ -152,13 +164,6 @@ type WindowBackend struct {
 	imeClause      string
 	imeClauseStart int
 	imeClauseEnd   int
-	// imeAnchor is a manual candidate-window anchor (imepos; window
-	// pixels, same system as inputbox x/y). When set it wins over
-	// the focused inputbox caret in pumpIME; otherwise the caret
-	// (or the (0,0) fallback with no focused editor) is used.
-	imeAnchorSet bool
-	imeAnchorX   int
-	imeAnchorY   int
 	// imeOff is the sticky script-side disable set by ime(0): box
 	// focus never auto-focuses the IME field while set. ime(1) or
 	// the next box focus edge clears it. Guarded by mu.
@@ -180,10 +185,11 @@ func New(w, h int) (*WindowBackend, error) {
 	b := &WindowBackend{
 		w: w, h: h,
 		ctrlSt:   make([]ctrlState, len(ctrlKeys)),
-		fg:       color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF},
+		// White window: the default face is black text on white,
+		// matching the Windows-standard widget theme.
+		fg:       color.NRGBA{0x00, 0x00, 0x00, 0xFF},
 		face:     face,
 		fontSize: fontSize,
-		charW:    charWidth,
 		lineH:    lineHeight,
 		alpha:    0xFF,
 		// Image maps must exist before the first image op: PicLoad
@@ -203,7 +209,7 @@ func New(w, h int) (*WindowBackend, error) {
 // It returns when the window closes or the script calls end().
 func RunLoop(be *WindowBackend, run func()) int {
 	ebiten.SetWindowSize(be.w, be.h)
-	ebiten.SetWindowTitle("Goulash")
+	ebiten.SetWindowTitle("Golash")
 	ebiten.SetVsyncEnabled(true)
 	go run()
 	if err := ebiten.RunGame(be); err != nil && !errors.Is(err, ebiten.Termination) {
@@ -370,7 +376,8 @@ func (b *WindowBackend) Update() error {
 // are rasterized into it by applyTextDraw), so Draw only blits one layer:
 // whichever was drawn last in the script wins, exactly like HSP.
 func (b *WindowBackend) Draw(screen *ebiten.Image) {
-	screen.Fill(color.Black)
+	// White window: cleared (transparent) canvas shows white.
+	screen.Fill(color.White)
 	// Visible canvas: the committed buffer (drawSel). gsel() の途中切替が
 	// そのまま出ると裏バッファの描きかけが1フレーム見えるため、frame 境界で
 	// 公開された面だけを描く。targets 自体は game thread のみが触る。
@@ -385,10 +392,25 @@ func (b *WindowBackend) Draw(screen *ebiten.Image) {
 		b.ui.Draw(screen)
 	}
 	b.drawInputs(screen)
+	b.drawIMEComp(screen)
 }
 
-// Layout fixes the logical screen size.
+// Layout fixes the logical screen size. While resizable() is on, the
+// drawing resolution follows the window instead: the canvas is re-created
+// at the window size (pixel 1:1, no scaling), so dragging the window
+// widens the drawing area rather than magnifying a fixed canvas.
 func (b *WindowBackend) Layout(outsideWidth, outsideHeight int) (int, int) {
+	b.mu.Lock()
+	if !b.followWindow || outsideWidth <= 0 || outsideHeight <= 0 ||
+		(outsideWidth == b.w && outsideHeight == b.h) {
+		defer b.mu.Unlock()
+		return b.w, b.h
+	}
+	b.w, b.h = outsideWidth, outsideHeight
+	b.mu.Unlock()
+	// Layout runs on the game thread before Update/Draw of the same
+	// frame, so the canvas swap lands with the grown framebuffer.
+	b.resizeMainCanvas(outsideWidth, outsideHeight, true)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.w, b.h

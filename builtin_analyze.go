@@ -64,6 +64,26 @@ func init() {
 		}
 		return nodeArr("program", Pos{Line: 1, Column: 1}, prog.String(), ArrayOf(stmts)), nil
 	})
+
+	// checksrc(path): lex + parse a file (with #include expansion) for
+	// editors, returning "" when clean or "file:line:col: message" for
+	// the first error. Unlike running the file, this never executes
+	// code and never raises: editors show the text and jump to it.
+	// Paths resolve like file builtins (script directory first).
+	register("checksrc", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		p, err := needString("checksrc", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		toks, err := CombineFile(in.resolvePath(p))
+		if err != nil {
+			return Str(err.Error()), nil
+		}
+		if _, err := ParseTokens(toks); err != nil {
+			return Str(err.Error()), nil
+		}
+		return Str(""), nil
+	})
 }
 
 // nodeArr builds the common node array: kind, position, canonical

@@ -218,6 +218,19 @@ func (b *WindowBackend) MousePos() (int, int) {
 	return ebiten.CursorPosition()
 }
 
+// MouseDown reports whether a button is held right now (0 left,
+// 1 middle, 2 right). Unlike ClickedButton it never consumes: pairing
+// it with a latched drag flag is how scripts implement scrollbar
+// dragging (click starts it, release ends it).
+func (b *WindowBackend) MouseDown(btn int) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if btn < 0 || btn >= len(b.mouseDown) {
+		return false, fmt.Errorf("不明なボタン %d です", btn)
+	}
+	return b.mouseDown[btn], nil
+}
+
 // PadCount reports connected gamepads.
 func (b *WindowBackend) PadCount() int {
 	return len(ebiten.AppendGamepadIDs(nil))

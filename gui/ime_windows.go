@@ -16,7 +16,7 @@ import (
 // the stale text and UncommittedTextLengthInBytes stays > 0 forever.
 // pumpIME reconciles ebiten's mirror against this OS-side length: when
 // the OS composition is empty, the unconfirmed string became empty and
-// imeget() must report "".
+// the bar must blank.
 //
 // NOTE: pumpIME runs on ebiten's game thread, which is NOT the main
 // (window) thread, so thread-affine queries like GetActiveWindow always

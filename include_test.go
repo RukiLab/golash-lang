@@ -372,6 +372,87 @@ func TestDefineAcrossFiles(t *testing.T) {
 	}
 }
 
+func TestDefineUpwardSharing(t *testing.T) {
+	dir := t.TempDir()
+	// Library define visible to the parent after the #include.
+	writeFile(t, filepath.Join(dir, "lib.gsh"), "#define UPVAR 7\n")
+	writeFile(t, filepath.Join(dir, "main.gsh"), "#include \"lib.gsh\"\nmes(UPVAR * 6)\n")
+	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
+	if err != nil || got != "42\n" {
+		t.Fatalf("upward use: got %q, %v", got, err)
+	}
+	// ... and to #ifdef checks after the #include.
+	writeFile(t, filepath.Join(dir, "libf.gsh"), "#define FEAT 1\n")
+	writeFile(t, filepath.Join(dir, "mainf.gsh"), "#include \"libf.gsh\"\n#ifdef FEAT\nmes(\"yes\")\n#else\nmes(\"no\")\n#endif\n")
+	got, err = runFile(t, filepath.Join(dir, "mainf.gsh"))
+	if err != nil || got != "yes\n" {
+		t.Fatalf("upward ifdef: got %q, %v", got, err)
+	}
+	// ... and to later siblings (A defines, B uses).
+	writeFile(t, filepath.Join(dir, "a.gsh"), "#define SIB 21\n")
+	writeFile(t, filepath.Join(dir, "b.gsh"), "mes(SIB * 2)\n")
+	writeFile(t, filepath.Join(dir, "mains.gsh"), "#include \"a.gsh\"\n#include \"b.gsh\"\n")
+	got, err = runFile(t, filepath.Join(dir, "mains.gsh"))
+	if err != nil || got != "42\n" {
+		t.Fatalf("sibling use: got %q, %v", got, err)
+	}
+	// Stream order still holds: a use before the include fails.
+	writeFile(t, filepath.Join(dir, "libp.gsh"), "#define PRE 1\n")
+	writeFile(t, filepath.Join(dir, "mainp.gsh"), "mes(PRE)\n#include \"libp.gsh\"\n")
+	if _, err := runFile(t, filepath.Join(dir, "mainp.gsh")); err == nil {
+		t.Fatal("use before include should fail")
+	}
+	// Redefining a library name in the parent is still an error.
+	writeFile(t, filepath.Join(dir, "libd.gsh"), "#define DUP 1\n")
+	writeFile(t, filepath.Join(dir, "maind.gsh"), "#include \"libd.gsh\"\n#define DUP 2\nmes(1)\n")
+	if _, err := runFile(t, filepath.Join(dir, "maind.gsh")); err == nil {
+		t.Fatal("parent redefinition of library name should fail")
+	}
+}
+
+func TestChecksrc(t *testing.T) {
+	dir := t.TempDir()
+	chk := func(name, src string) string {
+		t.Helper()
+		writeFile(t, filepath.Join(dir, name), src)
+		// Absolute path: runFile leaves scriptDir empty, so relative
+		// lookup would miss the temp dir. Slashes keep the generated
+		// source free of backslash escapes on Windows.
+		abs := filepath.ToSlash(filepath.Join(dir, name))
+		progSrc := "mes(checksrc(\"" + abs + "\"))\n"
+		writeFile(t, filepath.Join(dir, "chk_"+name), "#mode cli\n"+progSrc)
+		got, err := runFile(t, filepath.Join(dir, "chk_"+name))
+		if err != nil {
+			t.Fatalf("checksrc runner: %v", err)
+		}
+		return strings.TrimSuffix(got, "\n")
+	}
+	// Clean file reports "".
+	if got := chk("ok.gsh", "mes(1 + 2)\n"); got != "" {
+		t.Fatalf("clean = %q, want empty", got)
+	}
+	// Syntax error reports file:line:col: message.
+	if got := chk("bad.gsh", "mes(1)\nif {\n}\n"); !strings.Contains(got, "bad.gsh:2:") {
+		t.Fatalf("syntax err = %q, want bad.gsh:2:", got)
+	}
+	// Errors inside includes name the library file.
+	writeFile(t, filepath.Join(dir, "libbad.gsh"), "mes(1 +\n")
+	if got := chk("use.gsh", "#include \"libbad.gsh\"\nmes(1)\n"); !strings.Contains(got, "libbad.gsh:") {
+		t.Fatalf("include err = %q, want libbad.gsh:", got)
+	}
+	// Missing file is a report, not a crash.
+	writeFile(t, filepath.Join(dir, "chkmiss.gsh"), "#mode cli\nmes(checksrc(\"no-such-file.gsh\"))\n")
+	got, err := runFile(t, filepath.Join(dir, "chkmiss.gsh"))
+	if err != nil || got == "" {
+		t.Fatalf("missing file: got %q, %v", got, err)
+	}
+	// Upward-shared defines check clean.
+	writeFile(t, filepath.Join(dir, "libup.gsh"), "#define SHARED 3\n")
+	if got := chk("up.gsh", "#include \"libup.gsh\"\nmes(SHARED)\n"); got != "" {
+		t.Fatalf("upward = %q, want empty", got)
+	}
+}
+
 func runSrcPP(t *testing.T, src string) (string, error) {
 	t.Helper()
 	prog, err := runParsePP(src)

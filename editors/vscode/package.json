@@ -1,7 +1,7 @@
 {
   "name": "goulash",
-  "displayName": "Goulash",
-  "description": "Goulash (.gsh) language support: syntax highlighting and editing helpers",
+  "displayName": "Golash",
+  "description": "Golash (.gsh) language support: syntax highlighting and editing helpers",
   "version": "0.3.0",
   "publisher": "goulash",
   "license": "MIT",
@@ -20,7 +20,7 @@
       {
         "id": "goulash",
         "aliases": [
-          "Goulash",
+          "Golash",
           "goulash"
         ],
         "extensions": [
@@ -39,8 +39,8 @@
     "commands": [
       {
         "command": "goulash.run",
-        "title": "Goulash: 実行",
-        "category": "Goulash"
+          "title": "Golash: 実行",
+          "category": "Golash"
       }
     ],
     "keybindings": [

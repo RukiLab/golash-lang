@@ -1,6 +1,6 @@
-# Goulash for VS Code
+# Golash for VS Code
 
-Goulash（`.gsh`）用の言語サポートです。TextMate による構文強調表示、
+Golash（`.gsh`）用の言語サポートです。TextMate による構文強調表示、
 コメント・括弧の編集支援、F5 でのスクリプト実行を提供します。
 
 ## 実行（F5）
@@ -8,7 +8,7 @@ Goulash（`.gsh`）用の言語サポートです。TextMate による構文強�
 `.gsh` ファイルを開いた状態で `F5` を押すと、ファイルを保存してから
 統合ターミナルで `gsh run "<file>"` が実行されます（ターミナルが
 なければ自動作成）。
-コマンドパレットから `Goulash: 実行` でも同じ操作ができます。
+コマンドパレットから `Golash: 実行` でも同じ操作ができます。
 
 前提：
 
@@ -41,7 +41,7 @@ vsce publish
 - `language-configuration.json` — `//` と `/* */` コメント、括弧、
   自動補完ペア、ブレースのインデント
 - `package.json` — `.gsh` に対する言語・文法・実行コマンド・F5 キーバインドの登録
-- `extension.js` — `Goulash: 実行` コマンド（保存→ターミナル確保→`gsh run`）
+- `extension.js` — `Golash: 実行` コマンド（保存→ターミナル確保→`gsh run`）
 
 組み込み関数の一覧は処理系の登録内容（`builtin_*.go`）を反映しています。
 組み込み関数を変更した場合は、`register("name", ...)` の出現箇所から

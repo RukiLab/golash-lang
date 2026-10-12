@@ -1,4 +1,4 @@
-title("Goulash gui demo")
+title("Golash gui demo")
 mes("Hello, GUI!")
 mes("2 + 3 =", 2 + 3)
 color(255, 200, 80)

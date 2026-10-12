@@ -1,4 +1,4 @@
-// Runtime value model for HSP successor language v0.2.
+// Runtime value model for HSP successor language.
 package main
 
 import (
@@ -38,7 +38,7 @@ func (k Kind) String() string {
 	return "unknown"
 }
 
-// Value is a dynamically typed v0.2 value. Arrays hold shared pointers
+// Value is a dynamically typed value. Arrays hold shared pointers
 // so `b = a` shares elements (reference semantics). Functions are not
 // values: def registers a callable name, never a value.
 type Value struct {
@@ -97,7 +97,7 @@ func Stringify(v Value) string {
 	return "unknown"
 }
 
-// typeNameOf reports the v0.2 type name of a value for diagnostics.
+// typeNameOf reports the type name of a value for diagnostics.
 func typeNameOf(v Value) string {
 	return v.K.String()
 }

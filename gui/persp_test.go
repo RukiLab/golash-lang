@@ -103,17 +103,19 @@ func TestSolveHomographySingular(t *testing.T) {
 }
 
 func TestPerspVertEncodesProjective(t *testing.T) {
-	v := perspVert(7, 9, 100, 200, 4, 0.5)
+	v := perspVert(7, 9, 100, 200, 4, [4]float32{1, 0.5, 0.25, 0.5})
 	if v.DstX != 7 || v.DstY != 9 {
 		t.Fatalf("dst = (%v,%v), want (7,9)", v.DstX, v.DstY)
 	}
 	if v.Custom0 != 25 || v.Custom1 != 50 || v.Custom2 != 0.25 {
 		t.Fatalf("custom = (%v,%v,%v), want (25,50,0.25)", v.Custom0, v.Custom1, v.Custom2)
 	}
-	if v.ColorA != 0.5 || v.ColorR != 1 || v.ColorG != 1 || v.ColorB != 1 {
-		t.Fatalf("color = (%v,%v,%v,%v), want (1,1,1,0.5)", v.ColorR, v.ColorG, v.ColorB, v.ColorA)
+	if v.ColorR != 1 || v.ColorG != 0.5 || v.ColorB != 0.25 || v.ColorA != 0.5 {
+		t.Fatalf("color = (%v,%v,%v,%v), want (1,0.5,0.25,0.5)", v.ColorR, v.ColorG, v.ColorB, v.ColorA)
 	}
 }
+
+var white3 = [3][3]float64{{1, 1, 1}, {1, 1, 1}, {1, 1, 1}}
 
 func TestPerspShaderCompiles(t *testing.T) {
 	// NewShader type-checks the Kage source on the CPU; a failure here
@@ -124,86 +126,90 @@ func TestPerspShaderCompiles(t *testing.T) {
 	}
 }
 
-// TestDrawQuadValidation covers argument checks without a game loop:
-// every failure returns before enqueueing anything.
-func TestDrawQuadValidation(t *testing.T) {
+// TestDrawQuadsValidation covers gquad checks without a game loop:
+// every failure returns before enqueueing anything, and a batch lands
+// as exactly one command.
+func TestDrawQuadsValidation(t *testing.T) {
 	b := mustNew(t)
 	if err := b.SelectTarget(0); err != nil {
 		t.Fatalf("SelectTarget(0): %v", err)
 	}
-	dx := [4]float64{0, 10, 10, 0}
-	dy := [4]float64{0, 0, 10, 10}
-	if err := b.DrawQuad(99, 0, 0, 10, 10, dx, dy); err == nil {
+	white := [4][3]float64{{1, 1, 1}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}}
+	q := func() Quad {
+		return Quad{
+			X: [4]float64{0, 10, 10, 0}, Y: [4]float64{0, 0, 10, 10},
+			U: [4]float64{0, 8, 8, 0}, V: [4]float64{0, 0, 8, 8},
+			Light: white,
+		}
+	}
+	if err := b.DrawQuads(99, []Quad{q()}); err == nil {
 		t.Fatal("unknown buffer should error")
 	}
-	if err := b.DrawQuad(0, 0, 0, 0, 10, dx, dy); err == nil {
-		t.Fatal("zero width should error")
+	// NaN/Inf coordinates are rejected (defense in depth for Go callers).
+	bad := q()
+	bad.Y[1] = math.NaN()
+	if err := b.DrawQuads(0, []Quad{bad}); err == nil {
+		t.Fatal("NaN coordinate should error")
 	}
-	if err := b.DrawQuad(0, 0, 0, 10, -1, dx, dy); err == nil {
-		t.Fatal("negative height should error")
-	}
-	nan := [4]float64{0, math.NaN(), 10, 0}
-	if err := b.DrawQuad(0, 0, 0, 10, 10, nan, dy); err == nil {
-		t.Fatal("NaN dst should error")
+	bad = q()
+	bad.Light[2] = [3]float64{math.Inf(1), 1, 1}
+	if err := b.DrawQuads(0, []Quad{bad}); err == nil {
+		t.Fatal("Inf light should error")
 	}
 	// A point quad is a silent no-op, never an error, and enqueues nothing.
-	pt := [4]float64{5, 5, 5, 5}
-	if err := b.DrawQuad(0, 0, 0, 10, 10, pt, pt); err != nil {
+	pt := q()
+	pt.X = [4]float64{5, 5, 5, 5}
+	pt.Y = [4]float64{5, 5, 5, 5}
+	if err := b.DrawQuads(0, []Quad{pt}); err != nil {
 		t.Fatalf("degenerate quad: %v", err)
 	}
 	if p, q := queuedLens(b); p != 0 || q != 0 {
 		t.Fatalf("degenerate quad enqueued: pending=%d queue=%d", p, q)
 	}
 	// Two source corners sharing one image forces a singular map.
-	dup := [4]float64{0, 0, 10, 0}
-	dupY := [4]float64{0, 0, 0, 10}
-	if err := b.DrawQuad(0, 0, 0, 10, 10, dup, dupY); err == nil {
+	dup := q()
+	dup.U = [4]float64{0, 0, 10, 0}
+	dup.V = [4]float64{0, 0, 0, 10}
+	if err := b.DrawQuads(0, []Quad{q(), dup}); err == nil {
 		t.Fatal("collapsed corner pair should error")
 	}
-	// A valid call validates headless and stages exactly one command.
-	if err := b.DrawQuad(0, 0, 0, 10, 10, dx, dy); err != nil {
-		t.Fatalf("DrawQuad: %v", err)
+	if p, q := queuedLens(b); p != 0 || q != 0 {
+		t.Fatalf("a bad quad must not stage anything: pending=%d queue=%d", p, q)
+	}
+	// An empty batch is a no-op (a loop that culled every face), staging
+	// nothing — the builtin returns before even reaching here, but the
+	// face layer holds the same rule for Go-side callers.
+	if err := b.DrawQuads(0, nil); err != nil {
+		t.Fatalf("empty batch: %v", err)
+	}
+	if p, q := queuedLens(b); p != 0 || q != 0 {
+		t.Fatalf("empty batch enqueued: pending=%d queue=%d", p, q)
+	}
+	// One valid quad stages exactly one command.
+	if err := b.DrawQuads(0, []Quad{q()}); err != nil {
+		t.Fatalf("DrawQuads: %v", err)
 	}
 	if p, q := queuedLens(b); p != 0 || q != 1 {
 		t.Fatalf("valid quad staged: pending=%d queue=%d, want 0/1", p, q)
 	}
-}
-
-// TestDrawTriValidation covers gtritex checks without a game loop.
-func TestDrawTriValidation(t *testing.T) {
-	b := mustNew(t)
-	if err := b.SelectTarget(0); err != nil {
-		t.Fatalf("SelectTarget(0): %v", err)
+	// A batch of N faces still stages exactly one command.
+	batch := make([]Quad, 0, 7)
+	for i := 0; i < 7; i++ {
+		f := q()
+		f.X = [4]float64{float64(i), float64(i) + 10, float64(i) + 10, float64(i)}
+		batch = append(batch, f)
 	}
-	su := [3]float64{0, 10, 0}
-	sv := [3]float64{0, 0, 10}
-	du := [3]float64{0, 20, 0}
-	dv := [3]float64{0, 0, 20}
-	w := [3]float64{1, 1, 1}
-	if err := b.DrawTri(99, su, sv, du, dv, w); err == nil {
-		t.Fatal("unknown buffer should error")
-	}
-	for _, bad := range [][3]float64{{0, 1, 1}, {-2, 1, 1}, {math.NaN(), 1, 1}, {math.Inf(1), 1, 1}} {
-		if err := b.DrawTri(0, su, sv, du, dv, bad); err == nil {
-			t.Fatalf("w=%v should error", bad)
-		}
-	}
-	// A line triangle is a silent no-op.
-	flat := [3]float64{0, 5, 10}
-	zero := [3]float64{0, 0, 0}
-	if err := b.DrawTri(0, su, sv, flat, zero, w); err != nil {
-		t.Fatalf("degenerate tri: %v", err)
-	}
-	if p, q := queuedLens(b); p != 0 || q != 0 {
-		t.Fatalf("degenerate tri enqueued: pending=%d queue=%d", p, q)
-	}
-	if err := b.DrawTri(0, su, sv, du, dv, w); err != nil {
-		t.Fatalf("DrawTri: %v", err)
-	}
-	if err := b.DrawTri(0, su, sv, du, dv, [3]float64{1, 2, 0.5}); err != nil {
-		t.Fatalf("DrawTri with w: %v", err)
+	if err := b.DrawQuads(0, batch); err != nil {
+		t.Fatalf("DrawQuads batch: %v", err)
 	}
 	if p, q := queuedLens(b); p != 0 || q != 2 {
-		t.Fatalf("valid tris staged: pending=%d queue=%d, want 0/2", p, q)
+		t.Fatalf("batch staged: pending=%d queue=%d, want 0/2 (one per command)", p, q)
+	}
+	// Past the face cap the command is rejected before staging.
+	if err := b.DrawQuads(0, make([]Quad, maxQuadsPerCall+1)); err == nil {
+		t.Fatal("over the face cap should error")
+	}
+	if p, q := queuedLens(b); p != 0 || q != 2 {
+		t.Fatalf("rejected batch staged: pending=%d queue=%d, want 0/2", p, q)
 	}
 }

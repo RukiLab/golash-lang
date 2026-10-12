@@ -110,6 +110,34 @@ func (b *WindowBackend) allocBuf(id int) {
 	b.bufs[id] = true
 }
 
+// NewBuffer creates (or replaces) an off-screen buffer of w x h: an
+// empty, fully transparent image the script can gsel() into and draw on
+// (text included). The visible canvas (id 0) belongs to screen(), so
+// buffer() takes the off-screen ids only. Replacing an id drops whatever
+// it held, which lets a draw loop re-create its scratch buffer every
+// frame. Script-thread safe: the image is made on the game thread.
+func (b *WindowBackend) NewBuffer(id, w, h int) error {
+	if id <= 0 || id >= maxBuffers {
+		return fmt.Errorf("buffer：id は 1 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
+	}
+	if w <= 0 || h <= 0 {
+		return fmt.Errorf("buffer のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
+	}
+	// Oversized images panic inside the engine on the loop goroutine
+	// (uncatchable), so cap them here with a script error.
+	if w > MaxImageDim || h > MaxImageDim {
+		return fmt.Errorf("buffer のサイズは上限 %d x %d までです", MaxImageDim, MaxImageDim)
+	}
+	b.allocBuf(id)
+	b.enqueue(func() {
+		if b.targets == nil {
+			b.targets = map[int]*ebiten.Image{}
+		}
+		b.targets[id] = ebiten.NewImage(w, h)
+	})
+	return nil
+}
+
 // currentSel returns the selected target (script-thread safe).
 func (b *WindowBackend) currentSel() int {
 	b.mu.Lock()
@@ -193,26 +221,39 @@ func (b *WindowBackend) ResizeCanvas(w, h int) {
 	b.mu.Lock()
 	b.w, b.h = w, h
 	b.mu.Unlock()
-	b.enqueue(func() {
-		if b.targets == nil {
-			b.targets = map[int]*ebiten.Image{}
-		} else {
-			// Keep non-zero buffers (images), drop only the main canvas.
-			delete(b.targets, 0)
-		}
-		b.targets[0] = ebiten.NewImage(w, h)
-		b.mu.Lock()
-		if b.bufs == nil {
-			b.bufs = map[int]bool{}
-		}
-		b.bufs[0] = true
-		b.curX, b.curY, b.gx, b.gy = 0, 0, 0, 0
-		b.scrollExact, b.scrollDone = 0, 0
-		// Stale scratch images belong to the old size; drop them so a
-		// later scroll cannot blit from a mismatched buffer.
-		b.scrollScratch = nil
-		b.mu.Unlock()
-	})
+	b.enqueue(func() { b.resizeMainCanvas(w, h, false) })
+}
+
+// resizeMainCanvas swaps the main buffer (id 0) for a w x h one; other
+// buffers keep their own size (picload images), so only id 0 moves.
+// preserve keeps the old pixels, top-left aligned, when a window drag
+// grows the canvas; screen()/cls()-like starts pass false. The text
+// cursor and scroll state reset (the cell grid changed) and the
+// per-size scroll scratch is dropped. Game thread only: callers run
+// inside the draw queue or from Layout.
+func (b *WindowBackend) resizeMainCanvas(w, h int, preserve bool) {
+	if b.targets == nil {
+		b.targets = map[int]*ebiten.Image{}
+	}
+	old := b.targets[0]
+	delete(b.targets, 0)
+	next := ebiten.NewImage(w, h)
+	if preserve && old != nil {
+		next.DrawImage(old, nil)
+	}
+	b.targets[0] = next
+	b.mu.Lock()
+	if b.bufs == nil {
+		b.bufs = map[int]bool{}
+	}
+	b.bufs[0] = true
+	b.curX, b.curY, b.gx, b.gy = 0, 0, 0, 0
+	b.lineStartX = 0
+	b.scrollExact, b.scrollDone = 0, 0
+	// Stale scratch images belong to the old size; drop them so a
+	// later scroll cannot blit from a mismatched buffer.
+	b.scrollScratch = nil
+	b.mu.Unlock()
 }
 
 // SetBlend sets the composite mode: 0 normal, 1 additive.

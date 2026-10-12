@@ -58,6 +58,32 @@ func init() {
 		return Null(), nil
 	})
 
+	// buffer(id, w, h): create (or replace) an empty drawing buffer.
+	// The visible canvas (id 0) stays with screen(); buffer() owns the
+	// off-screen ids a script gsel()s into.
+	register("buffer", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "buffer")
+		if err != nil {
+			return Null(), err
+		}
+		id, err := needInt("buffer", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		w, err := needInt("buffer", args, 1, at)
+		if err != nil {
+			return Null(), err
+		}
+		h, err := needInt("buffer", args, 2, at)
+		if err != nil {
+			return Null(), err
+		}
+		if err := wb.NewBuffer(int(id), int(w), int(h)); err != nil {
+			return Null(), rtErrf(at, "%s", err.Error())
+		}
+		return Null(), nil
+	})
+
 	// pget(x, y): read one pixel from the current target.
 	// Returns the color as a 0xRRGGBB integer (r*65536+g*256+b).
 	register("pget", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {

@@ -122,59 +122,6 @@ func init() {
 		return Int(int64(wb.IMEState())), nil
 	})
 
-	// imeget(): in-conversion (uncommitted) IME text, or "".
-	register("imeget", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "imeget")
-		if err != nil {
-			return Null(), err
-		}
-		return Str(wb.IMEComposition()), nil
-	})
-
-	// imeclause(): the target conversion clause (文節) with its rune
-	// offsets into the imeget() string: [text, rstart, rend].
-	// All zeros when unfocused, idle, or the platform reports no
-	// clause range. One call is one tick's snapshot, so same words
-	// stay distinguishable by position. GUI IME がない CUI では
-	// guiBE がエラーにします（imeget と同じ）。
-	register("imeclause", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "imeclause")
-		if err != nil {
-			return Null(), err
-		}
-		text, rs, re := wb.IMEClause()
-		return ArrayOf([]Value{Str(text), Int(int64(rs)), Int(int64(re))}), nil
-	})
-
-	// imepos(x, y): fix the IME candidate-window anchor at window
-	// pixels (same system as inputbox x/y); it wins over the focused
-	// inputbox caret. imepos() with no args clears back to automatic
-	// caret-following (or the (0,0) fallback with no focused editor).
-	// CUI では guiBE がエラーにします（imeget と同じ）。
-	register("imepos", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "imepos")
-		if err != nil {
-			return Null(), err
-		}
-		if len(args) == 0 {
-			wb.IMEClearAnchor()
-			return Null(), nil
-		}
-		if len(args) != 2 {
-			return Null(), argErr("imepos", 0, at, "imepos(x, y) または imepos()（自動に戻す）で指定してください")
-		}
-		x, err := needInt("imepos", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		y, err := needInt("imepos", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		wb.IMESetAnchor(int(x), int(y))
-		return Null(), nil
-	})
-
 	// listbox(id, x, y, w, h, items): place a list; items is an array.
 	register("listbox", 6, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "listbox")

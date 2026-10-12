@@ -464,26 +464,23 @@ func TestPrintlnState(t *testing.T) {
 	if frags[0].s != "Hello" || frags[1].s != "World" {
 		t.Fatalf("frags: %+v", frags)
 	}
-	if frags[0].y != 0 || frags[1].y != 1 {
+	if frags[0].y != 0 || frags[1].y != 16 {
 		t.Fatalf("rows: %+v", frags)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.curY != 2 {
-		t.Fatalf("curY = %d, want 2", b.curY)
+	if b.curY != 32 {
+		t.Fatalf("curY = %v, want 32", b.curY)
 	}
 }
 
-// TestPrintlnHonorsPos covers pos() + mes()/print() positioning:
-// a bare mes() starts at the text cursor (the cell nearest the pos()
-// pixel), and a continuation print() stays on its own row.
+// TestPrintlnHonorsPos covers pos() + mes()/print() positioning: the text
+// origin is the pos() pixel itself (1px granularity), and a continuation
+// print() lands beside what came before.
 func TestPrintlnHonorsPos(t *testing.T) {
 	b := mustNew(t)
-	cw, lh := b.charW, b.lineH
-	at := func(cx, cy int) (int, int) { return int(float64(cx) * cw), int(float64(cy) * lh) }
 	frags := printFrags(t, b, "plain", 0, true)
-	x, y := at(5, 2)
-	b.MoveTo(x, y)
+	b.MoveTo(37, 41) // odd pixels: no cell snapping
 	frags = append(frags, printFrags(t, b, "hi", 0, true)...)
 	if len(frags) != 2 {
 		t.Fatalf("frags: %+v", frags)
@@ -491,36 +488,35 @@ func TestPrintlnHonorsPos(t *testing.T) {
 	if frags[0].x != 0 || frags[0].y != 0 || frags[0].s != "plain" {
 		t.Fatalf("frags[0]: %+v", frags[0])
 	}
-	if frags[1].x != 5 || frags[1].y != 2 || frags[1].s != "hi" {
+	if frags[1].x != 37 || frags[1].y != 41 || frags[1].s != "hi" {
 		t.Fatalf("frags[1]: %+v", frags[1])
 	}
 }
 
-// TestPrintlnMultilinePos checks continuation lines restart at column 0.
+// TestPrintlnMultilinePos checks continuation lines come back to the
+// anchor the line started at (the pos() origin), one line pitch down.
 func TestPrintlnMultilinePos(t *testing.T) {
 	b := mustNew(t)
-	cw, lh := b.charW, b.lineH
-	b.MoveTo(int(3*cw), int(4*lh))
+	b.MoveTo(24, 64)
 	frags := printFrags(t, b, "a\nb", 0, true)
 	if len(frags) != 2 {
 		t.Fatalf("frags: %+v", frags)
 	}
-	if frags[0].x != 3 || frags[0].y != 4 || frags[0].s != "a" {
+	if frags[0].x != 24 || frags[0].y != 64 || frags[0].s != "a" {
 		t.Fatalf("frags[0]: %+v", frags[0])
 	}
-	if frags[1].x != 0 || frags[1].y != 5 || frags[1].s != "b" {
+	if frags[1].x != 24 || frags[1].y != 80 || frags[1].s != "b" {
 		t.Fatalf("frags[1]: %+v", frags[1])
 	}
 }
 
 // TestPrintPosContinue locks the print/pos/print composition on one
-// layer: the fragments of the first print() stay at the cell they were
+// layer: the fragments of the first print() stay at the pixel they were
 // laid out on, and the continuation lands beside them.
 func TestPrintPosContinue(t *testing.T) {
 	b := mustNew(t)
-	cw, lh := b.charW, b.lineH
 	frags := printFrags(t, b, "ab", 0, false)
-	b.MoveTo(int(4*cw), int(lh))
+	b.MoveTo(32, 16)
 	frags = append(frags, printFrags(t, b, "cd", 0, false)...)
 	frags = append(frags, printFrags(t, b, "ef", 0, true)...)
 	if len(frags) != 3 {
@@ -529,32 +525,15 @@ func TestPrintPosContinue(t *testing.T) {
 	if frags[0].x != 0 || frags[0].y != 0 || frags[0].s != "ab" {
 		t.Fatalf("frags[0]: %+v", frags[0])
 	}
-	if frags[1].x != 4 || frags[1].s != "cd" {
+	if frags[1].x != 32 || frags[1].s != "cd" {
 		t.Fatalf("frags[1]: %+v", frags[1])
 	}
-	if frags[2].x != 6 || frags[2].s != "ef" {
+	// "cd" drew 16px, so "ef" starts 16px after it, not on a cell.
+	if frags[2].x != 48 || frags[2].s != "ef" {
 		t.Fatalf("frags[2]: %+v", frags[2])
 	}
 	if got := fragLines(frags); len(got) != 2 || got[0] != "ab" || got[1] != "cdef" {
 		t.Fatalf("lines: %q, want [ab cdef]", got)
-	}
-}
-
-// TestCellWidth checks display-cell advances: full-width runes take 2
-// cells, half-width (ASCII, half-width kana) take 1.
-func TestCellWidth(t *testing.T) {
-	for _, r := range []rune{'a', '0', ' ', 0xFF66, 0xFF9C} {
-		if got := cellWidth(r); got != 1 {
-			t.Fatalf("cellWidth(%q) = %d, want 1", r, got)
-		}
-	}
-	for _, r := range []rune{'あ', 'ア', '漢', 'Ａ', '。', 0xAC00} {
-		if got := cellWidth(r); got != 2 {
-			t.Fatalf("cellWidth(%q) = %d, want 2", r, got)
-		}
-	}
-	if got := cellCount("aあbい"); got != 6 {
-		t.Fatalf("cellCount = %d, want 6", got)
 	}
 }
 
@@ -567,27 +546,27 @@ func TestPrintWideContinue(t *testing.T) {
 	if len(frags) != 2 {
 		t.Fatalf("frags: %+v", frags)
 	}
-	if frags[0].x != 0 || frags[1].x != 2 {
-		t.Fatalf("frag x = %d,%d, want 0,2", frags[0].x, frags[1].x)
+	if frags[0].x != 0 || frags[1].x != 16 {
+		t.Fatalf("frag x = %d,%d, want 0,16", frags[0].x, frags[1].x)
 	}
 }
 
 // TestTextScrollCarry locks the baked-text scroll math: text scrolls by
-// shifting the canvas buffer, and a fractional line height (odd font
-// sizes) accumulates in scrollExact so the shifted pixels stay within
-// half a pixel of the cell grid. Plain layout state, no game loop.
+// shifting the canvas buffer, and each line shifted accumulates in
+// scrollExact so the shifted pixels stay exact even if a future
+// lineHeight ratio is fractional. Plain layout state, no game loop.
 func TestTextScrollCarry(t *testing.T) {
 	b := mustNew(t)
-	// 10px font: lineH = 12.5px, charW = 5px (10/16 of the defaults).
+	// 10px font: the line pitch is 10px (lineHeight scales with the size).
 	if err := b.SetFontSize(10); err != nil {
 		t.Fatalf("SetFontSize(10): %v", err)
 	}
-	if b.lineH != 12.5 {
-		t.Fatalf("lineH = %v, want 12.5 (fractional)", b.lineH)
+	if b.lineH != 10 {
+		t.Fatalf("lineH = %v, want 10", b.lineH)
 	}
-	rows := int(float64(b.h) / b.lineH)
+	lines := int(float64(b.h)/b.lineH) + 1
 	var scrolls []int
-	for i := 0; i <= rows; i++ {
+	for i := 0; i < lines; i++ {
 		d := b.printRaw("x", 0, true)
 		if d == nil {
 			t.Fatalf("line %d laid out nothing", i)
@@ -603,9 +582,10 @@ func TestTextScrollCarry(t *testing.T) {
 	}
 	b.mu.Lock()
 	exact, done, curX, curY := b.scrollExact, b.scrollDone, b.curX, b.curY
+	lastY := float64(b.h) - b.lineH
 	b.mu.Unlock()
-	if curY != rows-1 || curX != 0 {
-		t.Fatalf("cursor = (%d,%d), want (0,%d)", curX, curY, rows-1)
+	if curY != lastY || curX != 0 {
+		t.Fatalf("cursor = (%v,%v), want (0,%v)", curX, curY, lastY)
 	}
 	sum := 0
 	for _, px := range scrolls {
@@ -619,6 +599,45 @@ func TestTextScrollCarry(t *testing.T) {
 	}
 }
 
+// TestPrintTabExpands locks the tab rendering: a tab in mes()/print()
+// advances 4 half-width cells of blank (a fixed advance, not a tab stop),
+// so the fragment carries the blank and the cursor lands after it.
+func TestPrintTabExpands(t *testing.T) {
+	b := mustNew(t)
+	frags := printFrags(t, b, "a\tb", 0, false)
+	if len(frags) != 1 || frags[0].s != "a    b" {
+		t.Fatalf("frags: %+v", frags)
+	}
+	b.mu.Lock()
+	if b.curX != 48 { // "a" + 4×8px + "b"
+		t.Fatalf("curX = %v, want 48", b.curX)
+	}
+	// A tab is a fixed 32px advance even away from the left edge.
+	b.curX = 3
+	b.mu.Unlock()
+	frags = printFrags(t, b, "\tx", 0, false)
+	if len(frags) != 1 || frags[0].s != "    x" || frags[0].x != 3 {
+		t.Fatalf("offset frags: %+v", frags)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.curX != 43 { // 3 + 32 + "x"
+		t.Fatalf("curX = %v, want 43", b.curX)
+	}
+}
+
+// TestTextWidthTabs keeps strwidth() on the same grid as the mes()
+// rendering: a tab costs four half-width cells there too.
+func TestTextWidthTabs(t *testing.T) {
+	b := mustNew(t)
+	if got, want := b.TextWidth("\t"), b.TextWidth("    "); got != want {
+		t.Fatalf("tab width = %d, want %d", got, want)
+	}
+	if got, want := b.TextWidth("a\tb"), b.TextWidth("a    b"); got != want {
+		t.Fatalf("a-tab-b width = %d, want %d", got, want)
+	}
+}
+
 // TestPrintNewlineSplit covers print() with embedded newlines: every
 // non-empty line becomes its own fragment (one per line), and the cursor
 // ends after the trailing chunk.
@@ -628,16 +647,52 @@ func TestPrintNewlineSplit(t *testing.T) {
 	if len(frags) != 3 || frags[0].s != "a" || frags[1].s != "b" || frags[2].s != "c" {
 		t.Fatalf("frags: %+v", frags)
 	}
-	if frags[0].y != 0 || frags[1].y != 1 || frags[2].y != 2 {
+	if frags[0].y != 0 || frags[1].y != 16 || frags[2].y != 32 {
 		t.Fatalf("rows: %+v", frags)
+	}
+	// Left-edge line: continuation lines come back to x=0.
+	if frags[0].x != 0 || frags[1].x != 0 || frags[2].x != 0 {
+		t.Fatalf("cols: %+v", frags)
 	}
 	if got := fragLines(frags); len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
 		t.Fatalf("lines: %q", got)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.curY != 2 || b.curX != 1 {
-		t.Fatalf("cursor = (%d,%d), want (1,2)", b.curX, b.curY)
+	if b.curY != 32 || b.curX != 8 { // "c" is 8px wide
+		t.Fatalf("cursor = (%v,%v), want (8,32)", b.curX, b.curY)
+	}
+}
+
+// TestPrintNewlineKeepsAnchor covers a multi-line string printed away from
+// the left edge: each embedded newline returns the cursor to the x the
+// line started at (the pos() anchor), one line pitch down, so a mes()
+// block prints as a rectangle.
+func TestPrintNewlineKeepsAnchor(t *testing.T) {
+	b := mustNew(t)
+	b.MoveTo(80, 40) // any pixel origin, no cell snapping
+	frags := printFrags(t, b, "ab\ncd", 0, false)
+	if len(frags) != 2 || frags[0].s != "ab" || frags[1].s != "cd" {
+		t.Fatalf("frags: %+v", frags)
+	}
+	if frags[0].x != 80 || frags[0].y != 40 {
+		t.Fatalf("frags[0] at (%d,%d), want (80,40)", frags[0].x, frags[0].y)
+	}
+	if frags[1].x != 80 || frags[1].y != 56 {
+		t.Fatalf("frags[1] at (%d,%d), want (80,56)", frags[1].x, frags[1].y)
+	}
+	// A second call with an embedded newline keeps the same anchor (the
+	// cursor is still on the row the previous block ended on).
+	frags = printFrags(t, b, "ef\ngh", 0, false)
+	if len(frags) != 2 || frags[1].x != 80 || frags[1].y != 72 {
+		t.Fatalf("second block: %+v", frags)
+	}
+	// A hard newline (mes) then anchors the next line back at x=0.
+	_ = printFrags(t, b, "", 0, true)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.curY != 88 || b.curX != 0 || b.lineStartX != 0 {
+		t.Fatalf("cursor = (%v,%v) anchor %v, want (0,88) anchor 0", b.curX, b.curY, b.lineStartX)
 	}
 }
 
@@ -651,12 +706,12 @@ func TestPrintJoinAcrossNewline(t *testing.T) {
 	if got := fragLines(frags); len(got) != 2 || got[0] != "abc" || got[1] != "de" {
 		t.Fatalf("lines: %q, want [abc de]", got)
 	}
-	if frags[len(frags)-1].y != 1 {
-		t.Fatalf("last fragment row = %d, want 1", frags[len(frags)-1].y)
+	if frags[len(frags)-1].y != 16 {
+		t.Fatalf("last fragment row = %d, want 16", frags[len(frags)-1].y)
 	}
 }
 
-// TestPrintTrailingNewline leaves the cursor clean on the next row (an
+// TestPrintTrailingNewline leaves the cursor clean on the next line (an
 // empty chunk emits no fragment).
 func TestPrintTrailingNewline(t *testing.T) {
 	b := mustNew(t)
@@ -666,8 +721,8 @@ func TestPrintTrailingNewline(t *testing.T) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.curY != 1 || b.curX != 0 {
-		t.Fatalf("cursor = (%d,%d), want (0,1)", b.curX, b.curY)
+	if b.curY != 16 || b.curX != 0 {
+		t.Fatalf("cursor = (%v,%v), want (0,16)", b.curX, b.curY)
 	}
 }
 
@@ -686,7 +741,7 @@ func TestPrintNewlineStyleChange(t *testing.T) {
 	if frags[1].s != "b" || frags[1].st != 0 {
 		t.Fatalf("frags[1]: %+v", frags[1])
 	}
-	if frags[2].s != "c" || frags[2].st != 0 || frags[2].y != 1 || frags[2].x != 0 {
+	if frags[2].s != "c" || frags[2].st != 0 || frags[2].y != 16 || frags[2].x != 0 {
 		t.Fatalf("frags[2]: %+v", frags[2])
 	}
 }
@@ -717,8 +772,8 @@ func TestPrintStyles(t *testing.T) {
 	if frags[3].st != StyleBold || frags[5].st != StyleBold {
 		t.Fatalf("styles: %+v", frags)
 	}
-	// a is row 0; b/c share row 1; xyz share row 2.
-	if frags[0].y != 0 || frags[1].y != 1 || frags[2].y != 1 || frags[3].y != 2 || frags[5].y != 2 {
+	// a is the first line; b/c share the second; xyz share the third.
+	if frags[0].y != 0 || frags[1].y != 16 || frags[2].y != 16 || frags[3].y != 32 || frags[5].y != 32 {
 		t.Fatalf("rows: %+v", frags)
 	}
 	if got := fragLines(frags); len(got) != 3 || got[0] != "a" || got[1] != "bc" || got[2] != "xyz" {
@@ -1184,9 +1239,14 @@ type renderGame struct {
 	pxLaunched, pxChecked          bool
 	pxDone                         chan pxRes
 	edLaunched, edMeasured         bool
-	edRow, edFrames, edDistinct    int
+	edRow                          float64
+	edFrames, edDistinct           int
 	edHashes                       []uint64
 	textAlone, textCovered, textOn int
+	imeCompChecked                 bool
+	bufChecked                     bool
+	resized                        bool
+	resizeFail                     string
 	wFail                          string
 	wText                          string
 	wErrs                          []string
@@ -1222,7 +1282,11 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 	case g.frames <= 6:
 		g.b.Draw(screen)
 		if g.frames == 6 {
-			g.backLit = countLit(screen, 0, 0, 320, 40)
+			// White window: the pre-loop mes() text is black ink, so
+			// the row probe counts dark pixels, not lit ones. Zero
+			// means the backend drew nothing; a full region means a
+			// black screen (both are failures, asserted at the end).
+			g.backLit = countDark(screen, 0, 0, 320, 40)
 			g.backed = true
 		}
 	case g.frames == 7:
@@ -1244,12 +1308,13 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 		if _, gg, _, _ := screen.At(100, 300).RGBA(); gg > 0x8000 {
 			g.circleLit = 1
 		}
-		g.anyLit = countLit(screen, 0, 30, 640, 480)
+		g.anyLit = countDark(screen, 0, 30, 640, 480)
 		g.minX, g.minY, g.maxX, g.maxY = 9999, 9999, -1, -1
 		for y := 0; y < 480; y++ {
 			for x := 0; x < 640; x++ {
 				r, gg, bl, _ := screen.At(x, y).RGBA()
-				if r > 0 || gg > 0 || bl > 0 {
+				// Ink bounds on the white window (diagnostic log only).
+				if r < 0x8000 && gg < 0x8000 && bl < 0x8000 {
 					if x < g.minX {
 						g.minX = x
 					}
@@ -1363,17 +1428,33 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			default:
 			}
 		}
+		// IME bar stage: composition box height (the thick clause
+		// underline must stay inside the frame). Runs before the ReadLine
+		// prompt stage, which claims the same top-left corner, and only
+		// after the buffer stage (it starts from a clean canvas).
+		if g.bufChecked && g.wFail == "" && !g.imeCompChecked {
+			g.imeCompChecked = true
+			g.checkIMEComp(screen)
+		}
+		// Buffer stage: buffer(id, w, h) then gcopy the off-screen image
+		// back onto the canvas. Runs after the pixel stage so the earlier
+		// stages' paints stay put; probes a free corner (500,100)-(600,180).
+		if g.pxChecked && g.wFail == "" && !g.bufChecked {
+			g.bufChecked = true
+			g.checkBuffer(screen)
+		}
 		// Editor stage: hold an active ReadLine prompt and hash its row
 		// every frame. A steady prompt yields exactly one distinct hash.
-		if g.pfChecked && g.wFail == "" {
+		if g.imeCompChecked && g.wFail == "" {
 			if !g.edLaunched {
 				g.edLaunched = true
 				go func() { _, _ = g.b.ReadLine("name? ") }()
 				g.b.mu.Lock()
+				// curY is the pixel origin of the prompt line now.
 				g.edRow = g.b.curY
 				g.b.mu.Unlock()
 			} else if g.edFrames < 90 {
-				g.edHashes = append(g.edHashes, hashRow(screen, g.edRow))
+				g.edHashes = append(g.edHashes, hashRow(screen, int(g.edRow)))
 				g.edFrames++
 			} else if !g.edMeasured {
 				g.edMeasured = true
@@ -1382,6 +1463,9 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 					seen[h] = true
 				}
 				g.edDistinct = len(seen)
+				// Resize stage last: it grows the canvas, so it must not
+				// disturb the row bands the editor stage hashed.
+				g.checkResize(screen)
 				g.done = true
 			}
 		}
@@ -1395,11 +1479,18 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 	}
 }
 
-// hashRow hashes a text row band (every 4th x, every 2nd y) via FNV-1a.
-func hashRow(screen *ebiten.Image, row int) uint64 {
+// hashRow hashes a 20px text band starting at pixel y0 (every 4th x,
+// every 2nd y) via FNV-1a. y0 is clamped into the screen so a cursor far
+// down the canvas (or off it) cannot read out of bounds.
+func hashRow(screen *ebiten.Image, y0 int) uint64 {
 	const basis, prime = uint64(14695981039346656037), uint64(1099511628211)
 	h := basis
-	y0 := row * 20
+	if y0 < 0 {
+		y0 = 0
+	}
+	if y0 > 480-20 {
+		y0 = 480 - 20
+	}
 	for y := y0; y < y0+20; y += 2 {
 		for x := 0; x < 640; x += 4 {
 			r, gg, bl, _ := screen.At(x, y).RGBA()
@@ -1494,7 +1585,9 @@ func (g *renderGame) checkZoom(screen *ebiten.Image) {
 		g.wFail = "gzoom pixel not scaled"
 		return
 	}
-	if r, gg, bl, _ := screen.At(455, 195).RGBA(); r > 0 || gg > 0 || bl > 0 {
+	// Outside the target the canvas is transparent, so the white window
+	// shows through; anything darker leaked.
+	if r, gg, bl, _ := screen.At(455, 195).RGBA(); r < 0xFFFF || gg < 0xFFFF || bl < 0xFFFF {
 		g.wFail = "gzoom leaked outside the target rect"
 	}
 }
@@ -1515,7 +1608,8 @@ func (g *renderGame) checkPaint(screen *ebiten.Image) {
 		g.wFail = "paint fill missing"
 		return
 	}
-	if r, gg, bl, _ := screen.At(455, 395).RGBA(); r > 0 || gg > 0 || bl > 0 {
+	// Outside the region the canvas is transparent (white window).
+	if r, gg, bl, _ := screen.At(455, 395).RGBA(); r < 0xFFFF || gg < 0xFFFF || bl < 0xFFFF {
 		g.wFail = "paint leaked outside the region"
 	}
 }
@@ -1631,6 +1725,21 @@ func countLit(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 	return lit
 }
 
+// countDark counts near-black pixels: with a white window, backend ink
+// (default black text) shows as dark-on-light, the inverse of countLit.
+func countDark(screen *ebiten.Image, x0, y0, x1, y1 int) int {
+	dark := 0
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			r, gg, bl, _ := screen.At(x, y).RGBA()
+			if r < 0x8000 && gg < 0x8000 && bl < 0x8000 {
+				dark++
+			}
+		}
+	}
+	return dark
+}
+
 // countWhite counts near-white (glyph) pixels in a rect, so a probe can
 // tell text drawn over a colored shape from the shape itself.
 func countWhite(screen *ebiten.Image, x0, y0, x1, y1 int) int {
@@ -1652,13 +1761,15 @@ func countWhite(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 // of the shapes and widgets the other stages touch.
 func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	b := g.b
-	const cx, cy = 55, 5 // cell origin of the probe area at 8x20 metrics
-	x0, y0 := int(float64(cx)*b.charW), int(float64(cy)*b.lineH)
+	const x0, y0 = 440, 80 // probe area (away from shapes and widgets)
 	x1, y1 := x0+40, y0+20
+	// Explicit white ink: the probe tests layering (call order), not the
+	// default draw color, so it must not depend on the fg default.
+	b.SetColor(255, 255, 255, 255)
 	// boxf() clears the probe area, then mes() paints onto it.
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
 	b.mu.Lock()
-	b.curX, b.curY = cx, cy
+	b.curX, b.curY = float64(x0), float64(y0)
 	b.mu.Unlock()
 	b.Println("HHHH", 0)
 	b.drainQueue()
@@ -1672,12 +1783,143 @@ func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	// Text after a shape draws on top of it (white glyphs over green).
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 128, 0, 255})
 	b.mu.Lock()
-	b.curX, b.curY = cx, cy
+	b.curX, b.curY = float64(x0), float64(y0)
+	b.mu.Unlock()
+	b.Println("HHHH", 0)
+	b.drainQueue()
+	b.Draw(screen)
+	g.textAlone = countLit(screen, x0, y0, x1, y1)
+	// A later boxf() covers the text: one layer, call order wins.
+	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
+	b.drainQueue()
+	b.Draw(screen)
+	g.textCovered = countLit(screen, x0, y0, x1, y1)
+	// Text after a shape draws on top of it (white glyphs over green).
+	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 128, 0, 255})
+	b.mu.Lock()
+	b.curX, b.curY = float64(x0), float64(y0)
 	b.mu.Unlock()
 	b.Println("HHHH", 0)
 	b.drainQueue()
 	b.Draw(screen)
 	g.textOn = countWhite(screen, x0, y0, x1, y1)
+}
+
+// checkBuffer exercises buffer(id, w, h) end to end inside the loop
+// (pixel readback needs the game running): create an off-screen buffer,
+// draw into it through gsel, then gcopy it back to the canvas and probe
+// the pixels.
+func (g *renderGame) checkBuffer(screen *ebiten.Image) {
+	b := g.b
+	if err := b.NewBuffer(2, 100, 80); err != nil {
+		g.wFail = "buffer: " + err.Error()
+		return
+	}
+	if !b.hasBuf(2) {
+		g.wFail = "buffer(2, ...) did not allocate id 2"
+		return
+	}
+	b.SelectTarget(2)
+	b.FillRect(0, 0, 100, 80, [4]int{255, 0, 0, 255})
+	b.SelectTarget(0)
+	b.drainQueue()
+	if err := b.Blit(2, 0, 0, 100, 80, 500, 100); err != nil {
+		g.wFail = "gcopy from buffer 2: " + err.Error()
+		return
+	}
+	b.drainQueue()
+	b.Draw(screen)
+	if r, gg, bl, _ := screen.At(520, 140).RGBA(); r < 0x8000 || gg > 0 || bl > 0 {
+		g.wFail = "gcopy from the buffer() image is missing"
+		return
+	}
+	// Outside the blit the canvas stays as it was (transparent here,
+	// so the white window shows through).
+	if r, gg, bl, _ := screen.At(480, 140).RGBA(); r < 0xFFFF || gg < 0xFFFF || bl < 0xFFFF {
+		g.wFail = "gcopy from the buffer() image leaked"
+	}
+}
+
+// checkIMEComp locks the composition bar's height on the game thread
+// (pixel readback needs the loop): the box is one text line plus 2px, so
+// the frame still runs past the line and the row below it is empty,
+// keeping the 3px clause underline inside the frame.
+func (g *renderGame) checkIMEComp(screen *ebiten.Image) {
+	b := g.b
+	b.Clear() // clean canvas so the probe sees only the bar
+	b.mu.Lock()
+	b.imeComposing = "あいう"
+	b.imeClause = "い"
+	b.imeClauseStart, b.imeClauseEnd = 1, 2
+	lh := b.lineH
+	b.mu.Unlock()
+	b.drainQueue()
+	b.Draw(screen)
+	b.mu.Lock()
+	b.imeComposing = ""
+	b.imeClause = ""
+	b.imeClauseStart, b.imeClauseEnd = 0, 0
+	b.mu.Unlock()
+	// bh = lineH + 2. The composition text ("あいう", clause "い") is
+	// 3 full-width cells wide, so its right frame column sits just past
+	// the last glyph: the frame still runs at lineH, its bottom edge is
+	// at lineH+1 (it would sit at lineH-1 without the extra 2px, where
+	// the 3px clause underline overhangs the frame), and nothing is lit
+	// below that. White window: the frame is gray (darker than the
+	// background), and below the bar is plain background white.
+	tw, _ := text.Measure("あいう", b.face, 0)
+	probeX := int(tw+2*2) - 1
+	if r, _, _, _ := screen.At(probeX, int(lh)).RGBA(); r == 0xFFFF {
+		g.wFail = fmt.Sprintf("IME bar frame missing at y=%d", int(lh))
+		return
+	}
+	if r, _, _, _ := screen.At(probeX, int(lh)+1).RGBA(); r == 0xFFFF {
+		g.wFail = fmt.Sprintf("IME bar has no bottom frame at y=%d: the bar is only lineH tall", int(lh)+1)
+		return
+	}
+	if r, gg, bl, _ := screen.At(probeX, int(lh)+2).RGBA(); r < 0xFFFF || gg < 0xFFFF || bl < 0xFFFF {
+		g.wFail = fmt.Sprintf("IME bar leaks past y=%d", int(lh)+2)
+	}
+}
+
+// checkResize locks the resizable() drawing-resolution contract inside
+// the loop (ReadPixels is only legal with a game running): a painted
+// probe survives the window-size Layout top-left aligned, the canvas
+// adopts the window size, and the newly exposed strip stays transparent.
+func (g *renderGame) checkResize(screen *ebiten.Image) {
+	b := g.b
+	g.resized = true
+	b.FillRect(100, 100, 40, 40, [4]int{255, 255, 255, 255})
+	b.drainQueue()
+	b.Draw(screen)
+	if r, _, _, _ := screen.At(120, 120).RGBA(); r < 0x8000 {
+		g.resizeFail = "resize probe paint missing"
+		return
+	}
+	b.SetResizable(true)
+	if w, h := b.Layout(800, 600); w != 800 || h != 600 {
+		g.resizeFail = fmt.Sprintf("Layout = %dx%d, want 800x600 (window size)", w, h)
+		return
+	}
+	b.drainQueue()
+	b.Draw(screen)
+	img := b.targets[0]
+	if dx, dy := img.Bounds().Dx(), img.Bounds().Dy(); dx != 800 || dy != 600 {
+		g.resizeFail = fmt.Sprintf("canvas = %dx%d, want 800x600", dx, dy)
+		return
+	}
+	if r, _, _, _ := img.At(120, 120).RGBA(); r < 0x8000 {
+		g.resizeFail = "resize lost the previous pixels"
+		return
+	}
+	if r, _, _, _ := img.At(799, 599).RGBA(); r != 0 {
+		g.resizeFail = "newly exposed strip should stay transparent"
+		return
+	}
+	b.SetResizable(false)
+	if w, h := b.Layout(1024, 768); w != 800 || h != 600 {
+		g.resizeFail = fmt.Sprintf("frozen Layout = %dx%d, want 800x600", w, h)
+	}
 }
 
 func (g *renderGame) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -1904,6 +2146,64 @@ func TestListEntryColorsComplete(t *testing.T) {
 	}
 }
 
+// TestListEntryTextPos pins the shared entry alignment: left/top,
+// matching the hand-drawn outline in the Golash editor. Centering adds
+// a second int() rounding on top of the scroll offset's (glyph origin
+// = int((rectH - lineH) / 2)), which can leave row baselines a pixel
+// apart while a list scrolls (it reads as jitter).
+func TestListEntryTextPos(t *testing.T) {
+	h, v := listEntryTextPos()
+	if h != widget.TextPositionStart {
+		t.Fatalf("horizontal = %v, want TextPositionStart", h)
+	}
+	if v != widget.TextPositionStart {
+		t.Fatalf("vertical = %v, want TextPositionStart", v)
+	}
+}
+
+// TestWidgetFocusPressColors pins the focus/pressed theme mapping:
+// selecting/selected list entries use the pressed blue, the focused
+// (unselected) entry the focus pale blue, and the custom editor face
+// follows the same pairs (disabled wins over focus). Pure values, so
+// headless-safe (button/checkbox art shares these vars by
+// construction; their faces are ebiten images, not pixel-testable
+// without a loop).
+func TestWidgetFocusPressColors(t *testing.T) {
+	c := listEntryColors()
+	for _, tc := range []struct {
+		name string
+		got  interface {
+			RGBA() (uint32, uint32, uint32, uint32)
+		}
+		want color.NRGBA
+	}{
+		{"SelectingBackground", c.SelectingBackground, themePressBg},
+		{"SelectedBackground", c.SelectedBackground, themePressBg},
+		{"FocusedBackground", c.FocusedBackground, themeFocusBg},
+		{"SelectingFocusedBackground", c.SelectingFocusedBackground, themePressBg},
+		{"SelectedFocusedBackground", c.SelectedFocusedBackground, themePressBg},
+	} {
+		if got, ok := tc.got.(color.NRGBA); !ok || got != tc.want {
+			t.Fatalf("%s = %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		name            string
+		focused, dis    bool
+		wantBg, wantFrm color.NRGBA
+	}{
+		{"idle", false, false, themeWhite, themeFrame},
+		{"focused", true, false, themeFocusBg, themeFocusFrame},
+		{"disabled", false, true, themeFaceDis, themeFrame},
+		{"focused+disabled", true, true, themeFaceDis, themeFrame},
+	} {
+		if bg, fr := inputFaceColors(tc.focused, tc.dis); bg != tc.wantBg || fr != tc.wantFrm {
+			t.Fatalf("inputFaceColors(%v, %v) = %v/%v, want %v/%v",
+				tc.focused, tc.dis, bg, fr, tc.wantBg, tc.wantFrm)
+		}
+	}
+}
+
 // TestSavePNGErrors covers pngsave validation without a game loop
 // (all paths return before touching the loop).
 func TestSavePNGErrors(t *testing.T) {
@@ -2037,6 +2337,144 @@ func TestFloodFillBounds(t *testing.T) {
 	}
 }
 
+// TestResizableFollowsWindow locks the resizable() size contract without
+// a game loop: with resizing forbidden Layout pins the screen() logical
+// size, with resizing allowed Layout reports the window size and the main
+// buffer is swapped to it, and forbidding it again freezes the current
+// resolution. (Pixel preservation across the swap needs a running loop,
+// so it is covered by the resize stage in TestGuiRender.)
+func TestResizableFollowsWindow(t *testing.T) {
+	b := mustNew(t)
+	// Pinned: Layout ignores the window size and keeps the screen() size.
+	if w, h := b.Layout(320, 240); w != 640 || h != 480 {
+		t.Fatalf("Layout = %dx%d, want 640x480 (screen() size)", w, h)
+	}
+	b.SetResizable(true)
+	if w, h := b.Layout(800, 600); w != 800 || h != 600 {
+		t.Fatalf("Layout = %dx%d, want 800x600 (window size)", w, h)
+	}
+	b.mu.Lock()
+	w, h := b.w, b.h
+	b.mu.Unlock()
+	if w != 800 || h != 600 {
+		t.Fatalf("canvas = %dx%d, want 800x600", w, h)
+	}
+	b.enqueue(func() {
+		if dx, dy := b.targets[0].Bounds().Dx(), b.targets[0].Bounds().Dy(); dx != 800 || dy != 600 {
+			t.Fatalf("main buffer = %dx%d, want 800x600", dx, dy)
+		}
+	})
+	b.drainQueue()
+	// Forbidden again: the current resolution freezes.
+	b.SetResizable(false)
+	if w, h := b.Layout(1024, 768); w != 800 || h != 600 {
+		t.Fatalf("Layout = %dx%d, want 800x600 frozen", w, h)
+	}
+}
+
+// TestTabFocusDisabled pins ensureUI: Tab/Shift+Tab must not move widget
+// focus (ebitenui's default traversal), so Tab stays a key input (keypush
+// 9, the custom editor's tab insert). Click focus and programmatic
+// Focus() are unaffected — only the default Tab handling is gated.
+func TestTabFocusDisabled(t *testing.T) {
+	b := mustNew(t)
+	b.ensureUI()
+	if b.ui == nil {
+		t.Fatal("ensureUI built no UI")
+	}
+	if !b.ui.DisableDefaultFocus {
+		t.Fatal("UI allows Tab focus traversal, want it disabled")
+	}
+}
+
+// TestWhiteWindowDefaults pins the light-theme defaults without a game
+// loop: the initial draw color is opaque black (white window), and
+// color() (ResetColor) returns to black, not white. CUI is unaffected
+// (ANSI reset there).
+func TestWhiteWindowDefaults(t *testing.T) {
+	b := mustNew(t)
+	black := color.NRGBA{0x00, 0x00, 0x00, 0xFF}
+	b.mu.Lock()
+	fg := b.fg
+	b.mu.Unlock()
+	if fg != black {
+		t.Fatalf("initial fg = %v, want %v", fg, black)
+	}
+	b.SetColor(255, 0, 0, 255)
+	b.ResetColor()
+	b.mu.Lock()
+	fg = b.fg
+	b.mu.Unlock()
+	if fg != black {
+		t.Fatalf("fg after ResetColor = %v, want %v", fg, black)
+	}
+}
+
+// TestNewBuffer covers buffer(id, w, h) without a game loop: the id is
+// marked allocated, the image lands on the game thread at exactly that
+// size, and a bad id or size fails without touching the pool.
+func TestNewBuffer(t *testing.T) {
+	b := mustNew(t)
+	if err := b.NewBuffer(1, 320, 240); err != nil {
+		t.Fatalf("NewBuffer(1, 320, 240): %v", err)
+	}
+	if !b.hasBuf(1) {
+		t.Fatal("buffer 1 not marked allocated")
+	}
+	b.drainQueue()
+	var size [2]int
+	b.enqueue(func() {
+		img, ok := b.targets[1]
+		if !ok || img == nil {
+			return
+		}
+		size = [2]int{img.Bounds().Dx(), img.Bounds().Dy()}
+	})
+	b.drainQueue()
+	if size != [2]int{320, 240} {
+		t.Fatalf("buffer 1 size = %v, want [320 240]", size)
+	}
+	// Replacing is allowed (draw loops re-create a scratch buffer): the
+	// new size wins.
+	if err := b.NewBuffer(1, 64, 48); err != nil {
+		t.Fatalf("NewBuffer(1, 64, 48): %v", err)
+	}
+	b.drainQueue()
+	size = [2]int{}
+	b.enqueue(func() {
+		if img := b.targets[1]; img != nil {
+			size = [2]int{img.Bounds().Dx(), img.Bounds().Dy()}
+		}
+	})
+	b.drainQueue()
+	if size != [2]int{64, 48} {
+		t.Fatalf("replaced buffer size = %v, want [64 48]", size)
+	}
+	// Errors: the visible canvas, a bad id, a non-positive size, and one
+	// side over the cap. None of them may allocate.
+	if err := b.NewBuffer(0, 8, 8); err == nil {
+		t.Fatal("buffer(0, ...) should error (the canvas belongs to screen())")
+	}
+	if err := b.NewBuffer(-1, 8, 8); err == nil {
+		t.Fatal("buffer(-1, ...) should error")
+	}
+	if err := b.NewBuffer(16, 8, 8); err == nil {
+		t.Fatal("buffer(16, ...) should error")
+	}
+	if err := b.NewBuffer(2, 0, 8); err == nil {
+		t.Fatal("buffer(2, 0, 8) should error")
+	}
+	if err := b.NewBuffer(2, 8, -8); err == nil {
+		t.Fatal("buffer(2, 8, -8) should error")
+	}
+	if err := b.NewBuffer(2, MaxImageDim+1, 8); err == nil {
+		t.Fatal("oversized buffer should error")
+	}
+	if b.hasBuf(2) {
+		t.Fatal("a failed buffer() must not allocate the id")
+	}
+}
+
 // TestGetPixelBounds covers pget coordinate validation without a game
 // loop (bounds are checked before any game-thread readback).
 func TestGetPixelBounds(t *testing.T) {
@@ -2056,24 +2494,29 @@ func TestGetPixelBounds(t *testing.T) {
 // (face reload is pure Go; no images involved).
 func TestSetFontSize(t *testing.T) {
 	b := mustNew(t)
-	if b.charW != 8 || b.lineH != 20 || b.fontSize != 16 {
-		t.Fatalf("defaults = %v/%v/%v, want 8/20/16", b.charW, b.lineH, b.fontSize)
+	if b.lineH != 16 || b.fontSize != 16 {
+		t.Fatalf("defaults = %v/%v, want 16/16", b.lineH, b.fontSize)
 	}
 	if err := b.SetFontSize(32); err != nil {
 		t.Fatalf("SetFontSize(32): %v", err)
 	}
-	if b.charW != 16 || b.lineH != 40 || b.fontSize != 32 {
-		t.Fatalf("scaled = %v/%v/%v, want 16/40/32", b.charW, b.lineH, b.fontSize)
+	if b.lineH != 32 || b.fontSize != 32 {
+		t.Fatalf("scaled = %v/%v, want 32/32", b.lineH, b.fontSize)
 	}
 	if b.uiFace() == nil {
 		t.Fatal("uiFace should follow the resized face")
 	}
+	// pos() is the pixel origin itself: no cell rounding.
 	b.MoveTo(10, 5)
 	b.mu.Lock()
 	gx, gy := b.gx, b.gy
+	tx, ty := b.curX, b.curY
 	b.mu.Unlock()
 	if gx != 10 || gy != 5 {
-		t.Fatalf("cursor = (%d,%d), want (10,5)", gx, gy)
+		t.Fatalf("graphics cursor = (%d,%d), want (10,5)", gx, gy)
+	}
+	if tx != 10 || ty != 5 {
+		t.Fatalf("text cursor = (%v,%v), want (10,5)", tx, ty)
 	}
 	for _, size := range []int{-1, 0, 7, 65, 100} {
 		if err := b.SetFontSize(size); err == nil {
@@ -2243,17 +2686,18 @@ func TestCheckImageSized(t *testing.T) {
 			t.Fatalf("%s MinSize = %dx%d, want >= 12 (invisible box)", name, w, h)
 		}
 	}
-	// Art content: unchecked is solid body, checked carries the glyph.
-	body := color.NRGBA{0x22, 0x26, 0x2E, 0xFF}
-	mark := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
-	plain := checkArtRGBA(20, body, false, mark)
-	if got := plain.NRGBAAt(0, 0); got != body {
-		t.Fatalf("unchecked corner = %v, want body %v", got, body)
+	// Art content: white body, gray ring, black glyph.
+	body := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+	fr := color.NRGBA{0x80, 0x80, 0x80, 0xFF}
+	mark := color.NRGBA{0x00, 0x00, 0x00, 0xFF}
+	plain := checkArtRGBA(20, body, fr, false, mark)
+	if got := plain.NRGBAAt(0, 0); got != fr {
+		t.Fatalf("unchecked corner = %v, want frame %v", got, fr)
 	}
 	if got := plain.NRGBAAt(10, 10); got != body {
 		t.Fatalf("unchecked center = %v, want body %v", got, body)
 	}
-	ticked := checkArtRGBA(20, body, true, mark)
+	ticked := checkArtRGBA(20, body, fr, true, mark)
 	if got := ticked.NRGBAAt(9, 14); got != mark {
 		t.Fatalf("checked glyph joint = %v, want mark %v", got, mark)
 	}
@@ -2511,111 +2955,69 @@ func TestMouseWheelConsume(t *testing.T) {
 	}
 }
 
-// TestWidgetTextBackColors covers objprm "textcolor"/"backcolor" across
-// every widget kind: getters, reset (-1), validation, disabled retention,
-// and state retention across list/combo/area rebuilds.
+// TestWidgetThemeFixed locks the Windows-standard widget theme: every
+// widget kind builds headless without a color override API, and the
+// checkbox art carries a gray ring on a white box with a black glyph.
 // NOTE: defined before TestGuiRender: Ebiten allows a single RunGame per
 // process, after which NewImage panics, so image-creating tests must run
 // first (like the other widget tests above).
-func TestWidgetTextBackColors(t *testing.T) {
+func TestWidgetThemeFixed(t *testing.T) {
 	b := mustNew(t)
-	mustAddWidget(t, b, func() error { return b.AddButton(1, "OK", 10, 10, 120, 40) })
-	mustAddWidget(t, b, func() error { return b.AddInput(2, 10, 60, 160, 36, "hi") })
-	mustAddWidget(t, b, func() error { return b.AddList(3, 10, 110, 160, 80, []string{"a", "b"}) })
-	mustAddWidget(t, b, func() error { return b.AddCheck(4, "agree", 10, 200, 0, 0, true) })
-	mustAddWidget(t, b, func() error { return b.AddCombo(5, 10, 240, 160, 36, []string{"x", "y"}, 1) })
-	mustAddWidget(t, b, func() error { return b.AddArea(6, 10, 290, 200, 80, "memo") })
+	white := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+	fr := color.NRGBA{0x80, 0x80, 0x80, 0xFF}
+	mark := color.NRGBA{0x00, 0x00, 0x00, 0xFF}
+	plain := checkArtRGBA(20, white, fr, false, mark)
+	if got := plain.NRGBAAt(0, 0); got != fr {
+		t.Fatalf("unchecked corner = %v, want frame %v", got, fr)
+	}
+	if got := plain.NRGBAAt(10, 10); got != white {
+		t.Fatalf("unchecked center = %v, want body %v", got, white)
+	}
+	ticked := checkArtRGBA(20, white, fr, true, mark)
+	if got := ticked.NRGBAAt(9, 14); got != mark {
+		t.Fatalf("checked glyph joint = %v, want mark %v", got, mark)
+	}
+	if got := ticked.NRGBAAt(0, 0); got != fr {
+		t.Fatalf("checked corner = %v, want frame %v", got, fr)
+	}
+	// Every widget kind builds with the fixed theme (no color args).
+	for _, add := range []func() error{
+		func() error { return b.AddButton(1, "OK", 10, 10, 120, 40) },
+		func() error { return b.AddInput(2, 10, 60, 160, 36, "hi") },
+		func() error { return b.AddList(3, 10, 110, 160, 80, []string{"a", "b"}) },
+		func() error { return b.AddCheck(4, "agree", 10, 200, 0, 0, true) },
+		func() error { return b.AddCombo(5, 10, 240, 160, 36, []string{"x", "y"}, 1) },
+		func() error { return b.AddArea(6, 10, 290, 200, 80, "memo") },
+	} {
+		if err := runWidgetOp(t, b, add); err != nil {
+			t.Fatalf("add widget: %v", err)
+		}
+	}
+	// List entry colors stay complete (non-nil backgrounds) in the
+	// light theme too.
+	c := listEntryColors()
+	if c.Unselected != themeInk || c.Selected != themeInk {
+		t.Fatalf("entry text = %v/%v, want black", c.Unselected, c.Selected)
+	}
+	if c.SelectedBackground != themePressBg {
+		t.Fatalf("selection bg = %v, want pressed %v", c.SelectedBackground, themePressBg)
+	}
+}
 
-	// Unknown ids fail without blocking.
-	if err := b.SetWidgetTextColor(99, 0xFF0000); err == nil {
-		t.Fatal("textcolor unknown should error")
+// TestClearKeepsWidgets: cls() wipes canvas/text only; widgets survive
+// until clrobj() (regression: cls used to drop them, breaking every
+// draw loop that combined widgets with per-frame cls()).
+func TestClearKeepsWidgets(t *testing.T) {
+	b := mustNew(t)
+	if err := runWidgetOp(t, b, func() error { return b.AddInput(2, 10, 60, 160, 36, "hi") }); err != nil {
+		t.Fatalf("AddInput: %v", err)
 	}
-	if err := b.SetWidgetBackColor(99, 0xFF0000); err == nil {
-		t.Fatal("backcolor unknown should error")
+	b.Clear()
+	if !b.HasWidget(2) {
+		t.Fatal("cls() must not remove widgets")
 	}
-	// Range validation.
-	if err := b.SetWidgetTextColor(1, 0x1000000); err == nil {
-		t.Fatal("textcolor overflow should error")
-	}
-	if err := b.SetWidgetBackColor(1, -2); err == nil {
-		t.Fatal("backcolor -2 should error")
-	}
-
-	// Set + getters on every kind.
-	for _, id := range []int{1, 2, 3, 4, 5, 6} {
-		if err := runWidgetOp(t, b, func() error { return b.SetWidgetTextColor(id, 0xFF0000) }); err != nil {
-			t.Fatalf("SetWidgetTextColor(%d): %v", id, err)
-		}
-		if err := runWidgetOp(t, b, func() error { return b.SetWidgetBackColor(id, 0x00FF00) }); err != nil {
-			t.Fatalf("SetWidgetBackColor(%d): %v", id, err)
-		}
-		if v, has, _ := b.WidgetTextRGB(id); !has || v != 0xFF0000 {
-			t.Fatalf("WidgetTextRGB(%d) = %06X,%v want FF0000,true", id, v, has)
-		}
-		if v, has, _ := b.WidgetBackRGB(id); !has || v != 0x00FF00 {
-			t.Fatalf("WidgetBackRGB(%d) = %06X,%v want 00FF00,true", id, v, has)
-		}
-	}
-	// State survives the list/combo/area rebuilds: selection, text,
-	// checkbox latch and button latch.
-	b.mu.Lock()
-	b.widgets[3].selIdx = 1
-	b.mu.Unlock()
-	if err := runWidgetOp(t, b, func() error { return b.SetWidgetTextColor(3, 0x0000FF) }); err != nil {
-		t.Fatalf("recolor list: %v", err)
-	}
-	if idx, _ := b.SelectedIndex(3); idx != 1 {
-		t.Fatalf("list sel after recolor = %d, want 1", idx)
-	}
-	if err := runWidgetOp(t, b, func() error { return b.SetWidgetTextColor(5, 0x0000FF) }); err != nil {
-		t.Fatalf("recolor combo: %v", err)
-	}
-	if idx, _ := b.SelectedIndex(5); idx != 1 {
-		t.Fatalf("combo sel after recolor = %d, want 1", idx)
-	}
-	if s, _ := b.AreaText(6); s != "memo" {
-		t.Fatalf("area text after recolor = %q, want memo", s)
-	}
-	if p, _ := b.Checked(4); !p {
-		t.Fatal("checkbox should stay checked after recolor")
-	}
-	// Disabled survives recolor.
-	if err := runWidgetOp(t, b, func() error { return b.SetEnabled(1, false) }); err != nil {
-		t.Fatalf("SetEnabled: %v", err)
-	}
-	if err := runWidgetOp(t, b, func() error { return b.SetWidgetTextColor(1, 0x123456) }); err != nil {
-		t.Fatalf("recolor disabled button: %v", err)
-	}
-	b.mu.Lock()
-	dis := b.widgets[1].child.GetWidget().Disabled
-	b.mu.Unlock()
-	if !dis {
-		t.Fatal("button should stay disabled after recolor")
-	}
-	// Reset clears overrides.
-	if err := runWidgetOp(t, b, func() error { return b.SetWidgetTextColor(1, -1) }); err != nil {
-		t.Fatalf("reset textcolor: %v", err)
-	}
-	if _, has, _ := b.WidgetTextRGB(1); has {
-		t.Fatal("textcolor reset should clear override")
-	}
-	if err := runWidgetOp(t, b, func() error { return b.SetWidgetBackColor(1, -1) }); err != nil {
-		t.Fatalf("reset backcolor: %v", err)
-	}
-	if _, has, _ := b.WidgetBackRGB(1); has {
-		t.Fatal("backcolor reset should clear override")
-	}
-	// Icon-only image buttons keep artwork: backcolor is rejected.
-	b.allocBuf(77)
-	b.mu.Lock()
-	if b.targets == nil {
-		b.targets = map[int]*ebiten.Image{}
-	}
-	b.targets[77] = ebiten.NewImage(120, 40)
-	b.mu.Unlock()
-	mustAddWidget(t, b, func() error { return b.AddButton(8, "", 10, 380, 120, 40, 77) })
-	if err := b.SetWidgetBackColor(8, 0xFF0000); err == nil {
-		t.Fatal("icon button backcolor should error")
+	if s, err := b.InputText(2); err != nil || s != "hi" {
+		t.Fatalf("InputText after cls() = %q, %v", s, err)
 	}
 }
 
@@ -2633,7 +3035,7 @@ func TestGuiRender(t *testing.T) {
 	b := mustNew(t)
 	b.Println("Hello, GUI! あいうえお", 0)
 	ebiten.SetWindowSize(640, 480)
-	ebiten.SetWindowTitle("Goulash test")
+	ebiten.SetWindowTitle("Golash test")
 	g := &renderGame{b: b, face: b.face, savePath: filepath.Join(t.TempDir(), "snap.png")}
 	// NOTE: window teardown on some machines reports
 	// "glfw: DestroyWindow failed"; sampling results are what matter.
@@ -2650,7 +3052,10 @@ func TestGuiRender(t *testing.T) {
 	}
 	t.Logf("fill=%d text=%d backend=%d rect=%d circle=%d any=%d shaped=%v bbox=(%d,%d)-(%d,%d)", g.fillLit, g.textLit, g.backLit, g.rectLit, g.circleLit, g.anyLit, g.shaped, g.minX, g.minY, g.maxX, g.maxY)
 	if g.backLit == 0 {
-		t.Fatal("no lit pixels in the first text row: black screen")
+		t.Fatal("no backend pixels in the first text row: backend drew nothing")
+	}
+	if g.backLit == 320*40 {
+		t.Fatal("first text row is all dark: black screen, want a white window")
 	}
 	if !g.shaped || g.rectLit == 0 {
 		t.Fatal("FillRect pixel not visible")
@@ -2677,6 +3082,12 @@ func TestGuiRender(t *testing.T) {
 	if !g.pxChecked {
 		t.Fatal("pget stage never ran")
 	}
+	if g.wFail != "" {
+		t.Fatalf("stage failure before completion: %s", g.wFail)
+	}
+	if !g.bufChecked {
+		t.Fatal("buffer stage never ran")
+	}
 	t.Logf("arrows=%d mouse=(%d,%d) clicked=%v", g.keyIdle, g.mouseX, g.mouseY, g.clickedVal)
 	if g.keyIdle != 0 {
 		t.Fatalf("idle arrows = %d, want 0", g.keyIdle)
@@ -2693,9 +3104,15 @@ func TestGuiRender(t *testing.T) {
 	if !g.edMeasured {
 		t.Fatal("editor stage never ran")
 	}
-	t.Logf("editor row=%d frames=%d distinct=%d", g.edRow, g.edFrames, g.edDistinct)
+	t.Logf("editor row=%v frames=%d distinct=%d", g.edRow, g.edFrames, g.edDistinct)
 	if g.edDistinct != 1 {
 		t.Fatalf("input() prompt flickers: %d distinct frames", g.edDistinct)
+	}
+	if !g.resized {
+		t.Fatal("resize stage never ran")
+	}
+	if g.resizeFail != "" {
+		t.Fatalf("resize stage: %s", g.resizeFail)
 	}
 }
 
@@ -2712,11 +3129,4 @@ func runWidgetOp(t *testing.T, b *WindowBackend, op func() error) error {
 		t.Fatal("widget op never completed")
 	}
 	return opErr
-}
-
-func mustAddWidget(t *testing.T, b *WindowBackend, op func() error) {
-	t.Helper()
-	if err := runWidgetOp(t, b, op); err != nil {
-		t.Fatalf("add widget: %v", err)
-	}
 }

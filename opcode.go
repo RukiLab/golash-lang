@@ -1,4 +1,4 @@
-// Goulash v0.2 レジスタ型VMの命令セット。
+// Golash レジスタ型VMの命令セット。
 //
 // 設計方針（詳細は docs/DESIGN_VM.md）：
 //   - 命令長は 64bit 固定。op(8bit) A(8bit) B(8bit) C(8bit) D(32bit)。

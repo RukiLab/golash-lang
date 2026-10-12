@@ -6,7 +6,7 @@
 // runtime errors.
 //
 // GUI words live in builtin_gui*.go (G1-G6):
-// screen, gsel, pset, pget, line, boxf, circle, gcopy, gsquare, gtritex, gmode,
+// screen, gsel, pset, pget, line, boxf, circle, gcopy, gquad, gmode,
 // picload, pngsave, paint, font,
 // getkey, mousex, mousey, clicked,
 // mmload, mmplay, mmstop, mmvol, button, pressed, inputbox, gettext,

@@ -64,7 +64,7 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 		"rnd", "randomize",
 		"strlen", "strmid", "instr", "strtrim", "split", "strf", "getpath",
 		"gettime", "sleep", "await", "tick", "nanotime", "end", "assert", "logmes", "exec", "args",
-		"getenv", "setenv", "open", "clipboard_get", "clipboard_set",
+		"getenv", "setenv", "open", "clipget", "clipset",
 		"dlgopen", "dlgsave", "httpget", "httppost",
 		"exist", "dirlist", "delete", "mkdir", "chdir", "bcopy", "bload", "bsave",
 		"getcwd", "direxe", "homedir", "tmpdir",
@@ -73,7 +73,7 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 		"push", "pop", "join", "dim",
 		"sort", "reverse", "insert", "remove", "slice", "find",
 		"replace", "upper", "lower", "asc", "chr",
-		"lextokens", "strwidth", "parsetree", "pipeexec",
+		"lextokens", "strwidth", "parsetree", "checksrc", "pipeexec", "piperun",
 	}
 	got := map[string]bool{}
 	for _, n := range builtinNames() {
@@ -313,6 +313,51 @@ func TestArgs(t *testing.T) {
 	}
 }
 
+// TestFileDialogBuilder locks the dlgopen/dlgsave configuration without
+// opening an OS window: the start folder, the optional filter and the
+// pre-filled save name.
+func TestFileDialogBuilder(t *testing.T) {
+	in := &Interp{}
+	// dlgStartDir falls back to the working directory when the script
+	// has no directory of its own.
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	b := dlgFileBuilder(in, "開く", "画像|*.png;*.jpg", "")
+	if got := b.StartDir; got != wd {
+		t.Fatalf("StartDir = %q, want %q (working dir)", got, wd)
+	}
+	if len(b.Filters) != 1 || b.Filters[0].Desc != "画像" ||
+		strings.Join(b.Filters[0].Extensions, ",") != "png,jpg" {
+		t.Fatalf("filters = %+v, want one 画像/png,jpg group", b.Filters)
+	}
+	if b.StartFile != "" {
+		t.Fatalf("StartFile = %q, want empty for an open dialog", b.StartFile)
+	}
+	// The script directory wins over the working directory.
+	scriptDir := t.TempDir()
+	in.SetScriptDir(scriptDir)
+	if got := dlgStartDir(in); got != scriptDir {
+		t.Fatalf("dlgStartDir = %q, want %q (script dir)", got, scriptDir)
+	}
+	// A script directory that no longer exists is skipped.
+	in.SetScriptDir(filepath.Join(scriptDir, "gone"))
+	if got := dlgStartDir(in); got != wd {
+		t.Fatalf("dlgStartDir = %q, want %q after a missing script dir", got, wd)
+	}
+	in.SetScriptDir(scriptDir)
+	b = dlgFileBuilder(in, "保存", "", "out.png")
+	if b.StartDir != scriptDir || b.StartFile != "out.png" {
+		t.Fatalf("save builder: dir %q name %q", b.StartDir, b.StartFile)
+	}
+	// A malformed filter and an empty name configure nothing.
+	b = dlgFileBuilder(in, "保存", "no pipe here", "")
+	if len(b.Filters) != 0 || b.StartFile != "" {
+		t.Fatalf("empty filter must not configure anything: %+v", b)
+	}
+}
+
 func TestEnv(t *testing.T) {
 	mustOutIO(t, "setenv(\"GOU_TEST\", \"42\")\nmes(getenv(\"GOU_TEST\"))\nmes(getenv(\"GOU_NO_SUCH_VAR_XYZ\") == \"\")\n", "", "42\ntrue\n")
 	mustErrIO(t, "getenv(1)\n", "文字列である必要があります")
@@ -320,9 +365,12 @@ func TestEnv(t *testing.T) {
 	mustErrIO(t, "open(1)\n", "文字列である必要があります")
 	mustErrIO(t, "open(\"\")\n", "空にすることはできません")
 	mustErrIO(t, "dlgopen(1)\n", "文字列である必要があります")
+	mustErrIO(t, "dlgsave(1)\n", "文字列である必要があります")
+	mustErrIO(t, "dlgsave(\"\", 2)\n", "文字列である必要があります")
+	mustErrIO(t, "dlgsave(\"a\", \"b\", \"c\")\n", "0 から 2 個")
 	mustErrIO(t, "httpget(1)\n", "文字列である必要があります")
-	mustOutIO(t, "clipboard_set(\"gsh\")\nmes(clipboard_get())\n", "", "gsh\n")
-	mustErrIO(t, "clipboard_set(1)\n", "文字列である必要があります")
+	mustOutIO(t, "clipset(\"gsh\")\nmes(clipget())\n", "", "gsh\n")
+	mustErrIO(t, "clipset(1)\n", "文字列である必要があります")
 }
 
 func TestHttpget(t *testing.T) {
@@ -439,6 +487,33 @@ func TestPipeexec(t *testing.T) {
 	}
 }
 
+func TestPiperun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"echo\", \"hi\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\nhi\r\n\n\n")
+	} else {
+		mustOutIO(t, "r = piperun(\"printf\", \"hi\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\nhi\n\n")
+	}
+	// Non-zero exits are values, not errors.
+	if runtime.GOOS == "windows" {
+		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"exit\", \"3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
+	} else {
+		mustOutIO(t, "r = piperun(\"sh\", \"-c\", \"exit 3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
+	}
+	// Stderr is captured into r[2].
+	if runtime.GOOS == "windows" {
+		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"echo oops>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\r\n\n")
+	} else {
+		mustOutIO(t, "r = piperun(\"sh\", \"-c\", \"echo oops 1>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\n\n")
+	}
+	// Start failure is [-1, "", message], never an error.
+	mustOutIO(t, "r = piperun(\"no-such-command-xyz\")\nmes(r[0])\nmes(r[2] != \"\")\n", "", "-1\ntrue\n")
+}
+
+// GUI calls (mousedown included) fail cleanly outside a window.
+func TestMouseDownOutsideWindow(t *testing.T) {
+	mustErrIO(t, "mes(mousedown())\n", "GUI")
+}
+
 func TestAscChr(t *testing.T) {
 	mustOut(t, "mes(asc(\"A\"))\nmes(asc(\"あ\"))\nmes(chr(65))\nmes(chr(12354))\n", "65\n12354\nA\nあ\n")
 	mustErr(t, "asc(\"\")\n", "空文字列")
@@ -492,7 +567,7 @@ func TestSplitStyleArgs(t *testing.T) {
 func TestInput(t *testing.T) {
 	mustOutIO(t, "s = input()\nmes(s)\n", "hello\n", "hello\n")
 	mustOutIO(t, "s = input(\"name? \")\nmes(s)\n", "bob\n", "name? bob\n")
-	mustOutIO(t, "mes(input())\n", "", "\n")                        // EOF yields ""
+	mustOutIO(t, "mes(input())\n", "", "\n")                    // EOF yields ""
 	mustOutIO(t, "s = input()\nmes(s == \"\")\n", "", "true\n") // EOF
 }
 
@@ -647,7 +722,7 @@ func TestPeekPoke(t *testing.T) {
 func TestPushPopJoin(t *testing.T) {
 	mustOutIO(t, "a = []\nmes(push(a, 1))\nmes(push(a, 2, 3))\nmes(a)\n", "", "1\n3\n[1, 2, 3]\n")
 	mustOutIO(t, "a = [1, 2, 3]\nmes(pop(a))\nmes(a)\n", "", "3\n[1, 2]\n")
-	mustOutIO(t, "mes(join([1, 2, 3]))\nmes(join([\"a\", \"b\"], \"-\"))\nmes(join([], \",\"))\n", "", "1,2,3\na-b\n\n")
+	mustOutIO(t, "mes(join([1, 2, 3]))\nmes(join([\"a\", \"b\"], \"-\"))\nmes(join([], \",\"))\nmes(join([1, 2, 3], \",\"))\n", "", "123\na-b\n\n1,2,3\n")
 	// Shared reference: push through an alias is visible.
 	mustOutIO(t, "a = [1]\nb = a\npush(b, 2)\nmes(a)\n", "", "[1, 2]\n")
 	mustErrIO(t, "mes(pop([]))\n", "配列が空")

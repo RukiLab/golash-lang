@@ -12,9 +12,10 @@ import (
 )
 
 // Custom single-line editor (inputbox): self-drawn box with caret,
-// horizontal scroll and OS IME conversion. It replaces the ebitenui
-// TextInput so the caret position is known: the IME candidate window
-// anchors at the real caret (via caretPixels) instead of (0,0).
+// horizontal scroll and OS IME conversion. The in-conversion text
+// renders in a fixed top-left bar (see drawIMEComp); the OS candidate
+// window is likewise fixed at the screen origin. It replaces the
+// ebitenui TextInput so the caret position is known.
 //
 // Focus model: left-click focuses one box (blurring the rest);
 // clicking elsewhere blurs the box. The IME field follows box focus
@@ -192,6 +193,17 @@ func planEditFocus(press, hit, hadFocus, boxFocused, fieldFocused, imeOff bool) 
 	return editFocusPlan{}
 }
 
+// editKeysOwnedByField reports whether editing keys (Backspace/Delete/
+// arrows/Home/End) belong to the IME field this tick. While converting
+// or while the field holds undrained text, the field owns them and the
+// box must stay out, or keystrokes would apply twice (field and box).
+// Otherwise the field is an empty slate that would swallow them
+// (notably Backspace, which no-ops in an empty field), so the box
+// handles them. Pure logic, unit-testable.
+func editKeysOwnedByField(imeOn bool, comp, fieldText, pending string) bool {
+	return imeOn && (comp != "" || fieldText != "" || pending != "")
+}
+
 // pumpInputs handles focus and editing on the game thread (called
 // from Update after pumpIME). Clicks are observed, not consumed.
 func (b *WindowBackend) pumpInputs() {
@@ -286,9 +298,7 @@ func (b *WindowBackend) pumpInputs() {
 		}
 	}
 	// While converting, Enter/Escape belong to the IME (they commit
-	// or cancel the composition); otherwise they blur the box. While
-	// the field is focused it also owns the editing keys below, or
-	// keystrokes would apply twice (field and box).
+	// or cancel the composition); otherwise they blur the box.
 	if !imeOn || comp == "" {
 		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeyKPEnter) ||
 			inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
@@ -307,7 +317,14 @@ func (b *WindowBackend) pumpInputs() {
 			return
 		}
 	}
+	// While the field owns input it also owns the editing keys below;
+	// with an empty field the box handles them (see
+	// editKeysOwnedByField): the invisible field would swallow them.
+	fieldText := ""
 	if imeOn {
+		fieldText = b.imeField.Text()
+	}
+	if editKeysOwnedByField(imeOn, comp, fieldText, pending) {
 		return
 	}
 	// Editing keys (game thread: inpututil is safe here).
@@ -336,12 +353,10 @@ func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 		id       int
 		st       inputState
 		disabled bool
-		fg       *color.NRGBA
-		bg       *color.NRGBA
 		face     *text.GoTextFace
 		ascent   float64
+		descent  float64
 		lineH    float64
-		comp     string
 		tick     int64
 	}
 	b.mu.Lock()
@@ -350,24 +365,17 @@ func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 		if e.kind != wInput || e.edit == nil {
 			continue
 		}
-		s := snap{id: id, st: *e.edit, disabled: e.disabled, face: b.face, comp: b.imeComposing, tick: b.tick}
-		if e.fg != nil {
-			c := *e.fg
-			s.fg = &c
-		}
-		if e.bg != nil {
-			c := *e.bg
-			s.bg = &c
-		}
+		s := snap{id: id, st: *e.edit, disabled: e.disabled, face: b.face, tick: b.tick}
 		if b.face != nil {
-			s.ascent = b.face.Metrics().HAscent
+			m := b.face.Metrics()
+			s.ascent, s.descent = m.HAscent, m.HDescent
 			s.lineH = b.lineH
 		}
 		ss = append(ss, s)
 	}
 	b.mu.Unlock()
 	for i := range ss {
-		drawInput(screen, &ss[i].st, ss[i].disabled, ss[i].fg, ss[i].bg, ss[i].face, ss[i].ascent, ss[i].comp, ss[i].tick)
+		drawInput(screen, &ss[i].st, ss[i].disabled, ss[i].face, ss[i].ascent, ss[i].descent, ss[i].tick)
 	}
 	// scroll は Draw で確定するが、コピーへの調整を捨てると毎フレーム
 	// 0 から再計算して行端で前後振動 (ちらつき) するため書き戻す。
@@ -380,24 +388,123 @@ func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 	b.mu.Unlock()
 }
 
-// drawInput paints one editor: frame, clipped text, caret, IME
-// composition. Pure drawing (no backend), unit-testable where noted.
-func drawInput(screen *ebiten.Image, st *inputState, disabled bool, fgOvr, bgOvr *color.NRGBA, face *text.GoTextFace, ascent float64, comp string, tick int64) {
-	r := st.rect
-	bg := color.NRGBA{0x22, 0x26, 0x2E, 0xFF}
-	if bgOvr != nil {
-		bg = *bgOvr
+// compSpan is one underline run over the composition: [start, end)
+// in runes, thick for the conversion target clause.
+type compSpan struct {
+	start, end int
+	thick      bool
+}
+
+// compSpans splits n composition runes into underline runs from the
+// clause range, skipping empties and clamping into range. Pure logic,
+// unit-testable.
+func compSpans(n, rs, re int) []compSpan {
+	if rs < 0 {
+		rs = 0
 	}
-	frame := color.NRGBA{0x55, 0x5B, 0x68, 0xFF}
-	if st.focused {
-		frame = color.NRGBA{0x6A, 0x9A, 0xE8, 0xFF}
+	if re > n {
+		re = n
+	}
+	if rs > re {
+		rs = re
+	}
+	var out []compSpan
+	if rs > 0 {
+		out = append(out, compSpan{0, rs, false})
+	}
+	if re > rs {
+		out = append(out, compSpan{rs, re, true})
+	}
+	if re < n {
+		out = append(out, compSpan{re, n, false})
+	}
+	return out
+}
+
+// drawIMEComp paints the in-conversion text in a top-left bar flush
+// with the window corner (white face, gray ring, black text) above
+// everything: conversion target clause with a thick underline, the
+// rest thin. Unlike the box caret, the composition display never
+// moves: one predictable spot for inputbox and immediate input()
+// alike. Game thread (Draw).
+func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
+	b.mu.Lock()
+	comp := b.imeComposing
+	clauseOn := b.imeClause != ""
+	rs, re := b.imeClauseStart, b.imeClauseEnd
+	face := b.face
+	var ascent, descent, lineH float64
+	if face != nil {
+		m := face.Metrics()
+		ascent, descent = m.HAscent, m.HDescent
+		lineH = b.lineH
+	}
+	b.mu.Unlock()
+	if comp == "" || face == nil {
+		return
+	}
+	if lineH <= 0 {
+		lineH = lineHeight
+	}
+	rsRunes := []rune(comp)
+	if !clauseOn {
+		rs, re = 0, 0
+	}
+	const pad = 2.0
+	// imeCompExtraH pads the bar past the text line: a 16px line box
+	// ends at baseline + half descent, where the 3px clause underline
+	// would otherwise hang over the frame.
+	const imeCompExtraH = 2.0
+	w := measureInput(face, rsRunes)
+	bw, bh := w+pad*2, lineH+imeCompExtraH
+	const x, y = 0.0, 0.0
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(bw), float32(bh), themeWhite, false)
+	vector.StrokeRect(screen, float32(x)+0.5, float32(y)+0.5, float32(bw)-1, float32(bh)-1, 1, themeFrame, false)
+	op := &text.DrawOptions{}
+	tx := x + pad
+	// Region top lands on the bar top (text/v2 semantics, same as
+	// drawTextFrag); the baseline sits ascent below it.
+	op.GeoM.Translate(tx, y)
+	op.ColorScale.Reset()
+	op.ColorScale.ScaleWithColor(themeInk)
+	text.Draw(screen, comp, face, op)
+	uy := float32(y + ascent + descent*0.5)
+	cx := float32(tx)
+	for _, sp := range compSpans(len(rsRunes), rs, re) {
+		sw, _ := text.Measure(string(rsRunes[sp.start:sp.end]), face, 0)
+		th := float32(1)
+		if sp.thick {
+			th = 3
+		}
+		vector.DrawFilledRect(screen, cx, uy, float32(sw), th, themeInk, false)
+		cx += float32(sw)
+	}
+}
+
+// inputFaceColors selects the editor face: focus tints the background
+// pale blue with a blue frame, disabled greys out (winning over focus).
+// Pure logic, unit-tested.
+func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
+	bg, frameC = themeWhite, themeFrame
+	if focused {
+		bg, frameC = themeFocusBg, themeFocusFrame
 	}
 	if disabled {
-		bg = color.NRGBA{0x1A, 0x1D, 0x24, 0xFF}
-		frame = color.NRGBA{0x33, 0x39, 0x45, 0xFF}
+		bg, frameC = themeFaceDis, themeFrame
 	}
+	return bg, frameC
+}
+
+// drawInput paints one editor: frame, clipped text and caret. The
+// in-conversion text is not drawn here; it renders in the fixed
+// top-left bar (drawIMEComp). Fixed Windows-standard colors (white,
+// gray frame, black text; pale-blue/blue focus face). Pure drawing
+// (no backend), unit-testable where noted.
+func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.GoTextFace, ascent, descent float64, tick int64) {
+	r := st.rect
+	bg, frameC := inputFaceColors(st.focused, disabled)
 	vector.DrawFilledRect(screen, float32(r.Min.X), float32(r.Min.Y), float32(r.Dx()), float32(r.Dy()), bg, false)
-	vector.StrokeRect(screen, float32(r.Min.X)+0.5, float32(r.Min.Y)+0.5, float32(r.Dx())-1, float32(r.Dy())-1, 1, frame, false)
+	vector.StrokeRect(screen, float32(r.Min.X)+0.5, float32(r.Min.Y)+0.5, float32(r.Dx())-1, float32(r.Dy())-1, 1, frameC, false)
 	if face == nil || r.Dy() < 8 || r.Dx() <= 12 {
 		return
 	}
@@ -406,10 +513,6 @@ func drawInput(screen *ebiten.Image, st *inputState, disabled bool, fgOvr, bgOvr
 		return
 	}
 	caretX := measureInput(face, st.text[:st.caret])
-	if st.focused {
-		// The caret rides past the in-conversion text while typing.
-		caretX += measureInput(face, []rune(comp))
-	}
 	visX := caretX - float64(st.scroll)
 	// Keep the caret visible.
 	if visX > float64(inner.Dx()) {
@@ -427,32 +530,24 @@ func drawInput(screen *ebiten.Image, st *inputState, disabled bool, fgOvr, bgOvr
 	if !ok {
 		return
 	}
-	fg := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
-	if fgOvr != nil {
-		fg = *fgOvr
-	}
+	fg := themeInk
 	if disabled {
-		fg = color.NRGBA{0x77, 0x77, 0x77, 0xFF}
+		fg = themeGrey
 	}
 	op := &text.DrawOptions{}
-	op.GeoM.Translate(float64(inner.Min.X)-float64(st.scroll), float64(inner.Min.Y)+ascent)
+	// Vertically centered (region top lands on the origin, so offset
+	// by half the leftover inner height).
+	op.GeoM.Translate(float64(inner.Min.X)-float64(st.scroll),
+		float64(inner.Min.Y)+(float64(inner.Dy())-(ascent+descent))/2)
 	op.ColorScale.Reset()
 	op.ColorScale.ScaleWithColor(fg)
 	text.Draw(dst, string(st.text), face, op)
-	// In-conversion text follows the caret in gray.
-	if comp != "" && st.focused {
-		cop := &text.DrawOptions{}
-		cop.GeoM.Translate(float64(inner.Min.X)+visX, float64(inner.Min.Y)+ascent)
-		cop.ColorScale.Reset()
-		cop.ColorScale.ScaleWithColor(color.NRGBA{0x99, 0x99, 0x99, 0xFF})
-		text.Draw(dst, comp, face, cop)
-	}
 	// Caret blink (~2Hz).
 	if st.focused && !disabled && tick/30%2 == 0 {
 		cx := float32(inner.Min.X) + float32(visX)
 		if cx >= float32(inner.Min.X) && cx <= float32(inner.Max.X) {
 			vector.DrawFilledRect(screen, cx, float32(inner.Min.Y), 2, float32(inner.Dy()),
-				color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}, false)
+				themeInk, false)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-// Goulash (.gsh) VS Code extension host: F5 run commands.
+// Golash (.gsh) VS Code extension host: F5 run commands.
 // Grammar-only would rely on sendSequence, which silently does
 // nothing without an active terminal; real commands create one.
 
@@ -7,7 +7,7 @@ const vscode = require('vscode');
 function runScript() {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== 'goulash') {
-    vscode.window.showWarningMessage('Goulash: .gsh ファイルを開いて実行してください');
+    vscode.window.showWarningMessage('Golash: .gsh ファイルを開いて実行してください');
     return;
   }
   editor.document.save().then((ok) => {

@@ -11,8 +11,8 @@ import (
 // One backend-wide Field: ime(1) focuses it, ime(0) blurs it. While
 // focused, Update pumps it every tick; committed text flows into the
 // input() line editor, and the in-conversion string is mirrored for
-// imeget(). Script-side reads use the mu-guarded mirrors because the
-// Field itself is only safe on the game thread.
+// the fixed top-left bar. Bar/draw code reads the mu-guarded mirrors
+// because the Field itself is only safe on the game thread.
 
 // IMEState reports 1 when the IME field is focused, else 0.
 func (b *WindowBackend) IMEState() int {
@@ -32,7 +32,7 @@ func (b *WindowBackend) IMESet(on bool) int {
 	} else {
 		b.imeField.Blur()
 		// Blur drops the in-conversion text: clear the mirror at once
-		// so imeget() reports "" immediately instead of a stale
+		// so the bar blanks immediately instead of showing a stale
 		// composition until the next pumpIME tick (which early-returns
 		// while unfocused and would never clear it).
 		// NOTE: Focus/Blur stay outside mu on purpose. Blur ends the
@@ -60,11 +60,11 @@ func (b *WindowBackend) IMEComposition() string {
 }
 
 // IMEClause returns the target conversion clause (文節) inside the
-// in-conversion text with its rune offsets into the imeget() string:
-// (text, runeStart, runeEnd), all zeros when unfocused, idle, or the
-// platform reports no clause range. One call is one tick's snapshot,
-// so the offsets always match the text (two separate calls could
-// straddle a tick). Script-thread safe.
+// in-conversion text with its rune offsets into the composition
+// string: (text, runeStart, runeEnd), all zeros when unfocused, idle,
+// or the platform reports no clause range. One call is one tick's
+// snapshot, so the offsets always match the text (two separate calls
+// could straddle a tick). Script-thread safe.
 func (b *WindowBackend) IMEClause() (string, int, int) {
 	if !b.imeField.IsFocused() {
 		return "", 0, 0
@@ -98,63 +98,23 @@ func imeClauseOf(comp string, cs, ce int, ok bool) (string, int, int) {
 	return out, rs, rs + len([]rune(out))
 }
 
-// IMESetAnchor fixes the candidate-window anchor at (x, y) in window
-// pixels (same system as inputbox x/y). While set, pumpIME passes
-// this position to HandleInputWithBounds instead of the focused
-// inputbox caret. Script-thread safe.
-func (b *WindowBackend) IMESetAnchor(x, y int) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.imeAnchorSet = true
-	b.imeAnchorX = x
-	b.imeAnchorY = y
-}
-
-// IMEClearAnchor drops the manual anchor: pumpIME falls back to the
-// focused inputbox caret (or (0,0) with no focused editor).
-// Script-thread safe.
-func (b *WindowBackend) IMEClearAnchor() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.imeAnchorSet = false
-}
-
-// IMEAnchor reports the manual anchor (x, y, true) or (0, 0, false)
-// when automatic caret-following is in effect. Script-thread safe.
-func (b *WindowBackend) IMEAnchor() (x, y int, ok bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if !b.imeAnchorSet {
-		return 0, 0, false
-	}
-	return b.imeAnchorX, b.imeAnchorY, true
-}
-
-// imeBounds picks the candidate-window bounds for one pumpIME tick:
-// manual anchor wins, then the focused inputbox caret, then the
-// (0,0) fallback. h is the line height in pixels. Pure logic,
-// unit-testable.
-func imeBounds(anchorSet bool, ax, ay int, caretOk bool, cx, cy float64, h float64) image.Rectangle {
-	lh := int(h + 0.5)
-	bounds := image.Rect(0, 0, 1, lh)
-	if caretOk {
-		x := int(cx + 0.5)
-		y := int(cy + 0.5)
-		bounds = image.Rect(x, y, x+1, y+lh)
-	}
-	if anchorSet {
-		bounds = image.Rect(ax, ay, ax+1, ay+lh)
-	}
-	return bounds
+// imeCandidateBounds fixes the candidate window below the composition
+// bar: the OS opens the list below the given rect, so the rect spans
+// the bar height (Max.Y = line height) and the list top lands right
+// under the bar. lh is the line height in pixels (same value the bar
+// uses for its height). Pure logic, unit-testable.
+func imeCandidateBounds(lh float64) image.Rectangle {
+	h := int(lh + 0.5)
+	return image.Rect(0, 0, 1, h)
 }
 
 // pumpIME advances the IME field; game thread only (called from Update).
 func (b *WindowBackend) pumpIME() {
 	if !b.imeField.IsFocused() {
 		// Unfocused means no composition (UncommittedTextLengthInBytes
-		// is 0 by definition): drop any stale mirror so imeget()
-		// reports "" once the unconfirmed string becomes empty,
-		// including blur/cancel paths that never reach the update below.
+		// is 0 by definition): drop any stale mirror so the bar blanks
+		// once the unconfirmed string becomes empty, including
+		// blur/cancel paths that never reach the update below.
 		b.mu.Lock()
 		if b.imeComposing != "" {
 			b.imeComposing = ""
@@ -166,20 +126,15 @@ func (b *WindowBackend) pumpIME() {
 		b.mu.Unlock()
 		return
 	}
-	// Anchor the composition/candidate window: manual imepos wins,
-	// then the measured caret (cell math drifts on proportional
-	// fonts; the focused inputbox reports its own caret so
-	// candidates no longer pile at (0,0)).
-	cx, cy, ok := b.caretPixels()
+	// The candidate window sits below the composition bar (same
+	// height the bar uses, so the list top lands right under it).
 	b.mu.Lock()
 	lh := b.lineH
-	anchorSet := b.imeAnchorSet
-	ax, ay := b.imeAnchorX, b.imeAnchorY
 	b.mu.Unlock()
-	bounds := imeBounds(anchorSet, ax, ay, ok, cx, cy, lh)
+	bounds := imeCandidateBounds(lh)
 	if _, err := b.imeField.HandleInputWithBounds(bounds); err != nil {
 		// On error the composition is unusable: never leave a stale
-		// mirror behind for imeget().
+		// mirror behind for the bar.
 		b.mu.Lock()
 		if b.imeComposing != "" {
 			b.imeComposing = ""
@@ -208,7 +163,7 @@ func (b *WindowBackend) pumpIME() {
 	// ebiten's Windows backend never reports an emptied composition
 	// (zero-length COMPSTR is dropped silently, cancel sends nothing),
 	// so comp can stay stale after the unconfirmed string becomes
-	// empty. The OS ground truth wins: empty means clear for imeget().
+	// empty. The OS ground truth wins: empty means clear for the bar.
 	comp = reconcileComposition(comp)
 	if comp == "" {
 		clause = ""
@@ -244,7 +199,7 @@ func (b *WindowBackend) pumpIME() {
 // reconcileComposition prefers the OS ground truth over ebiten's
 // mirror: when ebiten still reports a composition but the OS-side
 // unconfirmed string is empty (0 chars), the composition became empty
-// and imeget() must report "". Unknown OS state keeps ebiten's value.
+// and the bar must blank. Unknown OS state keeps ebiten's value.
 // Pure logic, unit-testable (osLen is injected for tests).
 func reconcileComposition(ebitenComp string) string {
 	if ebitenComp == "" {

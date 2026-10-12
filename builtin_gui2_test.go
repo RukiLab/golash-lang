@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hajimehoshi/ebiten/v2"
 	"gsh/gui"
 )
 
@@ -101,9 +102,15 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	if err != nil || v.K != KBool || v.B {
 		t.Fatalf("closing(): got %v, %v", v, err)
 	}
+	// screensize() reports the OS window, not the monitor: pin the window
+	// size so the value is deterministic in the headless run.
+	ebiten.SetWindowSize(320, 200)
 	v, err = guiEval(t, "screensize()")
-	if err != nil || v.K != KArray || len(v.Arr.Elems) != 3 {
+	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
 		t.Fatalf("screensize(): got %v, %v", v, err)
+	}
+	if v.Arr.Elems[0].I != 320 || v.Arr.Elems[1].I != 200 {
+		t.Fatalf("screensize() = %v, want [320 200]", v.Arr.Elems)
 	}
 	v, err = guiEval(t, "dropfiles()")
 	if err != nil || v.K != KArray || len(v.Arr.Elems) != 0 {
@@ -160,6 +167,26 @@ func TestGuiImageLimits(t *testing.T) {
 	}
 	if _, err := guiEval(t, "screen(100000, 100000)"); err == nil || !strings.Contains(err.Error(), "上限") {
 		t.Fatalf("screen huge: got %v", err)
+	}
+	// buffer() shares the cap and the positive-size rule.
+	if _, err := guiEval(t, "buffer(1, 4097, 1)"); err == nil || !strings.Contains(err.Error(), "上限") {
+		t.Fatalf("buffer width over limit: got %v", err)
+	}
+	if _, err := guiEval(t, "buffer(1, 0, 8)"); err == nil || !strings.Contains(err.Error(), "正の値") {
+		t.Fatalf("buffer zero size: got %v", err)
+	}
+	// The visible canvas belongs to screen(); off-screen ids only.
+	if _, err := guiEval(t, "buffer(0, 8, 8)"); err == nil || !strings.Contains(err.Error(), "1 から") {
+		t.Fatalf("buffer(0, ...): got %v", err)
+	}
+	if _, err := guiEval(t, "buffer(16, 8, 8)"); err == nil {
+		t.Fatal("buffer(16, ...) should error")
+	}
+	if _, err := guiEval(t, "buffer(1, 8)"); err == nil {
+		t.Fatal("buffer with 2 args should error")
+	}
+	if _, err := guiEval(t, "buffer(\"x\", 8, 8)"); err == nil {
+		t.Fatal("buffer string id should error")
 	}
 	if _, err := guiEval(t, `title("a\0b")`); err == nil || !strings.Contains(err.Error(), "NUL") {
 		t.Fatalf("title NUL: got %v", err)
@@ -244,17 +271,18 @@ func TestGuiFormValidation(t *testing.T) {
 	if _, err := guiEval(t, "objprm(1, \"bogus\", 1)"); err == nil {
 		t.Fatal("objprm bogus key should error")
 	}
-	if _, err := guiEval(t, "objprm(99, \"textcolor\", 255)"); err == nil {
-		t.Fatal("objprm textcolor unknown should error")
-	}
-	if _, err := guiEval(t, "objprm(1, \"textcolor\", 16777216)"); err == nil {
-		t.Fatal("objprm textcolor overflow should error")
-	}
-	if _, err := guiEval(t, "objprm(1, \"backcolor\", -2)"); err == nil {
-		t.Fatal("objprm backcolor -2 should error")
-	}
-	if _, err := guiEval(t, "objprm(99, \"backcolor\", 255)"); err == nil {
-		t.Fatal("objprm backcolor unknown should error")
+	// Removed color keys report unknown keys (theme is fixed).
+	for _, src := range []string{
+		"objprm(99, \"textcolor\", 255)",
+		"objprm(1, \"textcolor\", 16777216)",
+		"objprm(1, \"backcolor\", -2)",
+		"objprm(99, \"backcolor\", 255)",
+		"objprm(1, \"color\", 255)",
+		"objprm(1, \"bgcolor\", 255)",
+	} {
+		if _, err := guiEval(t, src); err == nil || !strings.Contains(err.Error(), "不明なキー") {
+			t.Fatalf("%s: got %v, want unknown-key error", src, err)
+		}
 	}
 }
 

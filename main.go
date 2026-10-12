@@ -1,4 +1,4 @@
-// Command-line interface for the Goulash language v0.2 interpreter.
+// Command-line interface for the Golash language interpreter.
 //
 // Usage:
 //
@@ -19,9 +19,12 @@ import (
 	"gsh/gui"
 )
 
-// goulashVersion は処理系の版です。版上げはこの1箇所だけ変えます。
-// usage と REPL バナーはここから組み立てられます。
-const goulashVersion = "0.3"
+// golashVersion は処理系の版の唯一の正本です。版上げ手順はこの1行を
+// 変えて go test すること (TestVersionPinnedEverywhere が追随すべき
+// ドキュメントを指摘する)。usage と REPL バナーはここから組み立て
+// られます。コメント・コード内に版リテラルは書かないこと (同テストが
+// 検出する)。バンドル形式の codecVersion とは独立した番号です。
+const golashVersion = "0.3"
 
 // runProgram executes prog on the register VM.
 func runProgram(in *Interp, prog *Program) error {
@@ -32,7 +35,7 @@ func runProgram(in *Interp, prog *Program) error {
 	return newVmachine(in).runMain(vprog)
 }
 
-var usage = `gsh: Goulash v` + goulashVersion + ` インタプリタ
+var usage = `gsh: Golash v` + golashVersion + ` インタプリタ
 
 使い方:
   gsh run <file.gsh> [-- args...]   スクリプトを実行します
@@ -397,7 +400,7 @@ func runReplProg(in *Interp, vm *vmachine, prog *Program) error {
 }
 
 func cmdRepl() {
-	fmt.Println("Goulash v" + goulashVersion + " REPL (type \"exit\" to quit)")
+	fmt.Println("Golash v" + golashVersion + " REPL (type \"exit\" to quit)")
 	in := NewInterp(os.Stdout)
 	replVM := newVmachine(in)
 	// NOTE: the REPL reads through the interpreter Backend so input()

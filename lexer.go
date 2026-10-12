@@ -1,7 +1,7 @@
-// Lexer for HSP successor language v0.2.
+// Lexer for HSP successor language.
 //
 // Statements are separated by NEWLINE. A ';' is lexed as SEMICOLON so the
-// parser can reject it with a clear error (v0.2: semicolons are forbidden).
+// parser can reject it with a clear error (semicolons are forbidden).
 package main
 
 import (
