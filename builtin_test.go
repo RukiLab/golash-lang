@@ -63,10 +63,10 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 		"abs", "sqrt", "sin", "cos", "tan", "atan", "exp", "log", "pow", "limit", "min", "max",
 		"rnd", "randomize",
 		"strlen", "strmid", "instr", "strtrim", "split", "strf", "getpath",
-		"gettime", "sleep", "await", "tick", "nanotime", "end", "assert", "logmes", "exec", "args",
+		"gettime", "sleep", "await", "tick", "nanotime", "end", "assert", "logmes", "exec", "execgui", "args",
 		"getenv", "setenv", "open", "clipget", "clipset",
 		"dlgopen", "dlgsave", "httpget", "httppost",
-		"exist", "dirlist", "delete", "mkdir", "chdir", "bcopy", "bload", "bsave",
+		"exist", "filetime", "fileinfo", "dirlist", "delete", "mkdir", "chdir", "bcopy", "bload", "bsave",
 		"getcwd", "direxe", "homedir", "tmpdir",
 		"notemax", "noteget", "noteadd", "notedel", "noteload", "notesave",
 		"peek", "wpeek", "lpeek", "poke", "wpoke", "lpoke",
@@ -433,6 +433,19 @@ func TestExec(t *testing.T) {
 	mustErrIO(t, "mes(exec(\"no-such-command-xyz\"))\n", "exec：")
 }
 
+// TestExecgui mirrors TestExec for the detached twin: async launch
+// returns 0 once started, start failure is an error (only the console
+// differs, which output-based tests cannot observe).
+func TestExecgui(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		mustOutIO(t, "mes(execgui(\"cmd\", \"/c\", \"exit\", \"3\"))\n", "", "0\n")
+	} else {
+		mustOutIO(t, "mes(execgui(\"sh\", \"-c\", \"exit 3\"))\n", "", "0\n")
+	}
+	mustErrIO(t, "mes(execgui(\"no-such-command-xyz\"))\n", "execgui：")
+	mustErrIO(t, "mes(execgui(1))\n", "execgui")
+}
+
 // TestChildOutWriters locks the child-output guard: a real *os.File
 // passes through (the child inherits the handle, no copy goroutine), an
 // in-process writer is wrapped so os/exec's copy goroutine cannot race
@@ -686,6 +699,21 @@ func TestFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustOutIO(t, "a = dirlist(\"*.gsh\")\nmes(a)\n", "", "[z.gsh]\n")
+}
+
+// TestFileinfo pins the one-stat metadata triple [size, mtime_ms,
+// isdir]: regular file, missing path, and directory.
+func TestFileinfo(t *testing.T) {
+	dir := t.TempDir()
+	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
+
+	mustOutIO(t, "notesave(\""+join("t.txt")+"\", \"a\\nb\")\nr = fileinfo(\""+join("t.txt")+"\")\nmes(r[0])\nmes(r[1] > 0)\nmes(r[2])\n", "",
+		"3\ntrue\nfalse\n")
+	mustOutIO(t, "r = fileinfo(\""+join("nope")+"\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "",
+		"-1\n0\nfalse\n")
+	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nr = fileinfo(\""+join("sub")+"\")\nmes(r[1] > 0)\nmes(r[2])\n", "",
+		"true\ntrue\n")
+	mustErrIO(t, "mes(fileinfo(1))\n", "fileinfo")
 }
 
 func TestDirs(t *testing.T) {

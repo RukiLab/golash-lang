@@ -196,6 +196,9 @@ func init() {
 	// Stdout/stderr pass through. Failure to start is an error.
 	// pipeexec() is the synchronous twin: it waits for completion
 	// and captures stdout.
+	// The child shares the parent console (Windows): closing that
+	// console window kills every attached process. A GUI child that
+	// must survive on its own needs execgui() instead.
 	register("exec", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("exec", args, 0, at)
 		if err != nil {
@@ -221,6 +224,40 @@ func init() {
 		return Int(0), nil
 	})
 
+	// execgui(name, args...): like exec() (asynchronous, 0 once
+	// started, start failure is an error), but the child gets no
+	// console window (Windows DETACHED_PROCESS; no-op elsewhere).
+	// For GUI children started from a GUI program: without this, the
+	// child shares the parent console, and closing that console
+	// window kills both processes together. Stdout/stderr are still
+	// inherited (and discarded when the parent has no console), but
+	// nothing is captured: use piperun() when output is needed.
+	register("execgui", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		name, err := needString("execgui", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		argv := make([]string, len(args)-1)
+		for i := range args[1:] {
+			s, err := needString("execgui", args, i+1, at)
+			if err != nil {
+				return Null(), err
+			}
+			argv[i] = s
+		}
+		cmd := exec.Command(name, argv...)
+		detachConsole(cmd)
+		cmd.Stdin = in.in
+		cmd.Stdout = childOut(in.be.Out())
+		cmd.Stderr = childOut(in.errOut)
+		if err := cmd.Start(); err != nil {
+			return Null(), rtErrf(at, "execgui：%s", err.Error())
+		}
+		// Reap in the background; output already streams through.
+		go func() { _ = cmd.Wait() }()
+		return Int(0), nil
+	})
+
 	// piperun(name, args...): run an external command and capture it,
 	// returning [exit code, stdout, stderr]. Unlike pipeexec(), a
 	// non-zero exit is a value (not an error) and stderr is captured
@@ -229,6 +266,7 @@ func init() {
 	// pipeexec error). Only a failure to START the command is folded
 	// into the value as [-1, "", message]. Stdin is detached (null)
 	// like pipeexec; completion is waited for (blocking, no timeout).
+	// The child gets no console window (Windows; capture uses pipes).
 	register("piperun", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("piperun", args, 0, at)
 		if err != nil {
@@ -243,6 +281,7 @@ func init() {
 			argv[i] = s
 		}
 		cmd := exec.Command(name, argv...)
+		detachConsole(cmd)
 		var stdout, stderr strings.Builder
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -261,6 +300,7 @@ func init() {
 	// Failure to start, or a non-zero exit, is an error (the plain
 	// exec() twin returns codes instead of capturing output).
 	// Error output as a value is piperun() instead.
+	// The child gets no console window (Windows; capture uses a pipe).
 	register("pipeexec", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("pipeexec", args, 0, at)
 		if err != nil {
@@ -275,6 +315,7 @@ func init() {
 			argv[i] = s
 		}
 		cmd := exec.Command(name, argv...)
+		detachConsole(cmd)
 		var out strings.Builder
 		cmd.Stdout = &out
 		cmd.Stderr = childOut(in.errOut)

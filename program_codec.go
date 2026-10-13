@@ -13,6 +13,8 @@ import (
 	"hash/crc32"
 	"math"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 const (
@@ -408,11 +410,71 @@ func stripBundle(exe []byte) []byte {
 	return exe[:len(exe)-bundleTrailerLen-int(n)]
 }
 
+// peSubsystemCUI / peSubsystemGUI は PE オプショナルヘッダの
+// Subsystem 値 (コンソール有無)。gsh build した GUI プログラムは
+// GUI (コンソールなし) に書き換える。コンソール付きのままだと、
+// ダブルクリック起動で黒いコンソールが開き、それを閉じると
+// Windows が同コンソールの全プロセス (エディタ本体＋実行した子)
+// を道連れに終了させるため。
+const (
+	peSubsystemCUI = 3
+	peSubsystemGUI = 2
+)
+
+// SetPEGuiSubsystem は exePath の PE サブシステムを GUI (2) にする。
+// 既に GUI の場合は何もしない。PE 形式でない・CUI でも GUI でもない
+// 場合はエラーを返す (黙って別形式を出すより失敗させる)。
+// Subsystem は PE32/PE32+ ともオプショナルヘッダ先頭+68 にある。
+func SetPEGuiSubsystem(exePath string) error {
+	exe, err := os.ReadFile(exePath)
+	if err != nil {
+		return fmt.Errorf("読込に失敗しました: %w", err)
+	}
+	off, err := peSubsystemOffset(exe)
+	if err != nil {
+		return err
+	}
+	if binary.LittleEndian.Uint16(exe[off:]) == peSubsystemGUI {
+		return nil
+	}
+	if binary.LittleEndian.Uint16(exe[off:]) != peSubsystemCUI {
+		return fmt.Errorf("未対応のサブシステム %d です", binary.LittleEndian.Uint16(exe[off:]))
+	}
+	binary.LittleEndian.PutUint16(exe[off:], peSubsystemGUI)
+	if err := os.WriteFile(exePath, exe, 0755); err != nil {
+		return fmt.Errorf("出力に失敗しました: %w", err)
+	}
+	return nil
+}
+
+// peSubsystemOffset は Subsystem フィールドの位置を返す。
+func peSubsystemOffset(exe []byte) (int, error) {
+	if len(exe) < 0x40 || exe[0] != 'M' || exe[1] != 'Z' {
+		return 0, fmt.Errorf("PE 形式ではありません (MZ がありません)")
+	}
+	lfanew := int(binary.LittleEndian.Uint32(exe[0x3C:]))
+	// 署名4 + COFF20 + オプショナル magic2 + 68。
+	const need = 4 + 20 + 2 + 68 + 2
+	if lfanew < 0 || len(exe) < lfanew+need {
+		return 0, fmt.Errorf("PE 形式ではありません (ヘッダが短すぎます)")
+	}
+	if string(exe[lfanew:lfanew+4]) != "PE\x00\x00" {
+		return 0, fmt.Errorf("PE 形式ではありません (PE 署名がありません)")
+	}
+	magic := binary.LittleEndian.Uint16(exe[lfanew+24:])
+	if magic != 0x10B && magic != 0x20B {
+		return 0, fmt.Errorf("未対応の PE 形式 (magic %#x) です", magic)
+	}
+	return lfanew + 24 + 68, nil
+}
+
 // AppendBundle は runtimeExe の複製に payload を連結して outPath に書く。
-func AppendBundle(runtimeExe, outPath string, payload []byte) error {
+// 戻り値は実際に書いたパス（実行中などで書けない場合は _new 付きに
+// 替わることがある）。
+func AppendBundle(runtimeExe, outPath string, payload []byte) (string, error) {
 	exe, err := os.ReadFile(runtimeExe)
 	if err != nil {
-		return fmt.Errorf("ランタイムの読込に失敗しました: %w", err)
+		return "", fmt.Errorf("ランタイムの読込に失敗しました: %w", err)
 	}
 	exe = stripBundle(exe)
 	out := make([]byte, 0, len(exe)+len(payload)+bundleTrailerLen)
@@ -422,10 +484,34 @@ func AppendBundle(runtimeExe, outPath string, payload []byte) error {
 	binary.LittleEndian.PutUint64(tmp[:], uint64(len(payload)))
 	out = append(out, tmp[:]...)
 	out = append(out, []byte(bundleMagic)...)
-	if err := os.WriteFile(outPath, out, 0755); err != nil {
-		return fmt.Errorf("出力に失敗しました: %w", err)
+	return writeBuildOutput(outPath, out)
+}
+
+// writeBuildOutput は連結済みイメージを outPath に書く。書けない場合
+// （実行中の exe への上書きは Windows が錠をかけて失敗する）は
+// stem_new.exe への出力を試みる。戻り値は実際に書いたパス。
+// 両方失敗したら最初のエラーを返す（2つ目は参考に付ける）。
+func writeBuildOutput(outPath string, out []byte) (string, error) {
+	if err := os.WriteFile(outPath, out, 0755); err == nil {
+		return outPath, nil
+	} else if fb, ferr := fallbackBuildPath(outPath); ferr != nil {
+		return "", fmt.Errorf("出力に失敗しました: %w", err)
+	} else if ferr = os.WriteFile(fb, out, 0755); ferr != nil {
+		return "", fmt.Errorf("出力に失敗しました: %v（%s への出力も失敗しました: %v）。実行中の exe への上書きはできません", err, fb, ferr)
+	} else {
+		return fb, nil
 	}
-	return nil
+}
+
+// fallbackBuildPath は stem_new.exe 形式の代替パスを返す。
+// main.exe → main_new.exe。拡張子がなければ末尾に _new を付ける。
+func fallbackBuildPath(outPath string) (string, error) {
+	ext := filepath.Ext(outPath)
+	stem := strings.TrimSuffix(outPath, ext)
+	if stem == "" {
+		return "", fmt.Errorf("代替名を作れません: %q", outPath)
+	}
+	return stem + "_new" + ext, nil
 }
 
 // ExtractBundle は自 exe 末尾のバンドルを取り出す。無ければ ok=false。

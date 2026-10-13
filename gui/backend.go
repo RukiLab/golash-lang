@@ -184,7 +184,7 @@ func New(w, h int) (*WindowBackend, error) {
 	}
 	b := &WindowBackend{
 		w: w, h: h,
-		ctrlSt:   make([]ctrlState, len(ctrlKeys)),
+		ctrlSt: make([]ctrlState, len(ctrlKeys)),
 		// White window: the default face is black text on white,
 		// matching the Windows-standard widget theme.
 		fg:       color.NRGBA{0x00, 0x00, 0x00, 0xFF},

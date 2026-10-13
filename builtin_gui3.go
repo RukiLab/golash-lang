@@ -123,6 +123,7 @@ func init() {
 	})
 
 	// listbox(id, x, y, w, h, items): place a list; items is an array.
+	// Items wider than the list are shortened by the backend.
 	register("listbox", 6, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "listbox")
 		if err != nil {
@@ -157,7 +158,8 @@ func init() {
 	// in place (widget.List.SetEntries). Unlike re-calling listbox(), this
 	// keeps the same ebitenui widget, so its scroll position and focus are
 	// preserved — recreating the widget every keystroke reset them and made
-	// the list visibly jump ("shake").
+	// the list visibly jump ("shake"). Items are shortened to the width
+	// recorded by listbox().
 	register("listbox_set", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "listbox_set")
 		if err != nil {

@@ -235,6 +235,18 @@ func TestGuiWidgetValidation(t *testing.T) {
 	if _, err := guiEval(t, "button(\"x\", \"y\", 0, 0, 10, 10)"); err == nil {
 		t.Fatal("button string id should error")
 	}
+	// Success paths enqueue game-thread work that guiEval never pumps
+	// (they would block); the backend-level fit is covered by
+	// TestListboxItemsFitAndStayUnique / TestButtonLabelFits.
+	if _, err := guiEval(t, "listbox_set(1)"); err == nil {
+		t.Fatal("listbox_set arity should error")
+	}
+	if _, err := guiEval(t, "listbox_set(1, [1])"); err == nil {
+		t.Fatal("listbox_set non-string item should error")
+	}
+	if _, err := guiEval(t, "listbox_sel(1, \"x\")"); err == nil {
+		t.Fatal("listbox_sel non-int index should error")
+	}
 }
 
 func TestGuiFormValidation(t *testing.T) {

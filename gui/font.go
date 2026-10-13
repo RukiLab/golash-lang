@@ -194,6 +194,7 @@ var fontExts = []string{".ttc", ".ttf", ".otf"}
 //     prefix matches (e.g. "PlemolJP" finds "PlemolJP-Regular.ttf"),
 //     preferring the Regular weight; otherwise the first name
 //     alphabetically wins. Directories keep their priority order.
+//
 // An extension-bearing name that names no file falls through to the
 // directory search, so "Foo.ttf" still finds "Foo.ttf" or its Regular
 // face without a path.

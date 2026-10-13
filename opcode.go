@@ -99,7 +99,7 @@ const (
 	OpBrkTop              // BRKTOP          トップレベルの break エラー
 	OpContTop             // CONTTOP         トップレベルの continue エラー
 	OpRetTop              // RETTOP          トップレベルの return エラー
-	OpHalt // HALT 実行終了
+	OpHalt                // HALT 実行終了
 
 	OpCount // 命令数（番兵）
 )

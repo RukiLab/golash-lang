@@ -1238,6 +1238,10 @@ type renderGame struct {
 	pfChecked                      bool
 	pxLaunched, pxChecked          bool
 	pxDone                         chan pxRes
+	sliderLaunched, sliderChecked  bool
+	sliderDone                     chan struct{}
+	sliderErr                      error
+	sliderSettle, sliderBlueMax    int
 	edLaunched, edMeasured         bool
 	edRow                          float64
 	edFrames, edDistinct           int
@@ -1436,10 +1440,46 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			g.imeCompChecked = true
 			g.checkIMEComp(screen)
 		}
+		// List-slider stage: a listbox keeps its vertical slider, so
+		// the entries (and the selected-row highlight) must end where
+		// the slider strip begins instead of bleeding under it. This
+		// proves the 16px fit budget from the drawing side. Runs after
+		// the pixel stage so earlier paints cannot clobber the probe
+		// area (bottom-left, clear of every other stage).
+		if g.pxChecked && g.wFail == "" && !g.sliderChecked {
+			if !g.sliderLaunched {
+				g.sliderLaunched = true
+				g.sliderDone = make(chan struct{})
+				go func() {
+					defer close(g.sliderDone)
+					if err := g.b.AddList(71, 20, 360, 200, 100, []string{"alpha", "beta", "gamma", "delta"}); err != nil {
+						g.sliderErr = err
+						return
+					}
+					if err := g.b.SelectList(71, 0); err != nil {
+						g.sliderErr = err
+					}
+				}()
+			}
+			select {
+			case <-g.sliderDone:
+				if g.sliderErr != nil {
+					g.wFail = "list slider setup: " + g.sliderErr.Error()
+					g.sliderChecked = true
+				} else if g.sliderSettle < 2 {
+					// Let layout and two draws settle before sampling.
+					g.sliderSettle++
+				} else {
+					g.sliderChecked = true
+					g.checkListSlider(screen)
+				}
+			default:
+			}
+		}
 		// Buffer stage: buffer(id, w, h) then gcopy the off-screen image
 		// back onto the canvas. Runs after the pixel stage so the earlier
 		// stages' paints stay put; probes a free corner (500,100)-(600,180).
-		if g.pxChecked && g.wFail == "" && !g.bufChecked {
+		if g.sliderChecked && g.wFail == "" && !g.bufChecked {
 			g.bufChecked = true
 			g.checkBuffer(screen)
 		}
@@ -1476,6 +1516,42 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			}
 			g.done = true
 		}
+	}
+}
+
+// absDiff32 is the per-channel distance of two 16-bit samples.
+func absDiff32(a, b uint32) uint32 {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
+// checkListSlider scans the probe listbox for the select-blue extent:
+// with the 16px slider strip reserved, the selected row must stop well
+// short of the list's right edge (x=220). A highlight bleeding under a
+// removed slider would push past ~212.
+func (g *renderGame) checkListSlider(screen *ebiten.Image) {
+	const lx, ly, lw, lh = 20, 360, 200, 100
+	pr, pg, pb, _ := color.NRGBA{204, 228, 247, 0xFF}.RGBA()
+	maxX := -1
+	for y := ly; y < ly+lh; y++ {
+		for x := lx; x < lx+lw; x++ {
+			r, gg, bb, _ := screen.At(x, y).RGBA()
+			if absDiff32(r, pr) < 0x1000 && absDiff32(gg, pg) < 0x1000 && absDiff32(bb, pb) < 0x1000 {
+				if x > maxX {
+					maxX = x
+				}
+			}
+		}
+	}
+	g.sliderBlueMax = maxX
+	if maxX < 60 {
+		g.wFail = "list selected row missing (no select-blue found)"
+		return
+	}
+	if maxX > lx+lw-12 {
+		g.wFail = fmt.Sprintf("list highlight bleeds into the slider strip (blue to x=%d)", maxX)
 	}
 }
 
@@ -3025,6 +3101,191 @@ func TestClearKeepsWidgets(t *testing.T) {
 // repeat runs (go test -count=N) skip instead of panicking.
 var loopRan = false
 
+// TestListboxVerticalSlider guards the visible scrollbar path: an
+// empty list and a tall one must both survive Update/Draw with the
+// slider built (its page math divides by the content height), and the
+// slider images must be wired (an imageless handle panics on draw,
+// like the dropdown's). Pixel proof that the slider reserves its
+// strip lives in the renderGame slider stage below.
+// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+func TestListboxVerticalSlider(t *testing.T) {
+	b := mustNew(t)
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddList(61, 0, 0, 120, 60, []string{"a", "b", "c"})
+	}); err != nil {
+		t.Fatalf("AddList: %v", err)
+	}
+	// Slider images must be fully wired (no nil faces).
+	sp := b.comboSliderParams()
+	if sp.TrackImage == nil || sp.TrackImage.Idle == nil {
+		t.Fatal("slider track image missing")
+	}
+	if sp.HandleImage == nil {
+		t.Fatal("slider handle image missing")
+	}
+	// Empty list + visible slider must not blow up on Update/Draw.
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddList(62, 0, 0, 120, 60, nil)
+	}); err != nil {
+		t.Fatalf("AddList empty: %v", err)
+	}
+	if err := b.Update(); err != nil {
+		t.Fatalf("Update with empty list: %v", err)
+	}
+	b.Draw(ebiten.NewImage(640, 480))
+	// Many items: slider math over a tall content must also survive.
+	many := make([]string, 0, 200)
+	for i := 0; i < 200; i++ {
+		many = append(many, "item number "+strings.Repeat("x", i%37))
+	}
+	if err := runWidgetOp(t, b, func() error {
+		return b.UpdateList(62, many)
+	}); err != nil {
+		t.Fatalf("UpdateList many: %v", err)
+	}
+	if err := b.Update(); err != nil {
+		t.Fatalf("Update with 200 items: %v", err)
+	}
+	b.Draw(ebiten.NewImage(640, 480))
+}
+
+// TestAreaVerticalScrollbar guards the console log viewer: a plain,
+// empty, and tall content must all survive Update/Draw with the
+// scrollbar built, and repeated SetText (the append path) must keep
+// working. Auto-stick to the bottom is ebitenui-internal (ScrollEnd).
+// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+func TestAreaVerticalScrollbar(t *testing.T) {
+	b := mustNew(t)
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddArea(71, 0, 0, 300, 110, "line1\nline2")
+	}); err != nil {
+		t.Fatalf("AddArea: %v", err)
+	}
+	if s, err := b.AreaText(71); err != nil || s != "line1\nline2" {
+		t.Fatalf("AreaText = %q, %v", s, err)
+	}
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddArea(72, 0, 0, 300, 110, "")
+	}); err != nil {
+		t.Fatalf("AddArea empty: %v", err)
+	}
+	many := make([]string, 0, 120)
+	for i := 0; i < 120; i++ {
+		many = append(many, "log line number "+strings.Repeat("=", i%41))
+	}
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddArea(73, 0, 0, 300, 110, strings.Join(many, "\n"))
+	}); err != nil {
+		t.Fatalf("AddArea many: %v", err)
+	}
+	// Churn like the editor console (append = read + rewrite).
+	for i := 0; i < 5; i++ {
+		if err := runWidgetOp(t, b, func() error {
+			s, err := b.AreaText(73)
+			if err != nil {
+				return err
+			}
+			return b.SetAreaText(73, s+"\nmore "+strings.Repeat("x", i))
+		}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+	if err := b.Update(); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	b.Draw(ebiten.NewImage(640, 480))
+	if err := runWidgetOp(t, b, func() error {
+		return b.SetAreaText(73, "")
+	}); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if err := b.Update(); err != nil {
+		t.Fatalf("Update after clear: %v", err)
+	}
+	b.Draw(ebiten.NewImage(640, 480))
+}
+
+// TestListboxItemsFitAndStayUnique drives the backend the way the
+// listbox/listbox_set builtins do and asserts the stored entries (what
+// a selection resolves against) are fitted to the list width and stay
+// distinct, so clicking the second of two similarly-named definitions
+// still jumps to the right one.
+// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+func TestListboxItemsFitAndStayUnique(t *testing.T) {
+	b := mustNew(t)
+	w := 104
+	items := []string{
+		"myVeryLongFunctionName  (1)",
+		"myVeryLongFunctionName  (2)",
+		"myVeryLongFunctionName  (100)",
+	}
+	if err := runWidgetOp(t, b, func() error { return b.AddList(41, 0, 0, w, 60, items) }); err != nil {
+		t.Fatalf("AddList: %v", err)
+	}
+	b.mu.Lock()
+	got := append([]string(nil), b.widgets[41].items...)
+	b.mu.Unlock()
+	if len(got) != len(items) {
+		t.Fatalf("stored %d items, want %d", len(got), len(items))
+	}
+	for i, s := range got {
+		if b.textWidthLocked(s) > w-listSliderW-listPadX {
+			t.Errorf("item %d %q wider than %d", i, s, w-listSliderW-listPadX)
+		}
+		for j := 0; j < i; j++ {
+			if got[j] == s {
+				t.Fatalf("item %d %q duplicates item %d: selected() would report the earlier index", i, s, j)
+			}
+		}
+	}
+	// listbox_set re-fits to the recorded width.
+	if err := runWidgetOp(t, b, func() error { return b.UpdateList(41, items) }); err != nil {
+		t.Fatalf("UpdateList: %v", err)
+	}
+	b.mu.Lock()
+	got2 := append([]string(nil), b.widgets[41].items...)
+	b.mu.Unlock()
+	if len(got2) != len(items) {
+		t.Fatalf("after update: stored %d items, want %d", len(got2), len(items))
+	}
+	for i := range got {
+		if got[i] != got2[i] {
+			t.Fatalf("item %d changed after listbox_set: %q -> %q", i, got[i], got2[i])
+		}
+	}
+}
+
+// TestButtonLabelFits checks a label wider than its button is shortened
+// before ebitenui draws it: ebitenui does not clip button text, so the
+// raw label would spill past the frame.
+// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+func TestButtonLabelFits(t *testing.T) {
+	b := mustNew(t)
+	w := 60
+	long := strings.Repeat("ラ", 20)
+	short := "OK"
+	if err := runWidgetOp(t, b, func() error {
+		if err := b.AddButton(51, long, 0, 0, w, 24); err != nil {
+			return err
+		}
+		return b.AddButton(52, short, 0, 0, w, 24)
+	}); err != nil {
+		t.Fatalf("AddButton: %v", err)
+	}
+	b.mu.Lock()
+	gotLong, gotShort := b.widgets[51].label, b.widgets[52].label
+	b.mu.Unlock()
+	if gotLong == long {
+		t.Fatal("long button label was not shortened")
+	}
+	if b.textWidthLocked(gotLong) > w-buttonPadX {
+		t.Errorf("label %q measures %d, over %d", gotLong, b.textWidthLocked(gotLong), w-buttonPadX)
+	}
+	if gotShort != short {
+		t.Fatalf("short label changed to %q", gotShort)
+	}
+}
+
 // TestGuiRender verifies end-to-end pixel output: environment readback,
 // direct text, and the backend path (catches "black screen" regressions).
 func TestGuiRender(t *testing.T) {
@@ -3082,6 +3343,10 @@ func TestGuiRender(t *testing.T) {
 	if !g.pxChecked {
 		t.Fatal("pget stage never ran")
 	}
+	if !g.sliderChecked {
+		t.Fatal("list slider stage never ran")
+	}
+	t.Logf("list slider: select-blue maxX=%d", g.sliderBlueMax)
 	if g.wFail != "" {
 		t.Fatalf("stage failure before completion: %s", g.wFail)
 	}

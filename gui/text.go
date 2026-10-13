@@ -468,6 +468,12 @@ func (b *WindowBackend) FontFile() string {
 func (b *WindowBackend) TextWidth(s string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.textWidthLocked(s)
+}
+
+// textWidthLocked is TextWidth without locking: the caller already holds
+// b.mu (or runs on the game thread).
+func (b *WindowBackend) textWidthLocked(s string) int {
 	if b.face == nil {
 		return len([]rune(expandTabs(s)))
 	}

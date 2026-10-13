@@ -58,6 +58,13 @@ type widgetEntry struct {
 	pressed bool
 	items   []string
 	selIdx  int
+	// listW is the width a listbox was placed at; listbox_set carries
+	// no width, so entries are fitted to this. Reading the widget rect
+	// instead would see 0 until the first layout pass.
+	listW int
+	// label is the button text as drawn (shortened to the button face);
+	// kept so it can be inspected without reaching into ebitenui.
+	label string
 	// cached mirrors the widget's text, refreshed on the game thread
 	// every Update so InputText never blocks the script (a blocking
 	// read mid-frame would stall cls/mes redraws and flicker).
@@ -379,9 +386,12 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 		}
 	}
 	var opErr error
+	// ebitenui draws the whole label, so a wide one spills past the
+	// button frame; shorten it to the button width first.
+	label = fitText(label, w-buttonPadX, b.TextWidth)
 	b.runOnLoop(func() {
 		face := b.uiFace()
-		e := &widgetEntry{id: id, kind: wButton, selIdx: -1}
+		e := &widgetEntry{id: id, kind: wButton, selIdx: -1, label: label}
 		bi := b.buttonImage()
 		bt := buttonTextColor()
 		opts := []widget.ButtonOpt{
@@ -516,18 +526,20 @@ func (b *WindowBackend) syncWidgetCache() {
 
 // InputText lives in edit.go (custom editor state).
 
-// AddList creates (or replaces) a list box.
+// AddList creates (or replaces) a list box. Items wider than the list
+// are shortened with an ellipsis so they never spill past the frame.
 func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("listbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
 	}
+	items = fitItems(items, w-listSliderW-listPadX, b.TextWidth)
 	entries := make([]any, len(items))
 	for i, s := range items {
 		entries[i] = s
 	}
 	b.runOnLoop(func() {
 		face := b.uiFace()
-		e := &widgetEntry{id: id, kind: wList, selIdx: -1}
+		e := &widgetEntry{id: id, kind: wList, selIdx: -1, listW: w}
 		e.items = append([]string(nil), items...)
 		list := newListWidget(b, face, e, entries)
 		b.placeChild(id, e, list, x, y, w, h)
@@ -542,16 +554,15 @@ func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 // second listbox() call would) throws that state away, which is what made
 // the editor's outline visibly jump on every keystroke.
 func (b *WindowBackend) UpdateList(id int, items []string) error {
-	entries := make([]any, len(items))
-	for i, s := range items {
-		entries[i] = s
-	}
 	b.mu.Lock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wList || e.list == nil {
 		b.mu.Unlock()
 		return nil
 	}
+	// listbox_set carries no width: fit to the width listbox() recorded
+	// (listbox() is called again on every relayout, e.g. window resize).
+	items = fitItems(items, e.listW-listSliderW-listPadX, b.textWidthLocked)
 	// Mirror the new items and clear the cached selection synchronously
 	// (under mu) so a same-frame selected() read never sees the pre-update
 	// index; the widget itself swaps its buttons on the game thread.
@@ -559,6 +570,10 @@ func (b *WindowBackend) UpdateList(id int, items []string) error {
 	e.selIdx = -1
 	list := e.list
 	b.mu.Unlock()
+	entries := make([]any, len(items))
+	for i, s := range items {
+		entries[i] = s
+	}
 	b.runOnLoop(func() {
 		list.SetEntries(entries)
 	})
@@ -621,8 +636,13 @@ func newListWidget(b *WindowBackend, face *text.Face, e *widgetEntry, entries []
 		// The script owns every key (arrows move its own caret):
 		// a focused list must not also consume them, or one press
 		// would drive both the list and the script at once.
-		widget.ListOpts.DisableDefaultKeys(true), widget.ListOpts.HideHorizontalSlider(),
-		widget.ListOpts.HideVerticalSlider(),
+		widget.ListOpts.DisableDefaultKeys(true),
+		// The vertical slider stays visible (wheel-only scrolling
+		// strands keyboard/touch users with no affordance). Its
+		// images come from the fixed theme, like the dropdown's:
+		// a imageless handle button panics on draw.
+		widget.ListOpts.SliderParams(b.comboSliderParams()),
+		widget.ListOpts.HideHorizontalSlider(),
 		// Select on press (not release): native listboxes highlight
 		// the instant the button goes down; release-to-select
 		// feels like a laggy click.
@@ -809,15 +829,19 @@ func (b *WindowBackend) AddArea(id, x, y, w, h int, text string) error {
 	b.runOnLoop(func() {
 		face := b.uiFace()
 		e := &widgetEntry{id: id, kind: wArea, selIdx: -1, cached: text}
-		ta := newAreaWidget(face, text)
+		ta := newAreaWidget(b, face, text)
 		e.area = ta
 		b.placeChild(id, e, ta, x, y, w, h)
 	})
 	return nil
 }
 
-// newAreaWidget builds a multiline box in the fixed Windows-standard theme.
-func newAreaWidget(face *text.Face, content string) *widget.TextArea {
+// newAreaWidget builds a multiline box in the fixed Windows-standard
+// theme: a log viewer with a vertical scrollbar that sticks to the
+// bottom on every update (editors append results and expect the tail
+// to stay visible). Slider images are required (an imageless handle
+// panics on draw, like the listbox/combo sliders).
+func newAreaWidget(b *WindowBackend, face *text.Face, content string) *widget.TextArea {
 	return widget.NewTextArea(
 		widget.TextAreaOpts.ContainerOpts(widget.ContainerOpts.BackgroundImage(
 			frame(themeWhite, themeFrame))),
@@ -825,6 +849,9 @@ func newAreaWidget(face *text.Face, content string) *widget.TextArea {
 			Idle: frame(themeWhite, themeFrame),
 			Mask: frame(themeWhite, themeFrame),
 		}),
+		widget.TextAreaOpts.SliderParams(b.comboSliderParams()),
+		widget.TextAreaOpts.ShowVerticalScrollbar(),
+		widget.TextAreaOpts.VerticalScrollMode(widget.ScrollEnd),
 		widget.TextAreaOpts.FontFace(face),
 		widget.TextAreaOpts.FontColor(themeInk),
 		widget.TextAreaOpts.TextPadding(*widget.NewInsetsSimple(4)),

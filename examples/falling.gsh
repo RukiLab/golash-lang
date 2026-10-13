@@ -662,13 +662,13 @@ def draw() {
     }
 
     // 常時画面最上部にステータスを小さく表示
-    color(255, 255, 255)
+    color()
     pos(4, 2)
     mes("Lv:" + level + " Sc:" + score)
 
     // ポーズ表示
     if game_state == STATE_PAUSE {
-        color(255, 255, 255)
+        color()
         pos(36, 120)
         mes("== PAUSED ==")
         pos(20, 150)
@@ -681,7 +681,7 @@ def draw() {
         pos(38, 80)
         mes("GAME OVER")
 
-        color(255, 255, 255)
+        color()
         pos(32, 110)
         mes("Level: " + level)
         pos(32, 130)
@@ -700,7 +700,7 @@ def main() {
     // 画面サイズは拡張せず、元の 10×20 マス（160×320）を維持
     screen(MINO_SIZE * COLS, MINO_SIZE * VISIBLE_ROWS)
     title("Tetris")
-    mino_img = picload("examples/assets/mino.png")
+    mino_img = picload("assets/mino.png")
     init_game()
 
     while is_running {
@@ -709,8 +709,7 @@ def main() {
         draw()
         await(1)
     }
-    return
+    end()
 }
 
 main()
-end()

@@ -64,6 +64,49 @@ func init() {
 		return Null(), rtErrf(at, "exist：%s", err.Error())
 	})
 
+	// filetime(path): the file's modification time as Unix
+	// milliseconds (0 when the file does not exist). Rounding to whole
+	// milliseconds keeps the value comparable across platforms, so a
+	// script can poll it to notice an external edit (an editor that
+	// reloads a changed file, for instance).
+	register("filetime", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		p, err := needString("filetime", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		fi, err := os.Stat(in.resolvePath(p))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return Int(0), nil
+			}
+			return Null(), rtErrf(at, "filetime：%s", err.Error())
+		}
+		return Int(fi.ModTime().UnixMilli()), nil
+	})
+
+	// fileinfo(path): file metadata in one stat call, as
+	// [size, mtime_ms, isdir]. Size is bytes, mtime is Unix
+	// milliseconds like filetime(), isdir tells directories apart.
+	// A missing path reports [-1, 0, false] instead of an error
+	// (same philosophy as filetime: editors poll without try/catch,
+	// which the language does not have). Directory sizes are
+	// OS-dependent; combine the three fields instead of calling
+	// exist()/filetime() separately.
+	register("fileinfo", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		p, err := needString("fileinfo", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		fi, err := os.Stat(in.resolvePath(p))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return ArrayOf([]Value{Int(-1), Int(0), Bool(false)}), nil
+			}
+			return Null(), rtErrf(at, "fileinfo：%s", err.Error())
+		}
+		return ArrayOf([]Value{Int(fi.Size()), Int(fi.ModTime().UnixMilli()), Bool(fi.IsDir())}), nil
+	})
+
 	// dirlist([mask]): names in the script directory (or the working
 	// directory in the REPL), sorted. A mask with a directory part is
 	// resolved with the usual script-first rule.

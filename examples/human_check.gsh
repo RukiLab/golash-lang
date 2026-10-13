@@ -1,6 +1,8 @@
 // human_check.gsh — 人手検証テスト（GUI ビルド専用）。
 //
-// 実行: gsh run examples/human_check.gsh --gui
+// 実行: どこからでも gsh run <このファイルへのパス>
+// （素材はスクリプト脇の assets/ から読む）。例:
+//   gsh run examples/human_check.gsh
 // 目視・操作が必要な項目を順に提示し、dialog() の Yes/No または
 // 制限時間付きの自動判定で合否を記録します。最後に集計を表示します。
 
@@ -179,7 +181,7 @@ mes("入力=" + s)
 ask("T6 ime input", "入力した通りに確定されたか")
 
 // ---- T7: 音声 ----
-snd = mmload("examples/assets/sfx_move.mp3")
+snd = mmload("assets/sfx_move.mp3")
 mmplay(snd)
 ask("T7 audio", "音が鳴ったか")
 mmstop()

@@ -336,9 +336,27 @@ func cmdBuild(args []string) {
 		fmt.Fprintln(os.Stderr, "エラー:", err)
 		os.Exit(1)
 	}
-	if err := AppendBundle(runtime, out, payload); err != nil {
+	if final, err := AppendBundle(runtime, out, payload); err != nil {
 		fmt.Fprintln(os.Stderr, "エラー:", err)
 		os.Exit(1)
+	} else if final != out {
+		// 別名出力 (実行中の exe への上書き不可など)。使うには
+		// 終了後にリネームする。
+		fmt.Fprintf(os.Stderr, "注意: %s に書けなかったため %s に出力しました（実行中の exe への上書きはできません）。使うには終了後にリネームしてください\n", out, final)
+		out = final
+	} else {
+		out = final
+	}
+	// GUI モード (#mode gui・省略時) はコンソールなし (windowsgui)
+	// で出す。コンソール付きのままだとダブルクリック起動で黒窓が
+	// 開き、それを閉じると同コンソールの全プロセスが道連れに
+	// 終了する (エディタ本体＋実行した子)。#mode cli は端末用に
+	// コンソール付きのまま。
+	if mode == "gui" {
+		if err := SetPEGuiSubsystem(out); err != nil {
+			fmt.Fprintln(os.Stderr, "エラー:", err)
+			os.Exit(1)
+		}
 	}
 	fmt.Println(out)
 }
