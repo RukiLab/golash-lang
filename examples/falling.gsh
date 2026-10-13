@@ -24,7 +24,7 @@
 #define STATE_PAUSE
 #define STATE_GAMEOVER
 
-// ミノの種類
+// ピースの種類
 // → PIECE_I, PIECE_O, PIECE_T, PIECE_S, PIECE_Z, PIECE_J, PIECE_L
 #define PIECE_I 0
 #define PIECE_O
@@ -34,10 +34,10 @@
 #define PIECE_J
 #define PIECE_L
 
-// ガイドライン準拠 落下速度テーブル (Lv 1 〜 Lv 15+) [フレーム数]
+// 落下速度テーブル (Lv 1 〜 Lv 15+) [フレーム数]
 speed_table = [60, 50, 42, 34, 27, 21, 16, 12, 9, 6, 5, 4, 3, 2, 1]
 
-// SRS準拠 各ミノの4回転状態 [type][rot][y][x]
+// 各ミノの4回転状態 [type][rot][y][x]
 piece_shapes = [
     // 0: I
     [
@@ -246,7 +246,7 @@ def spawn_piece() {
         return
     }
 
-    // ガイドライン仕様: 生成直後、障害物がなければ即座に1マス落下して視界へ入る
+    // 生成直後、障害物がなければ即座に1マス落下して視界へ入る
     if can_move(0, 1) {
         piece[P_ROW] += 1
     }
@@ -671,8 +671,6 @@ def draw() {
         color()
         pos(36, 120)
         mes("== PAUSED ==")
-        pos(20, 150)
-        mes("Press ESC to Resume")
     }
 
     // ゲームオーバー表示
@@ -699,7 +697,7 @@ def draw() {
 def main() {
     // 画面サイズは拡張せず、元の 10×20 マス（160×320）を維持
     screen(MINO_SIZE * COLS, MINO_SIZE * VISIBLE_ROWS)
-    title("Tetris")
+    title("Falling")
     mino_img = picload("assets/mino.png")
     init_game()
 
