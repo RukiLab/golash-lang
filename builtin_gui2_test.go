@@ -238,14 +238,14 @@ func TestGuiWidgetValidation(t *testing.T) {
 	// 成功系はguiEvalが汲み上げないゲームスレッド作業をキューに入れる
 	//（ブロックしてしまう）。バックエンド側の収まりは
 	// TestListboxItemsFitAndStayUnique / TestButtonLabelFitsで扱う。
-	if _, err := guiEval(t, "listbox_set(1)"); err == nil {
-		t.Fatal("listbox_set arity should error")
+	if _, err := guiEval(t, "setlist(1)"); err == nil {
+		t.Fatal("setlist arity should error")
 	}
-	if _, err := guiEval(t, "listbox_set(1, [1])"); err == nil {
-		t.Fatal("listbox_set non-string item should error")
+	if _, err := guiEval(t, "setlist(1, [1])"); err == nil {
+		t.Fatal("setlist non-string item should error")
 	}
-	if _, err := guiEval(t, "listbox_sel(1, \"x\")"); err == nil {
-		t.Fatal("listbox_sel non-int index should error")
+	if _, err := guiEval(t, "sellist(1, \"x\")"); err == nil {
+		t.Fatal("sellist non-int index should error")
 	}
 }
 

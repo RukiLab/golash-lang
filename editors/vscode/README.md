@@ -21,11 +21,16 @@ Golash（`.gsh`）用の言語サポートです。TextMate による構文強�
 ## 導入方法（ローカル）
 
 1. このフォルダを拡張機能ディレクトリにコピー（またはシンボリックリンク）します。
-   - Windows: `%USERPROFILE%\.vscode\extensions\goulash-0.2.0\`
-   - macOS / Linux: `~/.vscode/extensions/goulash-0.2.0/`
+   - Windows: `%USERPROFILE%\.vscode\extensions\goulash-0.8.0\`
+   - macOS / Linux: `~/.vscode/extensions/goulash-0.8.0/`
 2. VS Code を再読み込みし、`.gsh` ファイルを開きます。
 
 ## 公開手順（管理者向け）
+
+拡張機能の版は `package.json` の `version` で、処理系と同じ SemVer に
+揃えます（`TestVersionPinnedEverywhere` が検査するため、処理系と別版には
+できません）。版上げは処理系と同じ `go run ./tools/bumpver.go` で
+一括更新されます。
 
 ```sh
 npm install -g @vscode/vsce

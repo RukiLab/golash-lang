@@ -1,0 +1,37 @@
+name: test
+
+# push / PR でビルドと全テストを実行します。TestVersionPinnedEverywhere が
+# 版の整合（VERSION・golashVersion・package.json・ドキュメントの一致と
+# SemVer 形式）を検査するため、版の取りこぼしはここで落ちます。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: 版を確認
+        run: go run . version
+
+      - name: go test
+        run: go test ./...

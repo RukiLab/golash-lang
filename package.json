@@ -1,6 +1,6 @@
 {
   "name": "goulash-lang",
-  "version": "1.0.0",
+  "version": "0.8.0",
   "description": "> **テスト段階に関する注意:**   > Golash はテスト段階です。そのため、予告なく破壊的変更が行われる可能性があります。   > 仕様・文法・組み込み関数・CLI・GUI API などは変更される場合があります。   > 最新の変更内容は `CHANGELOG.md` を確認してください。",
   "main": "index.js",
   "directories": {

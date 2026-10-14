@@ -59,7 +59,7 @@ type widgetEntry struct {
 	pressed bool
 	items   []string
 	selIdx  int
-	// listW は listbox が配置された幅。listbox_set は幅を持たないため、
+	// listW は listbox が配置された幅。setlist は幅を持たないため、
 	// 項目はこれに合わせて収められる。代わりにウィジェットの矩形を
 	// 読むと、最初のレイアウト通過まで 0 に見えてしまう。
 	listW int
@@ -571,7 +571,7 @@ func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 		b.mu.Unlock()
 		return nil
 	}
-	// 同じ id/矩形、異なる項目: listbox_set と同じように項目をその場で
+	// 同じ id/矩形、異なる項目: setlist と同じように項目をその場で
 	// 入れ替え、リストごとのスクロールとフォーカスが生き残るようにする
 	// （ウィジェットを作り直すと毎フレーム失われた）。
 	if sameID && old.kind == wList && old.list != nil &&
@@ -618,7 +618,7 @@ func (b *WindowBackend) UpdateList(id int, items []string) error {
 		b.mu.Unlock()
 		return nil
 	}
-	// listbox_set は幅を持たない: listbox() が記録した幅に合わせる
+	// setlist は幅を持たない: listbox() が記録した幅に合わせる
 	// （listbox() は再レイアウトのたび、例: ウィンドウリサイズ、に
 	// 再び呼ばれる）。
 	items = fitItems(items, e.listW-listSliderW-listPadX, b.textWidthLocked)

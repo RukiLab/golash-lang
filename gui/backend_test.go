@@ -3188,7 +3188,7 @@ func TestListboxVerticalSlider(t *testing.T) {
 // 同じ id/矩形/項目での繰返しの listbox() 呼出はウィジェットを再利用
 // しなければならない（それによりそのスクロールオフセットと ebitenui の
 // フォーカスが生き残る）。そして異なる項目での同じ矩形の呼出は
-// 作り直さず（毎フレームスクロールをリセットしていた）listbox_set の
+// 作り直さず（毎フレームスクロールをリセットしていた）setlist の
 // ように項目をその場で入れ替えなければならない。
 func TestListboxAddListKeepsWidget(t *testing.T) {
 	b := mustNew(t)
@@ -3301,7 +3301,7 @@ func TestAreaVerticalScrollbar(t *testing.T) {
 	b.Draw(ebiten.NewImage(640, 480))
 }
 
-// TestListboxItemsFitAndStayUnique は listbox/listbox_set の組込みが
+// TestListboxItemsFitAndStayUnique は listbox/setlist の組込みが
 // するようにバックエンドを駆動し、格納された項目（選択がそれを参照して
 // 解決する）がリストの幅に収められ、かつ重複しないことを確認する。
 // これにより、似た名前の2つの定義の2つ目をクリックしても正しいものに
@@ -3335,7 +3335,7 @@ func TestListboxItemsFitAndStayUnique(t *testing.T) {
 			}
 		}
 	}
-	// listbox_set は記録された幅に再び収める。
+	// setlist は記録された幅に再び収める。
 	if err := runWidgetOp(t, b, func() error { return b.UpdateList(41, items) }); err != nil {
 		t.Fatalf("UpdateList: %v", err)
 	}
@@ -3347,7 +3347,7 @@ func TestListboxItemsFitAndStayUnique(t *testing.T) {
 	}
 	for i := range got {
 		if got[i] != got2[i] {
-			t.Fatalf("item %d changed after listbox_set: %q -> %q", i, got[i], got2[i])
+			t.Fatalf("item %d changed after setlist: %q -> %q", i, got[i], got2[i])
 		}
 	}
 }

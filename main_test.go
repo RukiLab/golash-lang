@@ -16,11 +16,32 @@ func TestVersionWiring(t *testing.T) {
 	}
 }
 
-// TestVersionPinnedEverywhere は版上げを低コストに保つための検査です：唯一の正本は
-// golashVersion であり、このテストは追随すべき箇所をすべて挙げます。版上げ手順：
-// 定数を1か所変えて go test を実行し、このテストが指摘した各ファイルを更新します。
+// semverValue は SemVer（X.Y.Z[-prerelease][+build]）の厳密な形です。
+// 版は3桁に揃えることで、比較・タグ・package.json との突き合わせが
+// 機械的にでき、0.3 のような2桁表記で起きる曖昧さを避けます。
+var semverValue = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
+
+// TestVersionPinnedEverywhere は版上げを低コストに保つための検査です：唯一の
+// 正本は VERSION ファイル（と同値を保つ golashVersion）であり、このテストは
+// 追随すべき箇所をすべて挙げます。版上げ手順：
+//
+//	tools/bumpver.go -set 0.9.0     # VERSION/コード/package.json/docs を一括更新
+//	go test ./...
 func TestVersionPinnedEverywhere(t *testing.T) {
 	want := "v" + golashVersion
+	// SemVer の形であること（2桁の 0.3 などを拒否する）。
+	if !semverValue.MatchString(golashVersion) {
+		t.Fatalf("golashVersion %q is not SemVer (use X.Y.Z)", golashVersion)
+	}
+	// VERSION ファイルが正本。git のタグ・CI・ldflags はここを読みます。
+	vb, err := os.ReadFile("VERSION")
+	if err != nil {
+		t.Fatalf("read VERSION: %v", err)
+	}
+	if strings.TrimSpace(string(vb)) != golashVersion {
+		t.Fatalf("VERSION %q != golashVersion %q (update VERSION or run go run ./tools/bumpver.go -set %s)",
+			strings.TrimSpace(string(vb)), golashVersion, golashVersion)
+	}
 	// 固定ドキュメント：言語版を明記するタイトルや前文。
 	for _, f := range []string{
 		"docs/MANUAL.md", "docs/DESIGN_VM.md", "README.md", "CHANGELOG.md",
@@ -31,6 +52,21 @@ func TestVersionPinnedEverywhere(t *testing.T) {
 		}
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("%s lacks version %q (update the doc with golashVersion)", f, want)
+		}
+	}
+	// package.json の version も golashVersion に一致させる（VS Code 拡張は
+	// その値がストアの版になるため、処理系と別版にならないようにする）。
+	for _, f := range []string{"package.json", "editors/vscode/package.json"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		m := regexp.MustCompile(`"version"\s*:\s*"([^"]+)"`).FindSubmatch(b)
+		if m == nil {
+			t.Fatalf("%s lacks a version field", f)
+		}
+		if string(m[1]) != golashVersion {
+			t.Fatalf("%s version %q != golashVersion %q", f, m[1], golashVersion)
 		}
 	}
 	// コード内の版リテラル禁止：ファイル先頭はかつて実行時と食い違う古い版を
@@ -55,6 +91,54 @@ func TestVersionPinnedEverywhere(t *testing.T) {
 		if m := ver.Find(b); m != nil {
 			t.Fatalf("%s embeds version literal %q (keep versions in golashVersion only)", f, m)
 		}
+	}
+}
+
+// captureStdout は f の実行中に標準出力へ書かれた内容をまとめて返します。
+// コマンド関数は fmt.Println で os.Stdout に直接書くため、出力を検証する
+// には差し替えが必要です（終了コードの検査をする関数には使えません）。
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			b.Write(buf[:n])
+			if err != nil {
+				break
+			}
+		}
+		done <- b.String()
+	}()
+	f()
+	w.Close()
+	os.Stdout = orig
+	out := <-done
+	r.Close()
+	return out
+}
+
+// TestVersionCommand は `gsh version` が SemVer の版を1行で出すことを確かめます。
+// 既定出力は `Golash v<X.Y.Z> (SemVer)`、`-json` は {"version":"..."} です。
+func TestVersionCommand(t *testing.T) {
+	out := captureStdout(t, func() { cmdVersion(nil) })
+	if !strings.Contains(out, "Golash v"+golashVersion) {
+		t.Fatalf("version output %q lacks Golash v%s", out, golashVersion)
+	}
+	if !strings.Contains(out, "SemVer") {
+		t.Fatalf("version output %q lacks SemVer marker", out)
+	}
+	out = captureStdout(t, func() { cmdVersion([]string{"-json"}) })
+	if !strings.Contains(out, `"version":"`+golashVersion+`"`) {
+		t.Fatalf("json output %q lacks version %s", out, golashVersion)
 	}
 }
 

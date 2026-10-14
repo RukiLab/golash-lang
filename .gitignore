@@ -2,6 +2,9 @@
 gsh
 gsh.exe
 
+# tools/bumpver.go builds to tools.exe if built without -o
+tools.exe
+
 # packaged VS Code extension (rebuild with: npx @vscode/vsce package)
 *.vsix
 

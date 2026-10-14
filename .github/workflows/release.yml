@@ -1,0 +1,85 @@
+name: release
+
+# v* タグの push で3OS向けバイナリを GitHub Releases に公開します。
+# 使い方:
+#
+#	go run ./tools/bumpver.go -bump minor   # VERSION などを一括更新
+#	git commit -am "release: v0.9.0"
+#	git tag -a v0.9.0 -m "v0.9.0"
+#	git push origin main --tags
+#
+# タグ名は VERSION と一致している必要があります（workflow が検証します）。
+# 版は ldflags で埋め込むため、ビルド時点の VERSION とタグが食い違っても
+# バイナリはタグの版を名乗ります。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: タグと VERSION の一致を検証
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(tr -d ' \t\r\n' < VERSION)"
+          if [ "$tag" != "$ver" ]; then
+            echo "タグ $GITHUB_REF_NAME と VERSION($ver) が一致しません" >&2
+            exit 1
+          fi
+          echo "リリース版: v$ver"
+
+      - name: 版の整合を検査
+        run: go test ./...
+
+      - name: バイナリをビルド
+        run: |
+          set -euo pipefail
+          ver="$(tr -d ' \t\r\n' < VERSION)"
+          ldflags="-s -w -X main.golashVersion=$ver"
+          build() {
+            echo "== $1/$2 -> $3 =="
+            GOOS="$1" GOARCH="$2" go build -trimpath -ldflags "$ldflags" -o "$3" .
+          }
+          build windows amd64 "gsh-$ver-windows-amd64.exe"
+          build linux   amd64 "gsh-$ver-linux-amd64"
+          build darwin  amd64 "gsh-$ver-darwin-amd64"
+          build darwin  arm64 "gsh-$ver-darwin-arm64"
+
+      - name: 版を確認
+        run: |
+          ver="$(tr -d ' \t\r\n' < VERSION)"
+          chmod +x "gsh-$ver-linux-amd64"
+          "./gsh-$ver-linux-amd64" version
+
+      - name: チェックサムを作成
+        run: |
+          set -euo pipefail
+          ver="$(tr -d ' \t\r\n' < VERSION)"
+          sha256sum "gsh-$ver"-* > "gsh-$ver-sha256.txt"
+          cat "gsh-$ver-sha256.txt"
+
+      - name: GitHub Releases へ公開
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            gsh-*-windows-amd64.exe
+            gsh-*-linux-amd64
+            gsh-*-darwin-amd64
+            gsh-*-darwin-arm64
+            gsh-*-sha256.txt

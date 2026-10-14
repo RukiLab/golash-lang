@@ -12,6 +12,6 @@ var guiBuiltinNames = []string{
 	"touchcount", "touchx", "touchy", "winmove", "dropfiles", "dropload",
 	"mmload", "mmplay", "mmstop", "mmvol",
 	"button", "pressed", "inputbox", "gettext", "ime",
-	"listbox", "listbox_set", "listbox_sel", "selected", "clrobj", "dialog",
+	"listbox", "setlist", "sellist", "selected", "clrobj", "dialog",
 	"chkbox", "checked", "combox", "mesbox", "getstr", "setstr", "objprm",
 }

@@ -155,29 +155,29 @@ func init() {
 		return Null(), nil
 	})
 
-	// listbox_set(id, items): 既存の listbox の項目をその場で置き換える
+	// setlist(id, items): 既存の listbox の項目をその場で置き換える
 	// （widget.List.SetEntries）。listbox() を再呼出するのと違い、
 	// 同じ ebitenui ウィジェットを保つため、スクロール位置とフォーカスが
 	// 維持される — キー入力ごとにウィジェットを作り直すとそれらが
 	// リセットされ、リストが目に見えて飛ぶ（"揺れ"）現象が起きた。
 	// 項目は listbox() が記録した幅に短縮される。
-	register("listbox_set", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "listbox_set")
+	register("setlist", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "setlist")
 		if err != nil {
 			return Null(), err
 		}
-		id, err := needInt("listbox_set", args, 0, at)
+		id, err := needInt("setlist", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		arr, err := needArray("listbox_set", args, 1, at)
+		arr, err := needArray("setlist", args, 1, at)
 		if err != nil {
 			return Null(), err
 		}
 		items := make([]string, len(arr.Elems))
 		for i, e := range arr.Elems {
 			if e.K != KString {
-				return Null(), argErr("listbox_set", 1, at, "items は文字列である必要があります。要素 %d は %s です", i, typeNameOf(e))
+				return Null(), argErr("setlist", 1, at, "items は文字列である必要があります。要素 %d は %s です", i, typeNameOf(e))
 			}
 			items[i] = e.S
 		}
@@ -187,19 +187,19 @@ func init() {
 		return Null(), nil
 	})
 
-	// listbox_sel(id, index): listbox の選択項目をインデックス（0 始まり）
+	// sellist(id, index): listbox の選択項目をインデックス（0 始まり）
 	// で設定する。選択ハンドラは発火しない（プログラム的な選択。
 	// 例: "定義へ移動" 後にエディタのアウトラインを同期する）。
-	register("listbox_sel", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "listbox_sel")
+	register("sellist", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "sellist")
 		if err != nil {
 			return Null(), err
 		}
-		id, err := needInt("listbox_sel", args, 0, at)
+		id, err := needInt("sellist", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		idx, err := needInt("listbox_sel", args, 1, at)
+		idx, err := needInt("sellist", args, 1, at)
 		if err != nil {
 			return Null(), err
 		}

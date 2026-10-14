@@ -6,6 +6,7 @@
 //	gsh repl
 //	gsh lex <file.gsh>
 //	gsh parse <file.gsh>
+//	gsh version
 
 package main
 
@@ -19,12 +20,23 @@ import (
 	"gsh/gui"
 )
 
-// golashVersion は処理系の版の唯一の正本です。版上げ手順はこの1行を
-// 変えて go test すること (TestVersionPinnedEverywhere が追随すべき
-// ドキュメントを指摘する)。usage と REPL バナーはここから組み立て
-// られます。コメント・コード内に版リテラルは書かないこと (同テストが
+// golashVersion は処理系の版（SemVer の X.Y.Z）です。唯一の正本は
+// リポジトリ直下の VERSION ファイルで、この変数はその値と同じものを
+// 持ちます (TestVersionPinnedEverywhere が VERSION・各 package.json・
+// ドキュメントとの一致と SemVer 形式を検査します)。
+//
+// 版上げ手順: VERSION を書き換えて tools/bumpver.go を実行する
+// (go run ./tools/bumpver.go -set 0.9.0)。それが this 変数・
+// package.json・ドキュメントの見出しを一括更新します。
+//
+// var にしているのは、リリースビルドで版を埋め込めるようにするためです。
+//
+//	go build -ldflags "-X main.golashVersion=$(cat VERSION)" -o gsh.exe .
+//
+// ldflags を与えない通常ビルドではこの既定値（= VERSION と同値）が
+// 使われます。コメント・コード内に版リテラルは書かないこと (同テストが
 // 検出する)。バンドル形式の codecVersion とは独立した番号です。
-const golashVersion = "0.3"
+var golashVersion = "0.8.0"
 
 // runProgram はレジスタVM上で prog を実行します。
 func runProgram(in *Interp, prog *Program) error {
@@ -44,6 +56,7 @@ var usage = `gsh: Golash v` + golashVersion + ` インタプリタ
   gsh parse <file.gsh>                  構文木（AST）を出力します（デバッグ用）
   gsh disasm <file.gsh>                 バイトコードを逆アセンブルします（VM用）
   gsh build <file.gsh> [-o out.exe]     単一exeを生成します（バイトコード連結）
+  gsh version                           版（SemVer）を出力します
 
 既定はレジスタVMバックエンドです（コンパイルして実行）。
 GOULASH_TRACE=1 でVM命令トレースを標準エラー出力します。
@@ -80,6 +93,8 @@ func main() {
 		cmdDisasm(os.Args[2:])
 	case "build":
 		cmdBuild(os.Args[2:])
+	case "version", "--version", "-v":
+		cmdVersion(os.Args[2:])
 	case "help", "--help", "-h":
 		fmt.Println(usage)
 	default:
@@ -147,6 +162,25 @@ func cmdRun(args []string) {
 	if code, ok := in.ExitCode(); ok {
 		os.Exit(code)
 	}
+}
+
+// cmdVersion は版情報を出力します。既定は人が読む1行形式、`-json` で
+// 機械可読形式です。CI のリリース作業やユーザーのバグ報告で、使っている
+// 処理系の版を確実に伝えるために使います。
+func cmdVersion(args []string) {
+	for _, a := range args {
+		if a == "-json" {
+			fmt.Printf("{\"name\":\"Golash\",\"version\":%q,\"semver\":true}\n", golashVersion)
+			return
+		}
+		if a == "-h" || a == "--help" {
+			fmt.Println("使い方: gsh version [-json]")
+			return
+		}
+		fmt.Fprintf(os.Stderr, "不明なフラグ %q です\n\n使い方: gsh version [-json]\n", a)
+		os.Exit(2)
+	}
+	fmt.Printf("Golash v%s (SemVer)\n", golashVersion)
 }
 
 // scriptDirOf は file を含む絶対ディレクトリを返す（決定できない場合は
