@@ -14,24 +14,23 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Canvas model (G1): buffers by id (0 = main, visible when selected),
-// a pixel cursor (gx, gy), and a blend mode. Script threads enqueue
-// commands; Update applies them on the game thread.
+// Canvas モデル (G1): id 別バッファ（0 = メイン、選択時に表示）、
+// ピクセルカーソル (gx, gy)、ブレンドモードを持つ。スクリプトスレッドはコマンドをキューに入れ、
+// Update がゲームスレッドで適用する。
 
-// maxBuffers caps window ids (memory guard).
+// maxBuffers はウィンドウ id の上限（メモリ保護）。
 const maxBuffers = 16
 
-// MaxImageDim caps one side of screen()/picload images. Bigger images
-// panic inside the engine on the loop goroutine (uncatchable across
-// goroutines), so scripts get a normal error instead.
+// MaxImageDim は screen()/picload 画像の一辺の上限。大きな画像は
+// ループ goroutine 内のエンジン内部でパニックし（goroutine をまたいで捕捉できない）、スクリプト側は通常のエラーを受け取る。
 const MaxImageDim = 4096
 
-// enqueue adds a draw command. Before the first yield it goes straight
-// to the game-thread queue (no frame boundary yet); afterwards it is
-// staged in pending and flushed as one frame at await()/sleep()/end so
-// Draw never observes a half-built canvas (cls 直後の空白1フレーム防止).
-// A pending mes()/print() burst is flushed first so script call order
-// (shapes vs text) is preserved.
+// enqueue は描画命令を追加する。最初の yield より前はゲームスレッドの
+// キューへ直接行く（まだフレーム境界がない）。以降は pending に準備
+// され、await()/sleep()/end で1つのフレームとしてフラッシュされるため、
+// Draw が半完成のキャンバスを決して観測しない（cls 直後の空白1フレーム
+// 防止）。保留中の mes()/print() の一塊が先にフラッシュされ、スクリプト
+// の呼出順（図形と文字）が保たれる。
 func (b *WindowBackend) enqueue(cmd func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -43,7 +42,7 @@ func (b *WindowBackend) enqueue(cmd func()) {
 	b.queue = append(b.queue, cmd)
 }
 
-// drainQueue runs pending commands on the game thread.
+// drainQueue は保留中の命令をゲームスレッドで実行する。
 func (b *WindowBackend) drainQueue() {
 	b.mu.Lock()
 	b.flushTextBatchLocked()
@@ -55,10 +54,11 @@ func (b *WindowBackend) drainQueue() {
 	}
 }
 
-// runOnLoop runs fn on the game thread and waits (for picload upload).
-// Staged frame commands are flushed first so ordering is preserved:
-// e.g. drawing into buffer 1 then button(..., img=1) snapshots the new
-// pixels, and pget/pngsave read back the frame built so far.
+// runOnLoop は fn をゲームスレッドで実行して待つ（picload のアップロード
+// 用）。順序が保たれるよう準備されたフレーム命令が先にフラッシュされる:
+// 例: バッファ 1 に描画してから button(..., img=1) すると新しいピクセルが
+// スナップショットされ、pget/pngsave はそれまでに構築したフレームを
+// 読み戻す。
 func (b *WindowBackend) runOnLoop(fn func()) {
 	done := make(chan struct{})
 	b.mu.Lock()
@@ -75,7 +75,7 @@ func (b *WindowBackend) runOnLoop(fn func()) {
 	<-done
 }
 
-// ensureTarget returns the buffer, creating it on the game thread.
+// ensureTarget はバッファを返し、ゲームスレッドで生成する。
 func (b *WindowBackend) ensureTarget(id int) *ebiten.Image {
 	if b.targets == nil {
 		b.targets = map[int]*ebiten.Image{}
@@ -93,14 +93,14 @@ func (b *WindowBackend) ensureTarget(id int) *ebiten.Image {
 	return img
 }
 
-// hasBuf reports allocated ids (script-thread safe).
+// hasBuf は確保済みの id を報告する（スクリプトスレッド安全）。
 func (b *WindowBackend) hasBuf(id int) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.bufs[id]
 }
 
-// allocBuf marks an id allocated (script-thread safe).
+// allocBuf は id を確保済みと記す（スクリプトスレッド安全）。
 func (b *WindowBackend) allocBuf(id int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -110,12 +110,12 @@ func (b *WindowBackend) allocBuf(id int) {
 	b.bufs[id] = true
 }
 
-// NewBuffer creates (or replaces) an off-screen buffer of w x h: an
-// empty, fully transparent image the script can gsel() into and draw on
-// (text included). The visible canvas (id 0) belongs to screen(), so
-// buffer() takes the off-screen ids only. Replacing an id drops whatever
-// it held, which lets a draw loop re-create its scratch buffer every
-// frame. Script-thread safe: the image is made on the game thread.
+// NewBuffer は w x h のオフスクリーン・バッファを作成（または置換）
+// する: スクリプトが gsel() して描画できる（文字も含む）空の完全透明
+// 画像。可視キャンバス（id 0）は screen() に属するため、buffer() は
+// オフスクリーンの id のみを取る。id を置き換えるとそれが保持していた
+// ものは破棄され、描画ループが毎フレームのスクラッチバッファを
+// 作り直せる。スクリプトスレッド安全: 画像はゲームスレッドで作られる。
 func (b *WindowBackend) NewBuffer(id, w, h int) error {
 	if id <= 0 || id >= maxBuffers {
 		return fmt.Errorf("buffer：id は 1 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
@@ -123,8 +123,8 @@ func (b *WindowBackend) NewBuffer(id, w, h int) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("buffer のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
 	}
-	// Oversized images panic inside the engine on the loop goroutine
-	// (uncatchable), so cap them here with a script error.
+	// 大きすぎる画像はループのゴルーチン内でエンジンが panic する
+	// （捕まえられない）ため、ここでスクリプトエラーとして上限を設ける。
 	if w > MaxImageDim || h > MaxImageDim {
 		return fmt.Errorf("buffer のサイズは上限 %d x %d までです", MaxImageDim, MaxImageDim)
 	}
@@ -138,25 +138,25 @@ func (b *WindowBackend) NewBuffer(id, w, h int) error {
 	return nil
 }
 
-// currentSel returns the selected target (script-thread safe).
+// currentSel は選択中の対象を返す（スクリプトスレッド安全）。
 func (b *WindowBackend) currentSel() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.sel
 }
 
-// CurrentSel exposes the selected target to script builtins.
+// CurrentSel は選択中の対象をスクリプトの組込みに公開する。
 func (b *WindowBackend) CurrentSel() int { return b.currentSel() }
 
-// Foreground returns the current drawing color with alpha
-// (script-thread safe).
+// Foreground は現在の描画色をアルファ付きで返す（スクリプトスレッド
+// 安全）。
 func (b *WindowBackend) Foreground() [4]int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return [4]int{int(b.fg.R), int(b.fg.G), int(b.fg.B), int(b.fg.A)}
 }
 
-// SetAlpha sets the global drawing alpha 0-255 (galpha).
+// SetAlpha は描画全体のアルファ 0-255（galpha）を設定する。
 func (b *WindowBackend) SetAlpha(a int) error {
 	if a < 0 || a > 255 {
 		return fmt.Errorf("galpha：不透明度は 0 から 255 の範囲で指定してください。%d が指定されました", a)
@@ -167,15 +167,14 @@ func (b *WindowBackend) SetAlpha(a int) error {
 	return nil
 }
 
-// alphaScale is the ColorScale alpha factor (script-thread safe).
+// alphaScale は ColorScale のアルファ係数（スクリプトスレッド安全）。
 func (b *WindowBackend) alphaScale() float32 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return float32(b.alpha) / 255
 }
 
-// fillColor is the drawing color with its own alpha multiplied by
-// the global alpha (galpha).
+// fillColor は自身のアルファに全体のアルファ（galpha）を掛けた描画色。
 func (b *WindowBackend) fillColor(fg [4]int) color.NRGBA {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -183,22 +182,23 @@ func (b *WindowBackend) fillColor(fg [4]int) color.NRGBA {
 	return color.NRGBA{R: uint8(fg[0]), G: uint8(fg[1]), B: uint8(fg[2]), A: uint8(a)}
 }
 
-// CanvasSize returns the logical canvas size (script-thread safe).
+// CanvasSize は論理キャンバスサイズを返す（スクリプトスレッド安全）。
 func (b *WindowBackend) CanvasSize() (int, int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.w, b.h
 }
 
-// CursorPixels returns the graphics cursor (script-thread safe).
+// CursorPixels はグラフィックスカーソルを返す（スクリプトスレッド安全）。
 func (b *WindowBackend) CursorPixels() (int, int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.gx, b.gy
 }
 
-// SelectTarget switches the draw buffer (gsel). It flushes any pending
-// text first so batched text stays on the buffer it was laid out for.
+// SelectTarget は描画バッファを切り替える（gsel）。まとめたテキストが
+// それが配置されたバッファに留まるよう、保留中のテキストが先に
+// フラッシュされる。
 func (b *WindowBackend) SelectTarget(id int) error {
 	if id < 0 || id >= maxBuffers {
 		return fmt.Errorf("gsel：id は 0 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
@@ -211,11 +211,12 @@ func (b *WindowBackend) SelectTarget(id int) error {
 	return nil
 }
 
-// ResizeCanvas re-inits for screen(w, h). Window resize is applied directly
-// (Ebiten queues it); canvas reset runs on the game thread.
-// Only the main buffer (0) is recreated at the new size; other buffers
-// (picload etc) are preserved because their size is independent of the
-// window and wiping them would turn loaded images into blank canvases.
+// ResizeCanvas は screen(w, h) のために再初期化する。ウィンドウの
+// リサイズは直接適用される（Ebiten がキューに入れる）。キャンバスの
+// リセットはゲームスレッドで実行される。メインバッファ（0）のみが
+// 新しいサイズで作り直され、他のバッファ（picload 等）は保持される。
+// そのサイズはウィンドウに依存せず、消すと読み込んだ画像が白紙の
+// キャンバスになってしまうため。
 func (b *WindowBackend) ResizeCanvas(w, h int) {
 	ebiten.SetWindowSize(w, h)
 	b.mu.Lock()
@@ -224,13 +225,14 @@ func (b *WindowBackend) ResizeCanvas(w, h int) {
 	b.enqueue(func() { b.resizeMainCanvas(w, h, false) })
 }
 
-// resizeMainCanvas swaps the main buffer (id 0) for a w x h one; other
-// buffers keep their own size (picload images), so only id 0 moves.
-// preserve keeps the old pixels, top-left aligned, when a window drag
-// grows the canvas; screen()/cls()-like starts pass false. The text
-// cursor and scroll state reset (the cell grid changed) and the
-// per-size scroll scratch is dropped. Game thread only: callers run
-// inside the draw queue or from Layout.
+// resizeMainCanvas はメインバッファ（id 0）を w x h のものに入れ替える。
+// 他のバッファは自身のサイズ（picload 画像）を保つため、動くのは id 0
+// のみ。preserve はウィンドウのドラッグでキャンバスが大きくなったとき
+// 古いピクセルを左上揃えで保持する。screen()/cls() 相当の新規開始では
+// false を渡す。テキストカーソルとスクロール状態はリセットされる
+// （セルグリッドが変わったため）。サイズごとのスクロール用スクラッチは
+// 破棄される。ゲームスレッドのみ: 呼出し側は描画キュー内または Layout
+// から実行される。
 func (b *WindowBackend) resizeMainCanvas(w, h int, preserve bool) {
 	if b.targets == nil {
 		b.targets = map[int]*ebiten.Image{}
@@ -250,13 +252,13 @@ func (b *WindowBackend) resizeMainCanvas(w, h int, preserve bool) {
 	b.curX, b.curY, b.gx, b.gy = 0, 0, 0, 0
 	b.lineStartX = 0
 	b.scrollExact, b.scrollDone = 0, 0
-	// Stale scratch images belong to the old size; drop them so a
-	// later scroll cannot blit from a mismatched buffer.
+	// 古いサイズのスクラッチ画像は破棄し、後のスクロールがサイズの
+	// 合わないバッファからブリットできないようにする。
 	b.scrollScratch = nil
 	b.mu.Unlock()
 }
 
-// SetBlend sets the composite mode: 0 normal, 1 additive.
+// SetBlend は合成モードを設定する: 0 通常、1 加算。
 func (b *WindowBackend) SetBlend(mode int) error {
 	var m ebiten.CompositeMode
 	switch mode {
@@ -273,14 +275,14 @@ func (b *WindowBackend) SetBlend(mode int) error {
 	return nil
 }
 
-// currentBlend reads the blend (script-thread safe).
+// currentBlend はブレンドを読み出す（スクリプトスレッド安全）。
 func (b *WindowBackend) currentBlend() ebiten.CompositeMode {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.blend
 }
 
-// SetPixel draws one pixel on the current target.
+// SetPixel は現在の対象に1ピクセル描画する。
 func (b *WindowBackend) SetPixel(x, y int, fg [4]int) {
 	sel := b.currentSel()
 	c := b.fillColor(fg)
@@ -289,13 +291,13 @@ func (b *WindowBackend) SetPixel(x, y int, fg [4]int) {
 	})
 }
 
-// GetPixel reads one pixel from the current target (pget).
-// Bounds are validated before touching the game thread so the error
-// is headless-safe (no RunGame needed); the readback itself blocks
-// until the game thread applies it (like PicLoad/SavePNG), so call
-// only from the script goroutine, never from Update/Draw.
-// Returned channels are raw 0-255 bytes (opaque pixels round-trip
-// exactly; translucent ones follow ebiten's readback convention).
+// GetPixel は現在の対象から1ピクセル読み出す（pget）。エラーが
+// ヘッドレスでも安全になるよう（RunGame 不要）、ゲームスレッドに触れる
+// 前に境界を検証する。読み戻し自体はゲームスレッドが適用するまで
+// ブロックする（PicLoad/SavePNG と同じ）。したがって Update/Draw から
+// ではなく、スクリプトのゴルーチンからのみ呼ぶこと。
+// 返されるチャネルは生の 0-255 バイト（不透明ピクセルは正確に
+// ラウンドトリップする。半透明は ebiten の読み戻し規約に従う）。
 func (b *WindowBackend) GetPixel(x, y int) ([4]int, error) {
 	b.mu.Lock()
 	w, h := b.w, b.h
@@ -326,7 +328,7 @@ func (b *WindowBackend) GetPixel(x, y int) ([4]int, error) {
 	return out, nil
 }
 
-// FillRect draws a filled rectangle on the current target.
+// FillRect は現在の対象に塗り潰しの矩形を描画する。
 func (b *WindowBackend) FillRect(x, y, w, h int, fg [4]int) {
 	sel := b.currentSel()
 	c := b.fillColor(fg)
@@ -335,7 +337,7 @@ func (b *WindowBackend) FillRect(x, y, w, h int, fg [4]int) {
 	})
 }
 
-// StrokeLine draws a 1px line on the current target.
+// StrokeLine は現在の対象に 1px の線を描画する。
 func (b *WindowBackend) StrokeLine(x1, y1, x2, y2 int, fg [4]int) {
 	sel := b.currentSel()
 	c := b.fillColor(fg)
@@ -344,7 +346,7 @@ func (b *WindowBackend) StrokeLine(x1, y1, x2, y2 int, fg [4]int) {
 	})
 }
 
-// Circle draws a circle (filled when fill is true) on the current target.
+// Circle は現在の対象に円を描画する（fill が真なら塗り潰し）。
 func (b *WindowBackend) Circle(x, y, r int, fill bool, fg [4]int) {
 	sel := b.currentSel()
 	c := b.fillColor(fg)
@@ -358,7 +360,7 @@ func (b *WindowBackend) Circle(x, y, r int, fill bool, fg [4]int) {
 	})
 }
 
-// ClearCanvas wipes the current target (transparent; black shows through).
+// ClearCanvas は現在の対象を消去する（透明。黒が透ける）。
 func (b *WindowBackend) ClearCanvas() {
 	sel := b.currentSel()
 	b.enqueue(func() {
@@ -366,7 +368,7 @@ func (b *WindowBackend) ClearCanvas() {
 	})
 }
 
-// Blit copies a region of buffer src onto the current target at (dx, dy).
+// Blit はバッファ src のある領域を現在の対象の (dx, dy) に複製する。
 func (b *WindowBackend) Blit(src, sx, sy, w, h, dx, dy int) error {
 	if !b.hasBuf(src) {
 		return fmt.Errorf("gcopy：不明なバッファ %d です", src)
@@ -385,8 +387,9 @@ func (b *WindowBackend) Blit(src, sx, sy, w, h, dx, dy int) error {
 	return nil
 }
 
-// PicLoad decodes an image file into a new buffer, returning its id.
-// Upload runs on the game thread; this waits for it (≤ a frame or two).
+// PicLoad は画像ファイルをデコードして新しいバッファに入れ、その id を
+// 返す。アップロードはゲームスレッドで実行される。これはそれを待つ
+// （1〜2フレーム程度）。
 func (b *WindowBackend) PicLoad(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -404,7 +407,7 @@ func (b *WindowBackend) PicLoad(path string) (int, error) {
 	return id, nil
 }
 
-// allocImageID reserves a buffer id (mu-guarded).
+// allocImageID はバッファ id を予約する（mu で保護）。
 func (b *WindowBackend) allocImageID() (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -422,9 +425,10 @@ func (b *WindowBackend) allocImageID() (int, error) {
 	return id, nil
 }
 
-// allocUpload reserves a buffer id and uploads src on the game thread.
+// allocUpload はバッファ id を予約し、src をゲームスレッドで
+// アップロードする。
 func (b *WindowBackend) allocUpload(src image.Image) (int, error) {
-	// Check before reserving an id: a rejection must not leak one.
+	// id を予約する前に検査する: 拒否が id を漏らしてはならない。
 	if size := src.Bounds().Size(); size.X > MaxImageDim || size.Y > MaxImageDim {
 		return 0, fmt.Errorf("picload：画像が大きすぎます（上限 %d x %d）", MaxImageDim, MaxImageDim)
 	}
@@ -438,8 +442,9 @@ func (b *WindowBackend) allocUpload(src image.Image) (int, error) {
 	return id, nil
 }
 
-// BlitScaled copies a region of buffer src scaled by (zx, zy) onto the
-// current target at (dx, dy). Script threads enqueue; Update applies.
+// BlitScaled はバッファ src のある領域を (zx, zy) 倍にスケールして
+// 現在の対象の (dx, dy) に複製する。スクリプトスレッドはエンキューし、
+// Update が適用する。
 func (b *WindowBackend) BlitScaled(src, sx, sy, w, h int, zx, zy float64, dx, dy int) error {
 	if !b.hasBuf(src) {
 		return fmt.Errorf("gcopy：不明なバッファ %d です", src)
@@ -465,9 +470,9 @@ func (b *WindowBackend) BlitScaled(src, sx, sy, w, h int, zx, zy float64, dx, dy
 	return nil
 }
 
-// rotateTransform maps a w×h region (scaled by zx, zy) rotated deg
-// degrees about its center onto cursor (dx, dy) = center. Pure math,
-// so rotation geometry is unit-testable without a game loop.
+// rotateTransform は w×h の領域（zx, zy でスケール）を中心周りに deg
+// 度回転し、カーソル (dx, dy) = 中心に写像する。純粋な数理のため、
+// 回転の幾何はゲームループなしでユニットテストできる。
 func rotateTransform(w, h int, zx, zy, deg, dx, dy float64) ebiten.GeoM {
 	var m ebiten.GeoM
 	cx, cy := float64(w)/2, float64(h)/2
@@ -478,9 +483,9 @@ func rotateTransform(w, h int, zx, zy, deg, dx, dy float64) ebiten.GeoM {
 	return m
 }
 
-// BlitRotate copies a region of buffer src rotated deg degrees (about
-// its center) onto the current target, centered at the cursor (dx, dy).
-// Script threads enqueue; Update applies.
+// BlitRotate はバッファ src のある領域を中心周りに deg 度回転させ、
+// カーソル (dx, dy) を中心に現在の対象に複製する。スクリプトスレッドは
+// エンキューし、Update が適用する。
 func (b *WindowBackend) BlitRotate(src, sx, sy, w, h int, deg, zx, zy float64, dx, dy int) error {
 	if !b.hasBuf(src) {
 		return fmt.Errorf("gcopy：不明なバッファ %d です", src)
@@ -505,11 +510,11 @@ func (b *WindowBackend) BlitRotate(src, sx, sy, w, h int, deg, zx, zy float64, d
 	return nil
 }
 
-// FloodFill replaces the connected seed-color region at (x, y) with fg
-// on the current target. A seed outside the canvas is an error; a seed
-// already in fg is a no-op. Script threads enqueue; Update applies.
-// Pixel access is batched (one readback, one writeback): per-pixel At/Set
-// would round-trip the GPU on every call.
+// FloodFill は現在の対象で (x, y) の連結したシード色領域を fg に
+// 置き換える。キャンバス外のシードはエラー。既に fg であるシードは
+// 何もしない。スクリプトスレッドはエンキューし、Update が適用する。
+// ピクセルアクセスはまとめて行う（読み戻し1回、書き戻し1回）: ピクセル
+// ごとに At/Set では呼ぶたびに GPU を往復してしまう。
 func (b *WindowBackend) FloodFill(x, y int, fg [4]int) error {
 	b.mu.Lock()
 	w, h := b.w, b.h
@@ -534,9 +539,9 @@ func (b *WindowBackend) FloodFill(x, y int, fg [4]int) error {
 	return nil
 }
 
-// flood fills the connected seed-color region in RGBA pixels, reporting
-// whether anything changed. Scanline flood with in-place marking: each
-// pixel is written once, so the work is linear in the region size.
+// flood は RGBA ピクセル内の連結したシード色領域を塗り潰し、何か
+// 変わったかを報告する。その場で印を付ける走査線塗り潰し: 各ピクセルは
+// 一度だけ書かれるため、作業量は領域サイズに対して線形である。
 func flood(px []byte, w, h, x, y int, fill color.NRGBA) bool {
 	si := (y*w + x) * 4
 	seed := [4]byte{px[si], px[si+1], px[si+2], px[si+3]}
@@ -588,9 +593,10 @@ func flood(px []byte, w, h, x, y int, fill color.NRGBA) bool {
 	return true
 }
 
-// SavePNG writes buffer id as a PNG file. It blocks until the game thread
-// applies it (like PicLoad); call only from the script goroutine, never
-// from Update/Draw (the waiter would deadlock the loop).
+// SavePNG はバッファ id を PNG ファイルとして書き出す。ゲームスレッドが
+// 適用するまでブロックする（PicLoad と同じ）。Update/Draw からではなく
+// スクリプトのゴルーチンからのみ呼ぶこと（待機側がループをデッドロック
+// させる）。
 func (b *WindowBackend) SavePNG(path string, id int) error {
 	if id < 0 || id >= maxBuffers {
 		return fmt.Errorf("pngsave：id は 0 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
@@ -611,8 +617,8 @@ func (b *WindowBackend) SavePNG(path string, id int) error {
 		px := make([]byte, 4*bw*bh)
 		img.ReadPixels(px)
 		var buf bytes.Buffer
-		// Opaque canvas pixels round-trip exactly; translucent ones
-		// follow ebiten's readback convention.
+		// 不透明なキャンバスピクセルは正確にラウンドトリップする。
+		// 半透明は ebiten の読み戻し規約に従う。
 		if err := png.Encode(&buf, &image.NRGBA{Pix: px, Stride: 4 * bw, Rect: image.Rect(0, 0, bw, bh)}); err != nil {
 			opErr = fmt.Errorf("pngsave：エンコードエラー：%s", err.Error())
 			return

@@ -1,13 +1,14 @@
-// GUI builtins (G3 widgets + dialog). Always registered; GUI calls need
-// a window (a GUI backend), otherwise they report an error.
+// GUI 組込（G3 ウィジェット＋ダイアログ）。常に登録される。GUI 呼出には
+// ウィンドウ（GUI バックエンド）が必要で、なければエラーを報告する。
 package main
 
 func init() {
 	// button(id, label, x, y, w, h [, imgIdle [, imgHover
-	// [, imgPressed [, imgDisabled]]]]): place a button. Images are
-	// picload/dropload buffer ids shown as icons per state
-	// (normal/hover/pressed/disabled); omitted states reuse the
-	// normal image (disabled falls back to a darkened copy).
+	// [, imgPressed [, imgDisabled]]]]): ボタンを配置する。画像は
+	// picload/dropload のバッファ id で、状態ごと
+	// （通常/ホバー/押下/無効）にアイコンとして表示される。
+	// 省略された状態は通常の画像を再利用する（無効は暗くした複製に
+	// フォールバックする）。
 	register("button", 6, 10, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "button")
 		if err != nil {
@@ -43,7 +44,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// pressed(id): click since the last call (consumed).
+	// pressed(id): 最後の呼出以降のクリック（消費される）。
 	register("pressed", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pressed")
 		if err != nil {
@@ -60,7 +61,7 @@ func init() {
 		return Bool(p), nil
 	})
 
-	// inputbox(id, x, y, w, h [, text]): place a text input.
+	// inputbox(id, x, y, w, h [, text]): テキスト入力を配置する。
 	register("inputbox", 5, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "inputbox")
 		if err != nil {
@@ -88,7 +89,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// gettext(id): current input content.
+	// gettext(id): 現在の入力内容。
 	register("gettext", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "gettext")
 		if err != nil {
@@ -105,8 +106,8 @@ func init() {
 		return Str(s), nil
 	})
 
-	// ime([mode]): query (no args) or set (nonzero = on) IME input.
-	// Returns 1 when focused, else 0.
+	// ime([mode]): IME 入力を照会（引数なし）または設定（非ゼロ=オン）
+	// する。フォーカスがあれば 1、なければ 0 を返す。
 	register("ime", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "ime")
 		if err != nil {
@@ -122,8 +123,8 @@ func init() {
 		return Int(int64(wb.IMEState())), nil
 	})
 
-	// listbox(id, x, y, w, h, items): place a list; items is an array.
-	// Items wider than the list are shortened by the backend.
+	// listbox(id, x, y, w, h, items): リストを配置する。items は配列。
+	// リスト幅より広い項目はバックエンドが短縮する。
 	register("listbox", 6, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "listbox")
 		if err != nil {
@@ -154,12 +155,12 @@ func init() {
 		return Null(), nil
 	})
 
-	// listbox_set(id, items): replace the entries of an existing listbox
-	// in place (widget.List.SetEntries). Unlike re-calling listbox(), this
-	// keeps the same ebitenui widget, so its scroll position and focus are
-	// preserved — recreating the widget every keystroke reset them and made
-	// the list visibly jump ("shake"). Items are shortened to the width
-	// recorded by listbox().
+	// listbox_set(id, items): 既存の listbox の項目をその場で置き換える
+	// （widget.List.SetEntries）。listbox() を再呼出するのと違い、
+	// 同じ ebitenui ウィジェットを保つため、スクロール位置とフォーカスが
+	// 維持される — キー入力ごとにウィジェットを作り直すとそれらが
+	// リセットされ、リストが目に見えて飛ぶ（"揺れ"）現象が起きた。
+	// 項目は listbox() が記録した幅に短縮される。
 	register("listbox_set", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "listbox_set")
 		if err != nil {
@@ -186,9 +187,9 @@ func init() {
 		return Null(), nil
 	})
 
-	// listbox_sel(id, index): set a listbox's selected entry by index
-	// (0-based) without firing the selected handler (programmatic select,
-	// e.g. syncing the editor outline after a "go to definition").
+	// listbox_sel(id, index): listbox の選択項目をインデックス（0 始まり）
+	// で設定する。選択ハンドラは発火しない（プログラム的な選択。
+	// 例: "定義へ移動" 後にエディタのアウトラインを同期する）。
 	register("listbox_sel", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "listbox_sel")
 		if err != nil {
@@ -208,7 +209,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// selected(id): list selection index (-1 when none).
+	// selected(id): リストの選択インデックス（無選択なら -1）。
 	register("selected", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "selected")
 		if err != nil {
@@ -225,7 +226,7 @@ func init() {
 		return Int(int64(idx)), nil
 	})
 
-	// clrobj([id]): remove one widget, or all without arguments.
+	// clrobj([id]): 1つのウィジェットを削除する。引数なしならすべて。
 	register("clrobj", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "clrobj")
 		if err != nil {
@@ -245,7 +246,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// dialog(msg [, mode]): modal choice. mode ok/okcancel/yesno.
+	// dialog(msg [, mode]): モーダルな選択。mode は ok/okcancel/yesno。
 	register("dialog", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "dialog")
 		if err != nil {

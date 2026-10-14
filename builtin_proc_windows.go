@@ -7,16 +7,18 @@ import (
 	"syscall"
 )
 
-// detachConsole starts cmd without a console window (DETACHED_PROCESS).
-// A console-subsystem child otherwise shares (double-click launch) or
-// inherits (terminal launch) the parent console: closing that console
-// window kills every attached process, so a GUI editor that runs a
-// script would die together with its child. Capture-style builtins
-// (piperun/pipeexec) use pipes and never need the console; the
-// interactive exec() keeps it (see execgui() for the detached twin).
+// detachConsole はコンソールウィンドウなしで cmd を起動する
+// （DETACHED_PROCESS）。コンソールサブシステムの子プロセスは
+// それ以外だと親のコンソールを共有（ダブルクリック起動時）または
+// 継承（端末起動時）してしまう。そのコンソールウィンドウを閉じると
+// それに接続された全プロセスが終了するため、スクリプトを実行する
+// GUI エディタは子プロセスと一緒に死んでしまう。パイプを使う
+// capture 系の組込（piperun/pipeexec）はコンソールを必要とせず、
+// 対話的な exec() はそれを保つ（切り離された双子については
+// execgui() を参照）。
 func detachConsole(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		// DETACHED_PROCESS: no console is created or inherited.
+		// DETACHED_PROCESS: コンソールは生成も継承もされない。
 		CreationFlags: 0x08000000,
 	}
 }

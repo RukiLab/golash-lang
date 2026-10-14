@@ -7,24 +7,24 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Perspective-correct textured raster (G1): gquad() draws textured
-// quads through one Kage shader and one projective core. Screen-space UVs
-// travel as (u/w, v/w, 1/w) in the vertex custom attribute and are
-// divided back in the fragment shader, so a quad split into two
-// triangles has no diagonal seam (per-triangle affine interpolation
-// would crease there).
+// 遠近補正されたテクスチャ・ラスタ（G1）: gquad() は1つの Kage シェーダ
+// と1つの射影コアを通じてテクスチャ四角形を描く。画面空間の UV は頂点の
+// custom 属性で (u/w, v/w, 1/w) として伝わり、フラグメントシェーダで
+// 割り返されるため、2つの三角形に分割された四角形に対角線の継ぎ目が
+// 生じない（三角形ごとのアフィン補間ではそこに折れ目ができる）。
 //
-// Draw calls keep the canvas frame model: validation runs on the script
-// goroutine (headless-safe, like the Blit errors) and raster runs on the
-// game thread via enqueue, honoring gmode/galpha and the gsel target.
+// 描画呼出はキャンバスのフレームモデルを保つ: 検証はスクリプトの
+// ゴルーチンで（Blit のエラーと同じくヘッドレス安全に）実行され、
+// ラスタは enqueue 経由でゲームスレッドで実行される。gmode/galpha と
+// gsel の対象を尊重する。
 
-// perspShaderSrc is the shared fragment shader. Pixel units throughout:
-// geometry and sampling coordinates are both plain pixels. Out-of-range
-// UVs sample transparent (imageSrc0At), so source rects never panic the
-// loop goroutine the way a SubImage outside its bounds would. The source
-// image may live anywhere in Ebiten's texture atlas, so imageSrc0Origin
-// is added (a standalone image reports (0,0), which keeps pixel-exact
-// sampling).
+// perspShaderSrc は共有のフラグメントシェーダ。全体を通じてピクセル
+// 単位: 幾何もサンプリング座標も単なるピクセルである。
+// UV は範囲外でも透明をサンプルする（imageSrc0At）ため、ソース矩形が
+// 境界外の SubImage のようにループのゴルーチンを panic させることは
+// ない。ソース画像は Ebiten のテクスチャアトラス内のどこかにありうる
+// ため、imageSrc0Origin が加えられる（単独の画像は (0,0) を報告し、
+// これによりピクセル単位で正確なサンプリングが保たれる）。
 const perspShaderSrc = `//kage:unit pixels
 
 package main
@@ -41,22 +41,24 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 }
 `
 
-// degenArea2 treats twice-areas below this as empty. A quad or triangle
-// animated through zero never errors; it just draws nothing that frame.
+// degenArea2 はこれより小さい2倍の面積を空と見なす。ゼロを通って
+// アニメーションする四角形や三角形は決してエラーにならない。その
+// フレームでは単に何も描かれないだけである。
 const degenArea2 = 1e-9
 
-// maxQuadsPerCall caps one gquad() command's faces. Generous on purpose
-// (the script arrays themselves stop at dim()'s element cap), but bounded
-// so a runaway loop cannot enqueue unbounded vertex memory in one frame.
+// maxQuadsPerCall は1回の gquad() 命令の面数を制限する。意図的に
+// 寛大である（スクリプトの配列自身が dim() の要素上限で止まる）が、
+// 暴走するループが1フレームで無制限の頂点メモリをエンキューできない
+// よう上限がある。
 const maxQuadsPerCall = 65536
 
-// maxVertsPerDraw is the vertex ceiling of a single DrawTrianglesShader:
-// indices are uint16, so a face count past 1/4 of it needs chunking
-// (which is transparent to the script).
+// maxVertsPerDraw は1回の DrawTrianglesShader の頂点上限である:
+// インデックスは uint16 なので、その 1/4 を超える面数は分割を
+// 必要とする（これはスクリプトからは透過的である）。
 const maxVertsPerDraw = 65536
 
-// perspShader compiles the shared shader once. Game thread only: every
-// caller arrives serialized through the draw queue.
+// perspShader は共有のシェーダを一度だけコンパイルする。ゲームスレッド
+// のみ: すべての呼出し側は描画キューを通じて直列に到着する。
 func (b *WindowBackend) perspShader() *ebiten.Shader {
 	if b.persp == nil && b.perspErr == nil {
 		b.persp, b.perspErr = ebiten.NewShader([]byte(perspShaderSrc))
@@ -64,14 +66,14 @@ func (b *WindowBackend) perspShader() *ebiten.Shader {
 	return b.persp
 }
 
-// triArea2 is twice the signed area of (a, b, c).
+// triArea2 は (a, b, c) の符号付き面積の2倍。
 func triArea2(ax, ay, bx, by, cx, cy float64) float64 {
 	return (bx-ax)*(cy-ay) - (cx-ax)*(by-ay)
 }
 
-// solveHomography finds row-major H with H[8] == 1 mapping each (su, sv)
-// onto (du, dv). It reports false when the four pairs are singular
-// (collinear or otherwise degenerate).
+// solveHomography は各 (su, sv) を (du, dv) に写像する H[8] == 1 の
+// 行優先の H を求める。4組が特異（共線など退化）の場合は false を
+// 報告する。
 func solveHomography(su, sv, du, dv [4]float64) ([9]float64, bool) {
 	var m [8][9]float64
 	for i := 0; i < 4; i++ {
@@ -84,7 +86,7 @@ func solveHomography(su, sv, du, dv [4]float64) ([9]float64, bool) {
 		m[r+1][6], m[r+1][7] = y*u, y*v
 		m[r+1][8] = -y
 	}
-	// Gauss-Jordan with partial pivoting.
+	// 部分ピボット付きガウス・ジョルダン法。
 	for c := 0; c < 8; c++ {
 		p := c
 		for r := c + 1; r < 8; r++ {
@@ -119,8 +121,8 @@ func solveHomography(su, sv, du, dv [4]float64) ([9]float64, bool) {
 	return h, true
 }
 
-// quadWs reads the homogeneous weights off H's last row
-// (w = h6*u + h7*v + 1) at each source corner.
+// quadWs は各ソースの隅で H の最終行（w = h6*u + h7*v + 1）から
+// 同次座標の重みを読み出す。
 func quadWs(h [9]float64, su, sv [4]float64) [4]float64 {
 	var w [4]float64
 	for i := 0; i < 4; i++ {
@@ -129,12 +131,12 @@ func quadWs(h [9]float64, su, sv [4]float64) [4]float64 {
 	return w
 }
 
-// perspVert packs one raster vertex: the projective payload goes in
-// custom, the tint in the color multiplier. The shader applies
-// `clr *= color` exactly like the built-in pipeline, so per-vertex tints
-// interpolate across the triangle (Gouraud) and galpha composes the same
-// way Blit does (premultiplied-safe). col is (r, g, b, a) with rgb in
-// 0..1; flat shading is just three equal vertices.
+// perspVert はラスタの頂点1つを詰める: 射影のペイロードは custom に、
+// 色合いは色の乗数に入る。シェーダは組み込みのパイプラインとまったく
+// 同じく `clr *= color` を適用するため、頂点ごとの色合いは三角形全体に
+// 補間され（グーロー）、galpha は Blit と同じく合成される
+// （事前乗算済み安全）。col は (r, g, b, a) で rgb は 0..1。平坦な
+// 陰影付けは等しい3頂点にすぎない。
 func perspVert(dx, dy, u, v, w float64, col [4]float32) ebiten.Vertex {
 	return ebiten.Vertex{
 		DstX:   float32(dx),
@@ -144,10 +146,11 @@ func perspVert(dx, dy, u, v, w float64, col [4]float32) ebiten.Vertex {
 	}
 }
 
-// drawPersp is the shared game-thread raster: verts carry absolute source
-// pixels in custom and land on dst. On a shader failure it falls back to
-// affine DrawTriangles so a frame still appears instead of vanishing.
-// (Reliability fallback only: no user-facing affine mode is offered.)
+// drawPersp は共有のゲームスレッド・ラスタ: verts は custom に絶対
+// ソースピクセルを持ち、dst に着地する。シェーダが失敗した場合は
+// フレームが消えないようアフィンの DrawTriangles にフォールバック
+// する。（信頼性のためのフォールバックのみ: ユーザー向けのアフィン
+// モードは提供しない。）
 func drawPersp(b *WindowBackend, dst, simg *ebiten.Image, vs []ebiten.Vertex, idx []uint16, su, sv []float64, blend ebiten.CompositeMode, alpha float32) {
 	if sh := b.perspShader(); sh != nil {
 		op := &ebiten.DrawTrianglesShaderOptions{}
@@ -169,18 +172,18 @@ func drawPersp(b *WindowBackend, dst, simg *ebiten.Image, vs []ebiten.Vertex, id
 	dst.DrawTriangles(fb, idx, simg, op)
 }
 
-// Quad is one perspective-correct textured face: four destination
-// corners in order (clockwise or counter-clockwise), the four source
-// pixels they sample, and one 0..1 rgb triplet per corner (white leaves
-// the texture unmodified; four equal triplets are flat shading).
+// Quad は遠近補正されたテクスチャ面1つ: 順番に並んだ4つの変換先の隅、
+// それらがサンプルする4つのソースピクセル、および隅ごとの1つの 0..1 の
+// rgb トリプレット（白はテクスチャを変更しない。等しい4つのトリプレット
+// は平坦な陰影付け）。
 type Quad struct {
 	X, Y, U, V [4]float64
 	Light      [4][3]float64
 }
 
-// finite reports whether every coordinate and light of the quad is
-// finite. Script values can never be NaN/Inf (producing one is already an
-// error), so this is defense in depth for Go-side callers.
+// finite は四角形のすべての座標とライトが有限かを報告する。スクリプトの
+// 値は決して NaN/Inf になりえない（それを生成すること自体が既に
+// エラー）ため、これは Go 側の呼出しに対する多層防御である。
 func (q Quad) finite() bool {
 	for _, arr := range [][4]float64{q.X, q.Y, q.U, q.V} {
 		for _, v := range arr {
@@ -199,30 +202,29 @@ func (q Quad) finite() bool {
 	return true
 }
 
-// DrawQuads maps every quad's source corners onto its destination
-// corners with perspective correction: the homography is solved per
-// quad, so callers never supply w (an affine mapping is just the case
-// where all weights come out 1). An empty quad draws nothing; a quad
-// whose homography is singular, or whose weights are not all positive,
-// is an error.
+// DrawQuads はすべての四角形のソースの隅を遠近補正で変換先の隅に
+// 写像する: ホモグラフィは四角形ごとに解かれるため、呼出し側が w を
+// 与えることはない（アフィンな写像はすべての重みが 1 になる場合に
+// すぎない）。空の四角形は何も描かない。ホモグラフィが特異な四角形、
+// または重みがすべて正でない四角形はエラーである。
 //
-// The batch is atomic and rides the frame like any other canvas
-// command: every quad validates before anything is staged, and the faces
-// land on the game thread as one command (chunked into a few draw calls
-// behind the scenes, since indices are 16-bit).
+// まとまりはアトミックで、他のあらゆるキャンバス命令と同じくフレームに
+// 乗る: すべての四角形は何かが準備される前に検証され、面は1つの命令と
+// してゲームスレッドに着地する（インデックスが16bitなので、裏では
+// いくつかの描画呼出に分割される）。
 func (b *WindowBackend) DrawQuads(src int, quads []Quad) error {
 	const name = "gquad"
-	// Cheap sanity first: a face count past the cap is rejected before
-	// anything else, so a runaway loop fails on the count, not on the
-	// (also broken) rest of the call.
+	// 安価な健全性検査を先に: 上限を超える面数は他の何より先に
+	// 拒否されるため、暴走するループは（同様に壊れている）呼出の
+	// 残りではなく面数で失敗する。
 	if len(quads) > maxQuadsPerCall {
 		return fmt.Errorf("%s：1度に描画できるのは %d 面までです。%d 面が指定されました", name, maxQuadsPerCall, len(quads))
 	}
 	if !b.hasBuf(src) {
 		return fmt.Errorf("%s：不明なバッファ %d です", name, src)
 	}
-	// face is one validated, drawable quad: solved weights and the
-	// per-corner color multiplier the shader expects.
+	// face は検証済みの描画可能な四角形1つ: 解かれた重みと、シェーダが
+	// 期待する隅ごとの色の乗数。
 	type face struct {
 		x, y, u, v, w [4]float64
 		light         [4][3]float32
@@ -235,7 +237,7 @@ func (b *WindowBackend) DrawQuads(src int, quads []Quad) error {
 		a1 := triArea2(q.X[0], q.Y[0], q.X[1], q.Y[1], q.X[2], q.Y[2])
 		a2 := triArea2(q.X[0], q.Y[0], q.X[2], q.Y[2], q.X[3], q.Y[3])
 		if math.Abs(a1) < degenArea2 && math.Abs(a2) < degenArea2 {
-			continue // empty quad: nothing to draw
+			continue // 空の四角形: 描画するものはない
 		}
 		h, ok := solveHomography(q.U, q.V, q.X, q.Y)
 		if !ok {
@@ -261,8 +263,8 @@ func (b *WindowBackend) DrawQuads(src int, quads []Quad) error {
 	alpha := b.alphaScale()
 	b.enqueue(func() {
 		dst, simg := b.ensureTarget(sel), b.ensureTarget(src)
-		// One draw per chunk of faces: uint16 indices cap a call at
-		// maxVertsPerDraw vertices.
+		// 面の塊ごとに1回の描画: uint16 インデックスは1回の呼出を
+		// maxVertsPerDraw 個の頂点に制限する。
 		for start := 0; start < len(faces); start += maxVertsPerDraw / 4 {
 			end := start + maxVertsPerDraw/4
 			if end > len(faces) {

@@ -6,7 +6,8 @@ import (
 	"os/exec"
 )
 
-// detachConsole is a no-op off Windows (no console windows exist there;
-// children never share a closable console with the parent).
+// detachConsole は Windows 外では何もしない（そこにコンソール
+// ウィンドウは存在せず、子プロセスが親と閉じられるコンソールを
+// 共有することはないため）。
 func detachConsole(cmd *exec.Cmd) {
 }

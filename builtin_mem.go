@@ -1,8 +1,8 @@
-// P6 builtins: peek/poke on int arrays as byte buffers (little-endian).
+// P6 組み込み: 整数配列をバイトバッファとしての peek/poke (リトルエンディアン)。
 package main
 
 func init() {
-	// peek(arr, i): one byte (0-255).
+	// peek(arr, i): 1バイト (0-255)。
 	register("peek", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, i, err := peekArgs("peek", args, at, 1)
 		if err != nil {
@@ -11,7 +11,7 @@ func init() {
 		return Int(arr.Elems[i].I), nil
 	})
 
-	// wpeek(arr, i): two bytes, little-endian (0-65535).
+	// wpeek(arr, i): 2バイト、リトルエンディアン (0-65535)。
 	register("wpeek", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, i, err := peekArgs("wpeek", args, at, 2)
 		if err != nil {
@@ -20,7 +20,7 @@ func init() {
 		return Int(arr.Elems[i].I | arr.Elems[i+1].I<<8), nil
 	})
 
-	// lpeek(arr, i): four bytes, little-endian.
+	// lpeek(arr, i): 4バイト、リトルエンディアン。
 	register("lpeek", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, i, err := peekArgs("lpeek", args, at, 4)
 		if err != nil {
@@ -31,7 +31,7 @@ func init() {
 		return Int(v), nil
 	})
 
-	// poke(arr, i, v): write one byte (0-255).
+	// poke(arr, i, v): 1バイト書き込み (0-255)。
 	register("poke", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, i, v, err := pokeArgs("poke", args, at, 1)
 		if err != nil {
@@ -41,7 +41,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// wpoke(arr, i, v): write two bytes, little-endian (0-65535).
+	// wpoke(arr, i, v): 2バイト書き込み、リトルエンディアン (0-65535)。
 	register("wpoke", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, i, v, err := pokeArgs("wpoke", args, at, 2)
 		if err != nil {
@@ -52,7 +52,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// lpoke(arr, i, v): write four bytes, little-endian (0..2^32-1).
+	// lpoke(arr, i, v): 4バイト書き込み、リトルエンディアン (0..2^32-1)。
 	register("lpoke", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, i, v, err := pokeArgs("lpoke", args, at, 4)
 		if err != nil {
@@ -65,8 +65,9 @@ func init() {
 	})
 }
 
-// peekArgs validates (array, index) and bounds for n bytes.
-// Elements must already be bytes; out-of-range reads are errors.
+// peekArgs は (配列, インデックス) を検証し、n バイト分の境界を
+// 確認する。要素はあらかじめバイト値である必要があり、範囲外の
+// 読み出しはエラーになる。
 func peekArgs(name string, args []Value, at Pos, n int) (*Array, int, error) {
 	arr, err := needArray(name, args, 0, at)
 	if err != nil {
@@ -76,7 +77,8 @@ func peekArgs(name string, args []Value, at Pos, n int) (*Array, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	// Compare in int64: int(i)+n can wrap on huge i and skip the check.
+	// int64 で比較する: int(i)+n は巨大な i で桁あふれし、検査を飛ばす
+	// 可能性がある。
 	if i < 0 || i > int64(len(arr.Elems))-int64(n) {
 		return nil, 0, argErr(name, 1, at, "バイト %d から %d は範囲外です（長さ %d）", i, i+int64(n)-1, len(arr.Elems))
 	}
@@ -89,7 +91,7 @@ func peekArgs(name string, args []Value, at Pos, n int) (*Array, int, error) {
 	return arr, int(i), nil
 }
 
-// pokeArgs validates (array, index, value) for an n-byte write.
+// pokeArgs は (配列, インデックス, 値) を n バイト書き込み用に検証する。
 func pokeArgs(name string, args []Value, at Pos, n int) (*Array, int, int64, error) {
 	arr, err := needArray(name, args, 0, at)
 	if err != nil {
@@ -107,7 +109,8 @@ func pokeArgs(name string, args []Value, at Pos, n int) (*Array, int, int64, err
 	if v < 0 || v > max {
 		return nil, 0, 0, argErr(name, 2, at, "値は 0 から %d の範囲で指定してください。%d が指定されました", max, v)
 	}
-	// Compare in int64: int(i)+n can wrap on huge i and skip the check.
+	// int64 で比較する: int(i)+n は巨大な i で桁あふれし、検査を飛ばす
+	// 可能性がある。
 	if i < 0 || i > int64(len(arr.Elems))-int64(n) {
 		return nil, 0, 0, argErr(name, 1, at, "バイト %d から %d は範囲外です（長さ %d）", i, i+int64(n)-1, len(arr.Elems))
 	}

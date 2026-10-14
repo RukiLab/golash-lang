@@ -132,10 +132,11 @@ func TestBundleTrailer(t *testing.T) {
 	}
 }
 
-// TestBuildFallback pins the locked-output fallback: writing onto an
-// unwritable path (here a directory, portably) retries as a _new name
-// instead of failing. The real case is rebuilding a running exe on
-// Windows (overwrite and delete are locked while it runs).
+// TestBuildFallback はロックされた出力に対するフォールバックを
+// 固定する: 書き込めないパス（ここでは移植性のためディレクトリ）への
+// 書き込みは失敗せず _new な名前で再試行する。実際のケースは
+// Windows で動作中の exe をリビルドする場合（実行中は上書きと削除が
+// ロックされる）。
 func TestBuildFallback(t *testing.T) {
 	dir := t.TempDir()
 	fakeExe := filepath.Join(dir, "runtime.exe")
@@ -143,7 +144,7 @@ func TestBuildFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	p1 := mustMarshal(t, "mes(1)\n", "cli")
-	// Normal path returns the requested path.
+	// 通常のパスは要求されたパスを返す。
 	out := filepath.Join(dir, "app.exe")
 	final, err := AppendBundle(fakeExe, out, p1)
 	if err != nil {
@@ -152,7 +153,7 @@ func TestBuildFallback(t *testing.T) {
 	if final != out {
 		t.Fatalf("final = %q, want %q", final, out)
 	}
-	// Unwritable target (a directory): falls back next to it.
+	// 書き込めないターゲット（ディレクトリ）: その隣にフォールバックする。
 	sub := filepath.Join(dir, "sub")
 	if err := os.Mkdir(sub, 0755); err != nil {
 		t.Fatal(err)
@@ -168,7 +169,7 @@ func TestBuildFallback(t *testing.T) {
 	if err != nil || !ok || !bytes.Equal(got, p1) {
 		t.Fatalf("fallback bundle unreadable: ok=%v err=%v", ok, err)
 	}
-	// Suffix rules: ext kept, no ext appended.
+	// 接尾辞の規則: 拡張子は保持、追加はしない。
 	if got, _ := fallbackBuildPath(`C:\d\main.exe`); got != `C:\d\main_new.exe` {
 		t.Fatalf("exe fallback = %q", got)
 	}
@@ -189,10 +190,10 @@ func makeFakePE(subsystem int) []byte {
 	return exe
 }
 
-// TestPESubsystem pins the build-time console switch: GUI programs
-// ship without a console (a console window shares its lifetime with
-// every process attached to it, so closing it after double-click
-// launch takes the editor and its child down together).
+// TestPESubsystem はビルド時のコンソール切り替えを固定する: GUI
+// プログラムはコンソールなしで出荷される（コンソールウィンドウは
+// それに接続された全プロセスと生存期間を共有するため、ダブルクリック
+// 起動後に閉じるとエディタとその子を一緒に落としてしまう）。
 func TestPESubsystem(t *testing.T) {
 	dir := t.TempDir()
 	off, err := peSubsystemOffset(makeFakePE(3))

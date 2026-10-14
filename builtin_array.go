@@ -1,8 +1,8 @@
-// Array builtins: stack/queue and reshaping operations.
+// 配列の組込: スタック/キューと形状変更の操作。
 //
-// Arrays are reference values: push/pop/insert/remove/sort/reverse
-// mutate in place (as poke does). Query-style functions (join/slice)
-// return new values.
+// 配列は参照値である: push/pop/insert/remove/sort/reverse は
+// （poke と同じく）その場で変更する。問い合わせ系の関数
+// （join/slice）は新しい値を返す。
 package main
 
 import (
@@ -11,12 +11,12 @@ import (
 	"strings"
 )
 
-// maxDimTotal caps the total element count (product of sizes) for dim().
-// Without a cap, a huge size panics in make() instead of returning a
-// script error.
+// maxDimTotal は dim() の総要素数（サイズの積）の上限を制限する。
+// 上限がないと、巨大なサイズで make() が panic し、スクリプトの
+// エラーを返せなくなる。
 const maxDimTotal = 1 << 20
 
-// makeDim builds nested zero-filled elements for dim().
+// makeDim は dim() 用にゼロ埋めされた入れ子の要素を構築する。
 func makeDim(sizes []int) []Value {
 	elems := make([]Value, sizes[0])
 	if len(sizes) == 1 {
@@ -32,8 +32,8 @@ func makeDim(sizes []int) []Value {
 }
 
 func init() {
-	// dim(n1 [, n2, ...]): allocate a zero-filled array.
-	// One size makes a flat array; more sizes nest (dim(2, 3) is 2x3).
+	// dim(n1 [, n2, ...]): ゼロ埋めされた配列を確保する。
+	// サイズが1つなら平坦な配列、複数なら入れ子になる（dim(2, 3) は 2x3）。
 	register("dim", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		sizes := make([]int, len(args))
 		total := int64(1)
@@ -44,8 +44,8 @@ func init() {
 			if a.I < 0 {
 				return Null(), rtErrf(at, "dim：要素数は 0 以上である必要があります。%d が指定されました", a.I)
 			}
-			// Division keeps the product check overflow-free; a zero
-			// size stays valid (dim(0) is an empty array).
+			// 除算で積の検査を桁あふれさせない。ゼロサイズは有効な
+			// まま（dim(0) は空配列）。
 			if a.I != 0 && total > maxDimTotal/a.I {
 				return Null(), rtErrf(at, "dim：要素数が上限 %d を超えています", maxDimTotal)
 			}
@@ -55,7 +55,7 @@ func init() {
 		return ArrayOf(makeDim(sizes)), nil
 	})
 
-	// push(arr, v...): append values, return the new length.
+	// push(arr, v...): 値を追加し、新しい長さを返す。
 	register("push", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("push", args, 0, at)
 		if err != nil {
@@ -65,7 +65,7 @@ func init() {
 		return Int(int64(len(arr.Elems))), nil
 	})
 
-	// pop(arr): remove and return the last element. Empty is an error.
+	// pop(arr): 最後の要素を削除して返す。空の場合はエラー。
 	register("pop", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("pop", args, 0, at)
 		if err != nil {
@@ -79,8 +79,8 @@ func init() {
 		return v, nil
 	})
 
-	// join(arr [, delim]): concatenate stringified elements.
-	// The delimiter defaults to "" (no separator; pass "," for commas).
+	// join(arr [, delim]): 要素を文字列化して連結する。
+	// 区切りは既定で ""（区切りなし。カンマにするには "," を渡す）。
 	register("join", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("join", args, 0, at)
 		if err != nil {
@@ -101,8 +101,8 @@ func init() {
 		return Str(strings.Join(parts, delim)), nil
 	})
 
-	// sort(arr): sort in place (ints or strings; mixed is an error).
-	// Returns the array for chaining.
+	// sort(arr): その場でソート（整数か文字列。混合はエラー）。
+	// 連鎖のため配列を返す。
 	register("sort", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("sort", args, 0, at)
 		if err != nil {
@@ -114,7 +114,7 @@ func init() {
 		return args[0], nil
 	})
 
-	// reverse(arr): reverse in place. Returns the array for chaining.
+	// reverse(arr): その場で反転。連鎖のため配列を返す。
 	register("reverse", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("reverse", args, 0, at)
 		if err != nil {
@@ -126,7 +126,7 @@ func init() {
 		return args[0], nil
 	})
 
-	// insert(arr, i, v...): insert values at index i (0..length).
+	// insert(arr, i, v...): インデックス i (0..length) に値を挿入する。
 	register("insert", 2, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("insert", args, 0, at)
 		if err != nil {
@@ -136,7 +136,8 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		// Compare in int64: int(i) can wrap on huge i and skip the check.
+		// int64 で比較する: 巨大な i で int(i) が桁あふれし、検査を
+		// 飛ばしてしまう可能性がある。
 		if i < 0 || i > int64(len(arr.Elems)) {
 			return Null(), argErr("insert", 1, at, "添字 %d は範囲外です（長さ %d）", i, len(arr.Elems))
 		}
@@ -144,7 +145,7 @@ func init() {
 		return Int(int64(len(arr.Elems))), nil
 	})
 
-	// remove(arr, i [, count]): delete count elements at i, return them.
+	// remove(arr, i [, count]): i から count 個の要素を削除し、それらを返す。
 	register("remove", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("remove", args, 0, at)
 		if err != nil {
@@ -162,8 +163,9 @@ func init() {
 				return Null(), err
 			}
 		}
-		// Compare in int64: i+count can wrap on huge values and skip
-		// the check. Splitting keeps both comparisons overflow-free.
+		// int64 で比較する: 巨大な値で i+count が桁あふれし、検査を
+		// 飛ばしてしまう可能性がある。分割することで両方の比較を
+		// 桁あふれなしに保つ。
 		if i < 0 || count < 0 || i > int64(len(arr.Elems)) || count > int64(len(arr.Elems))-i {
 			return Null(), argErr("remove", 1, at, "範囲 %d から %d は範囲外です（長さ %d）", i, i+count, len(arr.Elems))
 		}
@@ -172,8 +174,8 @@ func init() {
 		return ArrayOf(out), nil
 	})
 
-	// slice(arr, start [, end]): copy of elements [start, end).
-	// Negative indexes count from the end.
+	// slice(arr, start [, end]): 要素 [start, end) の複製。
+	// 負のインデックスは末尾から数える。
 	register("slice", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("slice", args, 0, at)
 		if err != nil {
@@ -204,7 +206,7 @@ func init() {
 		return ArrayOf(append([]Value(nil), arr.Elems[int(start):int(end)]...)), nil
 	})
 
-	// find(arr, v): index of v with ==, or -1 when absent.
+	// find(arr, v): == による v のインデックス。無ければ -1。
 	register("find", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("find", args, 0, at)
 		if err != nil {
@@ -219,8 +221,8 @@ func init() {
 	})
 }
 
-// sortElems sorts numeric (int/float mixed) or all-string elements
-// (stable). Anything else is an error.
+// sortElems は数値（int/float 混合）またはすべて文字列の要素を
+// （安定）ソートする。それ以外はエラー。
 func sortElems(elems []Value) error {
 	if len(elems) == 0 {
 		return nil

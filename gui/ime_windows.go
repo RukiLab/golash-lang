@@ -8,21 +8,20 @@ import (
 	"unsafe"
 )
 
-// Windows IMM ground truth for the in-conversion (uncommitted) string.
+// 変換中 (未確定) 文字列に対する Windows IMM の正解値。
 //
-// ebiten's Windows backend (exp/textinput) never reports an emptied
-// composition: update() drops a zero-length GCS_COMPSTR silently and
-// WM_IME_ENDCOMPOSITION (cancel) sends no state at all, so Field keeps
-// the stale text and UncommittedTextLengthInBytes stays > 0 forever.
-// pumpIME reconciles ebiten's mirror against this OS-side length: when
-// the OS composition is empty, the unconfirmed string became empty and
-// the bar must blank.
+// ebiten の Windows バックエンド (exp/textinput) は空になった変換を
+// 報告しない: update() は長さゼロの GCS_COMPSTR を黙って捨て、
+// WM_IME_ENDCOMPOSITION (キャンセル) は状態を一切送らないため、Field が古い
+// テキストを保持し続け UncommittedTextLengthInBytes が永遠に > 0 のままになる。
+// pumpIME は ebiten 側のミラーをこの OS 側の長さと突き合わせる: OS 側の
+// 変換が空なら未確定文字列は空になったのでバーを消す。
 //
-// NOTE: pumpIME runs on ebiten's game thread, which is NOT the main
-// (window) thread, so thread-affine queries like GetActiveWindow always
-// fail here (ebiten itself calls it via RunOnMainThread). The window is
-// therefore discovered with EnumWindows filtered by our own PID, and
-// only thread-safe query APIs (no SendMessage) are used.
+// NOTE: pumpIME は ebiten のゲームスレッド上で動き、メイン
+// (ウィンドウ) スレッドではないため、GetActiveWindow のようなスレッド依存の
+// 照会はここでは常に失敗する (ebiten 自身は RunOnMainThread 経由で呼ぶ)。そのため
+// ウィンドウは自 PID で絞った EnumWindows で検出し、スレッドセーフな照会
+// API のみを使う (SendMessage は使わない)。
 
 var (
 	modImm32  = syscall.NewLazyDLL("imm32.dll")
@@ -42,9 +41,9 @@ const (
 	imeErrorNoData = -1
 )
 
-// enumWindowsOut collects EnumWindows handles. Package scope keeps the
-// callback alive and avoids uintptr<->pointer round trips (vet-clean).
-// pumpIME is game-thread only, so no concurrent access happens.
+// enumWindowsOut は EnumWindows のハンドルを集める。パッケージスコープに
+// 置くことでコールバックを生かし続け、uintptr<->ポインタ往復を避ける (vet-clean)。
+// pumpIME はゲームスレッド専用のため同時アクセスは起きない。
 var enumWindowsOut []uintptr
 
 var enumWindowsCb = syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
@@ -52,8 +51,8 @@ var enumWindowsCb = syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
 	return 1
 })
 
-// ourWindowHwnds returns the visible top-level windows owned by this
-// process (normally just the ebiten window). Game thread only.
+// ourWindowHwnds はこのプロセスが所有する可視トップレベルウィンドウを
+// 返す (通常は ebiten ウィンドウのみ)。ゲームスレッド専用。
 func ourWindowHwnds() []uintptr {
 	enumWindowsOut = nil
 	procEnumWindows.Call(enumWindowsCb, 0)
@@ -73,43 +72,42 @@ func ourWindowHwnds() []uintptr {
 	return res
 }
 
-// imcCompositionLen queries one window's input context for the
-// unconfirmed string length in bytes (UTF-16). definitive=false means
-// it could not be determined (keep the ebiten-side value).
+// imcCompositionLen は1つのウィンドウの入力コンテキストに問い合わせて
+// 未確定文字列長をバイト数 (UTF-16) で返す。definitive=false は
+// 判定できなかったこと (ebiten 側の値を維持する)。
 func imcCompositionLen(hwnd uintptr) (n int, definitive bool) {
 	himc, _, _ := procImmGetContext.Call(hwnd)
 	if himc == 0 {
-		// IME is disabled for the window: no composition can exist.
+		// IME がそのウィンドウで無効: 変換は存在し得ない。
 		return 0, true
 	}
 	defer procImmReleaseContext.Call(hwnd, himc)
-	// Size query: NULL buffer returns the byte count, IMM_ERROR_NODATA
-	// (-1, no composition data) or IMM_ERROR_GENERAL (-2, failure).
+	// サイズ照会: NULL バッファでバイト数が返り、IMM_ERROR_NODATA
+	// (-1、変換データなし) または IMM_ERROR_GENERAL (-2、失敗)。
 	r, _, _ := procImmGetCompositionStringW.Call(himc, imeGCSCompStr, 0, 0)
 	v := int32(uint32(r))
 	if v == imeErrorNoData {
-		// No composition data: the unconfirmed string is empty.
+		// 変換データなし: 未確定文字列は空。
 		return 0, true
 	}
 	if v < 0 {
-		// IMM_ERROR_GENERAL or unexpected: cannot determine.
+		// IMM_ERROR_GENERAL または想定外: 判定不能。
 		return 0, false
 	}
 	return int(v), true
 }
 
-// osIMECompositionLen reports the OS-side unconfirmed string length in
-// bytes. ok=false means it could not be determined (keep the
-// ebiten-side value). Game thread only (called from pumpIME).
+// osIMECompositionLen は OS 側の未確定文字列長をバイト数で返す。
+// ok=false は判定不能 (ebiten 側の値を維持)。ゲームスレッド専用 (pumpIME から呼ぶ)。
 func osIMECompositionLen() (n int, ok bool) {
 	hwnds := ourWindowHwnds()
 	if len(hwnds) == 0 {
 		return 0, false
 	}
-	// A live composition in any of our windows keeps the mirror; only
-	// an all-empty result clears it. A foreign window's composition can
-	// never appear here (PID filter), so this cannot mask our own end.
-	// Callers only test zero vs non-zero, so the first live one wins.
+	// いずれかの自ウィンドウに生きた変換があればミラーを維持する; 全て
+	// 空のときだけ消す。他プロセスのウィンドウの変換はここに出ない
+	// (PID フィルタ) ため、自らの終了を隠すことはない。
+	// 呼び出し側はゼロか非ゼロかだけ見るので、最初の生きたものを返す。
 	seen := false
 	for _, h := range hwnds {
 		l, def := imcCompositionLen(h)

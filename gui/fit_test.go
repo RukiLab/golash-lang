@@ -5,32 +5,31 @@ import (
 	"testing"
 )
 
-// px is a deterministic stand-in for TextWidth: 8px per rune.
+// px は TextWidth の決定的な代役で、1ルーンあたり8pxとして測る。
 func px(s string) int { return 8 * len([]rune(s)) }
 
-// Pure text fitting (no window needed). The backend-level tests that
-// build widgets live in backend_test.go before TestGuiRender: Ebiten
-// allows a single game loop per process, after which NewImage panics.
+// 純粋なテキスト収め処理（ウィンドウ不要）。ウィジェットを作るバックエンド側のテストは TestGuiRender より前の backend_test.go にある。Ebiten は
+// 1プロセスに1回だけゲームループを許すため、それ以降は NewImage がパニックする。
 
 func TestFitTextShortUnchanged(t *testing.T) {
 	if got := fitText("abc", 100, px); got != "abc" {
 		t.Fatalf("short text changed: %q", got)
 	}
-	// Non-positive budget disables fitting (keep the text visible).
+	// 非正の予算では収め処理を無効化する（テキストを見えるままにする）。
 	if got := fitText("abcdef", 0, px); got != "abcdef" {
 		t.Fatalf("maxw 0 should pass through, got %q", got)
 	}
 }
 
 func TestFitTextTruncatesToMaxw(t *testing.T) {
-	got := fitText("abcdefghij", 40, px) // 40px = 5 runes; ell = 24px -> budget 2 runes
+	got := fitText("abcdefghij", 40, px) // 40px = 5ルーン分、ell = 24px のため2ルーン分の予算
 	if got != "ab..." {
 		t.Fatalf("got %q, want %q", got, "ab...")
 	}
 	if px(got) > 40 {
 		t.Fatalf("%q measures %d, over maxw 40", got, px(got))
 	}
-	// Whatever the length, the result must fit the budget.
+	// 長さによらず、結果は予算内に収めなければならない。
 	for n := 1; n <= 10; n++ {
 		s := strings.Repeat("x", n)
 		g := fitText(s, 40, px)
@@ -41,8 +40,8 @@ func TestFitTextTruncatesToMaxw(t *testing.T) {
 }
 
 func TestFitTextKeepsRunesWhole(t *testing.T) {
-	// CJK runes must not be cut mid-character.
-	got := fitText("あいうがぎぐ", 40, px) // each 8px; ell 3 runes = 24 -> budget 2 runes
+	// CJK ルーンは文字の途中で切ってはならない。
+	got := fitText("あいうがぎぐ", 40, px) // 各8px、ell 3ルーン = 24 のため2ルーン分の予算
 	if got != "あい..." {
 		t.Fatalf("got %q, want %q", got, "あい...")
 	}
@@ -54,11 +53,9 @@ func TestFitTextEllOnlyWhenNoRoom(t *testing.T) {
 	}
 }
 
-// TestFitItemsUniqueness pins the invariant list selection relies on:
-// the EntrySelectedHandler maps an entry back to its index by string
-// equality, so two items that shortened to the same text would make
-// selected() report the first one and the editor would jump to the
-// wrong definition.
+// TestFitItemsUniqueness はリスト選択が依存する不変条件を固定する。
+// EntrySelectedHandler は項目を文字列の等価性でインデックスに戻すため、2つの項目が同じ短縮形になると
+// selected() は最初のものを報告し、エディタは誤った定義に飛んでしまう。
 func TestFitItemsUniqueness(t *testing.T) {
 	w := 104
 	maxw := w - listPadX
@@ -83,21 +80,19 @@ func TestFitItemsUniqueness(t *testing.T) {
 	}
 }
 
-// TestFitItemsReservesPaddingOnly pins the width budget. The listbox
-// keeps its vertical slider (HideHorizontalSlider only), so the slider
-// width is reserved separately by the caller; an item that fits the
-// remaining box must not be shortened.
+// TestFitItemsReservesPaddingOnly は幅の予算を固定する。リストボックスは
+// 垂直スライダーを保持する（水平スライダーのみ非表示）ため、スライダー幅は呼び出し側が別に確保する。残りの枠に収まる項目は短縮してはならない。
 func TestFitItemsReservesPaddingOnly(t *testing.T) {
 	w := 104
 	maxw := w - listPadX
-	s := strings.Repeat("a", maxw/8) // exactly maxw wide
+	s := strings.Repeat("a", maxw/8) // ちょうど maxw 幅
 	if px(s) != maxw {
 		t.Fatalf("test setup: width %d != %d", px(s), maxw)
 	}
 	if got := fitItems([]string{s}, maxw, px); got[0] != s {
 		t.Fatalf("item shortened to %q although it fits the padding box", got[0])
 	}
-	// One rune wider must be shortened.
+	// 1ルーン分広いと短縮されなければならない。
 	if got := fitItems([]string{s + "a"}, maxw, px); got[0] == s+"a" {
 		t.Fatalf("item %q was not shortened", got[0])
 	}

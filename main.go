@@ -1,6 +1,6 @@
-// Command-line interface for the Golash language interpreter.
+// Golash 言語インタプリタのコマンドラインインターフェース。
 //
-// Usage:
+// 使い方：
 //
 //	gsh run <file.gsh>
 //	gsh repl
@@ -26,7 +26,7 @@ import (
 // 検出する)。バンドル形式の codecVersion とは独立した番号です。
 const golashVersion = "0.3"
 
-// runProgram executes prog on the register VM.
+// runProgram はレジスタVM上で prog を実行します。
 func runProgram(in *Interp, prog *Program) error {
 	vprog, err := Compile(prog)
 	if err != nil {
@@ -91,7 +91,7 @@ func main() {
 func cmdRun(args []string) {
 	var file string
 	var scriptArgs []string
-	verbatim := false // after `--`: everything is a script argument
+	verbatim := false // `--` 以降：すべてスクリプト引数扱い
 	for _, a := range args {
 		if verbatim {
 			scriptArgs = append(scriptArgs, a)
@@ -109,9 +109,9 @@ func cmdRun(args []string) {
 			file = a
 			continue
 		}
-		// Extra positionals after the file are script arguments, so
-		// `run game.gsh --hard` just works (`--` still recommended
-		// when an argument itself starts with `-`).
+		// ファイルより後の余分な位置引数はスクリプト引数になるため、
+		// `run game.gsh --hard` はそのまま動く（引数自体が `-` で始まる
+		// 場合は `--` を依然推奨する）。
 		scriptArgs = append(scriptArgs, a)
 	}
 	if file == "" {
@@ -120,10 +120,18 @@ func cmdRun(args []string) {
 	}
 	prog, mode, err := ParseFileMode(file)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "エラー:", err)
+		// ParseFileMode はエラー時でも意図したモードを返すため、
+		// GUI スクリプトはダイアログを得る（ウィンドウはまだ存在せず、
+		// 切り離し起動では見える標準エラー出力がない）。
+		if mode == "gui" {
+			reportGUIError(err.Error())
+		} else {
+			fmt.Fprintln(os.Stderr, "エラー:", err)
+		}
 		os.Exit(1)
 	}
-	// #mode cli runs console, otherwise (gui or omitted) a window opens.
+	// #mode cli はコンソールを実行し、それ以外（gui または指定なし）は
+	// ウィンドウを開く。
 	guiMode := mode == "gui"
 	if guiMode {
 		runGUI(file, prog, scriptArgs)
@@ -141,9 +149,8 @@ func cmdRun(args []string) {
 	}
 }
 
-// scriptDirOf returns the absolute directory containing file (""
-// when it cannot be determined); file builtins resolve relative
-// paths there.
+// scriptDirOf は file を含む絶対ディレクトリを返す（決定できない場合は
+// ""）。ファイル系組込はここで相対パスを解決する。
 func scriptDirOf(file string) string {
 	abs, err := filepath.Abs(file)
 	if err != nil {
@@ -152,9 +159,10 @@ func scriptDirOf(file string) string {
 	return filepath.Dir(abs)
 }
 
-// enginePanicMsg renders a recovered engine (Ebiten) panic as one clean
-// line: the first line of its message, without the Go stack trace.
-// A script must never see engine internals as a crash dump.
+// enginePanicMsg は回復されたエンジン（Ebiten）の panic を1行の簡潔な
+// メッセージに描画する: メッセージの最初の行で、Go のスタックトレースは
+// 含めない。スクリプトがエンジン内部をクラッシュダンプとして見ることは
+// 決してあってはならない。
 func enginePanicMsg(r any) string {
 	s := strings.TrimSpace(fmt.Sprint(r))
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
@@ -166,14 +174,14 @@ func enginePanicMsg(r any) string {
 	return s
 }
 
-// runGUI executes prog in a window.
+// runGUI は prog をウィンドウで実行する。
 func runGUI(file string, prog *Program, scriptArgs []string) {
 	runGUIWith(scriptDirOf(file), scriptArgs, func(in *Interp) error {
 		return runProgram(in, prog)
 	})
 }
 
-// runGUIBundled executes a bundled VM program in a window.
+// runGUIBundled はバンドルされた VM プログラムをウィンドウで実行する。
 func runGUIBundled(exePath string, prog *VMProgram, scriptArgs []string) {
 	runGUIWith(scriptDirOf(exePath), scriptArgs, func(in *Interp) error {
 		return newVmachine(in).runMain(prog)
@@ -183,25 +191,26 @@ func runGUIBundled(exePath string, prog *VMProgram, scriptArgs []string) {
 func runGUIWith(scriptDir string, scriptArgs []string, run func(in *Interp) error) {
 	wb, err := gui.New(640, 480)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "エラー:", err)
+		reportGUIError(err.Error())
 		os.Exit(1)
 	}
 	in := NewInterpWithBackend(wb, os.Stdin)
 	in.SetArgs(scriptArgs)
 	in.SetScriptDir(scriptDir)
-	// The script runs on its own goroutine (see RunLoop) while the game
-	// loop owns this one, so the result travels over a channel. Buffered
-	// so a script finishing after an early window close never blocks.
-	// A closed window with a still-running script reads as no error.
+	// スクリプトは自身のゴルーチン（RunLoop を参照）で動き、ゲーム
+	// ループがこのゴルーチンを占有するため、結果はチャネルを伝わる。
+	// バッファ付きにして、早期にウィンドウが閉じた後に終了する
+	// スクリプトがブロックしないようにする。まだ動作中のスクリプトが
+	// ある閉じたウィンドウはエラーなしと解釈される。
 	runCh := make(chan error, 1)
-	// Ebiten panics on engine misuse (oversized images, disposed
-	// resources...), whether surfaced from the game thread or a
-	// builtin on the script thread. Both become a clean error and
-	// exit 1, never a Go stack trace.
+	// Ebiten はエンジンの誤用（大きすぎる画像、破棄されたリソース等）で
+	// panic する。ゲームスレッドからもスクリプトスレッド上の組込みからも
+	// 表面化する。どちらも簡潔なエラーと終了コード 1 になり、Go の
+	// スタックトレースには決してならない。
 	loopCode := func() (code int) {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintln(os.Stderr, "エラー:", enginePanicMsg(r))
+				reportGUIError(enginePanicMsg(r))
 				code = 1
 			}
 		}()
@@ -215,10 +224,13 @@ func runGUIWith(scriptDir string, scriptArgs []string, run func(in *Interp) erro
 				return run(in)
 			}()
 			if runErr != nil {
-				// Report to the terminal and terminate the process:
-				// unlike a clean finish (the window stays open), an
-				// error closes the window; the exit code below is 1.
+				// 端末に報告し、それをウィンドウ自体にも表示する
+				// （dialog() と同じ外観）: ネイティブのポップアップは
+				// ゲームウィンドウの陰に隠れうる。そして終了する:
+				// 正常終了（ウィンドウは開いたまま）と違い、エラーは
+				// ウィンドウを閉じる。下記の終了コードは 1。
 				fmt.Fprintln(os.Stderr, "エラー:", runErr)
+				showErrorInWindow(wb, runErr.Error())
 				wb.RequestClose()
 			} else {
 				wb.SetDone()
@@ -407,8 +419,8 @@ func cmdParse(args []string) {
 	fmt.Print(prog.String())
 }
 
-// runReplProg executes one REPL input on the VM.
-// The VM machine persists across inputs (globals/functions accumulate).
+// runReplProg は1つの REPL 入力を VM で実行する。
+// VM マシンは入力をまたいで永続する（グローバルと関数が蓄積される）。
 func runReplProg(in *Interp, vm *vmachine, prog *Program) error {
 	vprog, err := Compile(prog)
 	if err != nil {
@@ -421,8 +433,8 @@ func cmdRepl() {
 	fmt.Println("Golash v" + golashVersion + " REPL (type \"exit\" to quit)")
 	in := NewInterp(os.Stdout)
 	replVM := newVmachine(in)
-	// NOTE: the REPL reads through the interpreter Backend so input()
-	// shares the same stdin reader instead of competing with it.
+	// 注意: REPL はインタプリタの Backend を通じて読み取るため、
+	// input() は同じ stdin リーダーを共有し、それと競合しない。
 	var buf strings.Builder
 	depth := 0
 	prompt := "> "
@@ -466,7 +478,7 @@ func cmdRepl() {
 			prompt = "> "
 			continue
 		}
-		// Bare expressions echo their value; everything else just runs.
+		// 裸の式はその値をエコーする。それ以外は単に実行するだけ。
 		if len(prog.Stmts) == 1 {
 			if es, ok := prog.Stmts[0].(*ExprStmt); ok {
 				v, err := replVM.evalOne(es.X, es.X.Pos())
@@ -494,7 +506,7 @@ func cmdRepl() {
 	}
 }
 
-// bracketDepth counts unclosed (, [, { in a token stream.
+// bracketDepth はトークン列中の閉じられていない (, [, { を数える。
 func bracketDepth(toks []Token) int {
 	d := 0
 	for _, t := range toks {

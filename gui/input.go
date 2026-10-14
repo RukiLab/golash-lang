@@ -7,28 +7,27 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Repeat timing in ticks (@60fps) for synthesized keys: first fire is
-// immediate on a new press, then repDelay ticks later, then every
-// repInterval ticks. Printable and IME-committed text already carries
-// the OS key repeat, so it passes through untouched (see charStep).
+// 合成キー向けのリピート間隔 (tick 単位、@60fps): 新規押下では即時発火し、
+// 次は repDelay tick 後、その後は repInterval tick ごとに発火する。印字可能文字や
+// IME 確定テキストは OS のキーリピートを既に運ぶため、そのまま通す (charStep 参照)。
 const (
 	repDelay    = 24
 	repInterval = 2
 )
 
-// charRep dedups one immediate-input snapshot per tick. Printable and
-// IME-committed text already carries the OS key repeat, so it passes
-// through as-is; this only suppresses duplicate reports when input()
-// is polled more than once within the same tick.
+// charRep は1ティックの即時入力スナップショットを重複除去する。
+// 印字可能な文字と IME で確定したテキストは既に OS のキー繰返しを
+// 持つため、そのまま通過する。これは同じティック内で input() が複数回
+// ポーリングされたときの重複報告のみを抑える。
 type charRep struct {
 	last string
-	tick int64 // tick of the last delivery
+	tick int64 // 最後の配送のティック
 }
 
-// ctrlKeys maps physical control keys to the character input()
-// reports for them (the ASCII code as a single-char string).
-// AppendInputChars never yields these; they are synthesized with
-// the same repeat timing below.
+// ctrlKeys は物理的なコントロールキーを input() がそれらに対して
+// 報告する文字（ASCII コードを1文字の文字列にしたもの）に写像する。
+// AppendInputChars はこれらを決して生成しない。それらは下記と同じ
+// 繰返しタイミングで合成される。
 var ctrlKeys = []struct {
 	key ebiten.Key
 	ch  string
@@ -41,15 +40,16 @@ var ctrlKeys = []struct {
 	{ebiten.KeyDelete, "\x7f"},
 }
 
-// ctrlState tracks one control key's repeat session in wall ticks.
+// ctrlState は1つのコントロールキーの繰返しセッションを壁時計の
+// ティックで追跡する。
 type ctrlState struct {
 	down  bool
-	start int64 // tick the current hold began
-	last  int64 // tick of the last fire
+	start int64 // 現在の押下が始まったティック
+	last  int64 // 最後に発火したティック
 }
 
-// ctrlStep fires on a new press, then while held with the
-// repDelay/repInterval timing. Pure logic, unit-testable.
+// ctrlStep は新規の押下で発火し、その後 repDelay/repInterval の
+// タイミングで押下中に発火する。純粋な論理で、ユニットテスト可能。
 func ctrlStep(st *ctrlState, down bool, now int64) bool {
 	if !down {
 		st.down = false
@@ -66,11 +66,12 @@ func ctrlStep(st *ctrlState, down bool, now int64) bool {
 	return false
 }
 
-// charStep maps a per-frame rune snapshot to a firing string.
-// Text is delivered once per tick: new text fires at once, and OS
-// auto-repeat arrivals on later ticks fire again untouched. A repeat
-// poll within the same tick reports "" so scripts never see the same
-// keystroke twice. Pure logic, unit-testable.
+// charStep は1フレームのルーンスナップショットを発火する文字列に
+// 写像する。テキストは1ティックに1度配送される: 新しいテキストは
+// 即座に発火し、後のティックでの OS の自動繰返し到着はそのまま再発火
+// する。同じティック内での繰返しポーリングは "" を報告するため、
+// スクリプトが同じキー入力を2度見ることはない。純粋な論理で、
+// ユニットテスト可能。
 func charStep(st *charRep, s string, now int64) string {
 	if s == "" {
 		return ""
@@ -82,15 +83,16 @@ func charStep(st *charRep, s string, now int64) string {
 	return s
 }
 
-// Polling input (G2). Key/mouse queries hit ebiten directly (thread-safe);
-// click edges are latched in Update because "just pressed" needs per-tick
-// observation.
+// 入力のポーリング（G2）。キー/マウスの問い合わせは ebiten に直接
+// 当たる（スレッド安全）。クリックのエッジは「押した瞬間」が1ティック
+// ごとの観測を必要とするため、Update でラッチされる。
 
-// keyCodes maps script key codes to ebiten keys, following Windows
-// virtual-key numbering: 8 backspace, 9 tab, 13 enter, 16 shift, 17
-// ctrl, 18 alt, 27 esc, 32 space, 33-36 pageup/pagedown/end/home,
-// 37-40 arrows, 45 insert, 46 delete, 48-57 digits, 65-90 A-Z,
-// 112-123 F1-F12, 186-192/219-222 punctuation.
+// keyCodes はスクリプトのキーコードを Windows の仮想キー番号に従って
+// ebiten のキーに写像する: 8 バックスペース、9 タブ、13 エンター、
+// 16 シフト、17 コントロール、18 アルト、27 エスケープ、32 スペース、
+// 33-36 pageup/pagedown/end/home、37-40 矢印、45 インサート、
+// 46 デリート、48-57 数字、65-90 A-Z、112-123 F1-F12、
+// 186-192/219-222 句読点。
 func keyFor(code int) (ebiten.Key, bool) {
 	switch code {
 	case 8:
@@ -164,12 +166,13 @@ func keyFor(code int) (ebiten.Key, bool) {
 	return 0, false
 }
 
-// shiftHeld reports either shift key; ctrlHeld / altHeld likewise.
+// shiftHeld はいずれかのシフトキーを報告する。ctrlHeld / altHeld も
+// 同様。
 func shiftHeld() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
 
-// clickButton maps script button numbers to ebiten buttons.
+// clickButton はスクリプトのボタン番号を ebiten のボタンに写像する。
 func clickButton(btn int) (ebiten.MouseButton, bool) {
 	switch btn {
 	case 0:
@@ -182,9 +185,9 @@ func clickButton(btn int) (ebiten.MouseButton, bool) {
 	return 0, false
 }
 
-// pumpInput latches click rising edges and accumulates wheel motion.
-// Called from Update. ebiten.Wheel reports per-tick deltas (0 when
-// idle), so plain accumulation never loses motion.
+// pumpInput はクリックの立ち上がりエッジをラッチし、ホイールの動きを
+// 蓄積する。Update から呼ばれる。ebiten.Wheel は1ティックごとの差分
+// （アイドル時は 0）を報告するため、単純な蓄積で動きを失わない。
 func (b *WindowBackend) pumpInput() {
 	pressed := [3]bool{
 		ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft),
@@ -203,8 +206,8 @@ func (b *WindowBackend) pumpInput() {
 	b.wheelAccum += wy
 }
 
-// MouseWheel returns pending vertical wheel detents since the last
-// call (consumed; fractions carry over).
+// MouseWheel は最後の呼出以降の保留中の垂直ホイールのデテントを返す
+// （消費される。端数は持ち越される）。
 func (b *WindowBackend) MouseWheel() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -213,15 +216,15 @@ func (b *WindowBackend) MouseWheel() int {
 	return v
 }
 
-// MousePos returns the cursor position in window pixels.
+// MousePos はカーソル位置をウィンドウのピクセルで返す。
 func (b *WindowBackend) MousePos() (int, int) {
 	return ebiten.CursorPosition()
 }
 
-// MouseDown reports whether a button is held right now (0 left,
-// 1 middle, 2 right). Unlike ClickedButton it never consumes: pairing
-// it with a latched drag flag is how scripts implement scrollbar
-// dragging (click starts it, release ends it).
+// MouseDown はボタンが今押されているかを報告する（0 左、1 中央、
+// 2 右）。ClickedButton と違い決して消費しない: ラッチされたドラッグ
+// フラグと組み合わせることで、スクリプトはスクロールバーのドラッグを
+// 実装できる（クリックが開始し、リリースが終了する）。
 func (b *WindowBackend) MouseDown(btn int) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -231,17 +234,17 @@ func (b *WindowBackend) MouseDown(btn int) (bool, error) {
 	return b.mouseDown[btn], nil
 }
 
-// PadCount reports connected gamepads.
+// PadCount は接続されたゲームパッド数を報告する。
 func (b *WindowBackend) PadCount() int {
 	return len(ebiten.AppendGamepadIDs(nil))
 }
 
-// TouchCount reports active touches.
+// TouchCount は有効なタッチ数を報告する。
 func (b *WindowBackend) TouchCount() int {
 	return len(ebiten.AppendTouchIDs(nil))
 }
 
-// TouchPos reports the i-th touch position (window pixels).
+// TouchPos は i 番目のタッチ位置を報告する（ウィンドウのピクセル）。
 func (b *WindowBackend) TouchPos(i int) (int, int, error) {
 	ids := ebiten.AppendTouchIDs(nil)
 	if i < 0 || i >= len(ids) {
@@ -251,7 +254,7 @@ func (b *WindowBackend) TouchPos(i int) (int, int, error) {
 	return x, y, nil
 }
 
-// padID resolves a script pad index or reports an error.
+// padID はスクリプトのパッドインデックスを解決するか、エラーを報告する。
 func (b *WindowBackend) padID(id int) (ebiten.GamepadID, error) {
 	ids := ebiten.AppendGamepadIDs(nil)
 	if id < 0 || id >= len(ids) {
@@ -260,8 +263,8 @@ func (b *WindowBackend) padID(id int) (ebiten.GamepadID, error) {
 	return ids[id], nil
 }
 
-// PadButton reports a standard-layout button (0-16: A,B,X,Y,LB,RB,
-// LT,RT,Select,Start,L3,R3,Up,Down,Left,Right,Home).
+// PadButton は標準レイアウトのボタンを報告する（0-16: A,B,X,Y,LB,RB,
+// LT,RT,Select,Start,L3,R3,Up,Down,Left,Right,Home）。
 func (b *WindowBackend) PadButton(id, btn int) (bool, error) {
 	if btn < 0 || btn > 16 {
 		return false, fmt.Errorf("パッドボタンは 0 から 16 の範囲で指定してください。%d が指定されました", btn)
@@ -273,7 +276,7 @@ func (b *WindowBackend) PadButton(id, btn int) (bool, error) {
 	return ebiten.StandardGamepadButtonValue(gid, ebiten.StandardGamepadButton(btn)) > 0.5, nil
 }
 
-// PadAxis reports a stick axis 0-3 (left X/Y, right X/Y) in -1..1.
+// PadAxis はスティックの軸 0-3（左 X/Y、右 X/Y）を -1..1 で報告する。
 func (b *WindowBackend) PadAxis(id, axis int) (float64, error) {
 	if axis < 0 || axis > 3 {
 		return 0, fmt.Errorf("パッド軸は 0 から 3 の範囲で指定してください。%d が指定されました", axis)
@@ -285,7 +288,7 @@ func (b *WindowBackend) PadAxis(id, axis int) (float64, error) {
 	return ebiten.StandardGamepadAxisValue(gid, ebiten.StandardGamepadAxis(axis)), nil
 }
 
-// PadName reports a gamepad name.
+// PadName はゲームパッドの名前を報告する。
 func (b *WindowBackend) PadName(id int) (string, error) {
 	gid, err := b.padID(id)
 	if err != nil {
@@ -294,15 +297,15 @@ func (b *WindowBackend) PadName(id int) (string, error) {
 	return ebiten.GamepadName(gid), nil
 }
 
-// Clicked reports a click since the last call (consumed).
-// Kept for compatibility; ClickedButton(0) is the same.
+// Clicked は最後の呼出以降のクリックを報告する（消費される）。
+// 互換性のために残している。ClickedButton(0) と同じである。
 func (b *WindowBackend) Clicked() bool {
 	c, _ := b.ClickedButton(0)
 	return c
 }
 
-// ClickedButton reports button 0/1/2 (left/middle/right) since the
-// last call (consumed).
+// ClickedButton は最後の呼出以降のボタン 0/1/2（左/中央/右）を報告
+// する（消費される）。
 func (b *WindowBackend) ClickedButton(btn int) (bool, error) {
 	if _, ok := clickButton(btn); !ok {
 		return false, fmt.Errorf("マウスボタンは 0 から 2 の範囲で指定してください。%d が指定されました", btn)
@@ -314,12 +317,13 @@ func (b *WindowBackend) ClickedButton(btn int) (bool, error) {
 	return c, nil
 }
 
-// CursorVisible reports whether the system cursor is shown.
+// CursorVisible はシステムカーソルが表示されているかを報告する。
 func (b *WindowBackend) CursorVisible() bool {
 	return ebiten.CursorMode() == ebiten.CursorModeVisible
 }
 
-// SetCursorVisible shows (true) or hides (false) the system cursor.
+// SetCursorVisible はシステムカーソルを表示（true）または非表示
+// （false）にする。
 func (b *WindowBackend) SetCursorVisible(on bool) {
 	if on {
 		ebiten.SetCursorMode(ebiten.CursorModeVisible)
@@ -328,22 +332,22 @@ func (b *WindowBackend) SetCursorVisible(on bool) {
 	}
 }
 
-// ReadImmediate returns characters typed since the previous call, for
-// the GUI input() builtin (immediate mode: never blocks). Text comes
-// from the OS (locale-dependent Unicode translation: layout, shift,
-// and caps-correct, e.g. Shift+A is "A"), including IME-committed
-// text drained from the pending stream. Text (including OS
-// key-repeat arrivals) fires at once, once per tick;
-// "" when nothing fires. Control keys are synthesized as their ASCII
-// characters (backspace "\x08", tab "\x09", enter "\r", esc "\x1b",
-// delete "\x7f") with synthesized repeat timing; use asc() for the
-// codes, and break accumulation loops on "\r". While a focused
-// inputbox owns the key stream it reports "" so keystrokes are not
-// processed twice. While the IME field is focused it owns the whole
-// stream: raw characters are skipped (the field already holds them)
-// and only drained commits plus synthesized controls are reported.
-// Other non-character keys (arrows, F-keys) never appear here; use
-// getkey() for those. Every-frame polling is expected.
+// ReadImmediate は前回の呼出以降に入力された文字を、GUI の input()
+// 組込み（即時モード: 決してブロックしない）のために返す。テキストは
+// OS から来る（ロケール依存の Unicode 変換: 配列、シフト、大文字小字
+// を正しく扱う。例: Shift+A は "A"）。保留ストリームから排出された
+// IME 確定テキストを含む。テキスト（OS のキー繰返し到着を含む）は
+// 1ティックに1度即座に発火する。何も発火しなければ ""。コントロール
+// キーは ASCII 文字として合成される（バックスペース "\x08"、
+// タブ "\x09"、エンター "\r"、エスケープ "\x1b"、デリート "\x7f"）。
+// 繰返しタイミングは合成される。コードには asc() を使い、累積ループは
+// "\r" で打ち切ること。フォーカス中の inputbox がキー列を所有している
+// 間はキー入力が2重処理されないよう "" を報告する。IME フィールドが
+// フォーカスされている間はそれが列全体を所有する: 生の文字は
+// スキップされ（フィールドが既に保持している）、排出された確定と
+// 合成されたコントロールのみが報告される。
+// その他の非文字キー（矢印、Fキー）はここに現れない。それらには
+// getkey() を使う。毎フレームのポーリングを想定している。
 func (b *WindowBackend) ReadImmediate() string {
 	b.mu.Lock()
 	if b.focusedLocked() != nil {
@@ -370,9 +374,8 @@ func (b *WindowBackend) ReadImmediate() string {
 	if len(b.ctrlSt) != len(ctrlKeys) {
 		b.ctrlSt = make([]ctrlState, len(ctrlKeys))
 	}
-	// Mid-conversion every control key belongs to the IME (editing
-	// or committing the composition); synthesizing here would apply
-	// keystrokes twice.
+	// 変換中はあらゆるコントロールキーは IME に属する（合成の編集または
+	// 確定）。ここで合成するとキー入力が2重に適用される。
 	if imeOn && comp != "" {
 		return charStep(&b.charSt, sb.String(), now)
 	}
@@ -384,8 +387,8 @@ func (b *WindowBackend) ReadImmediate() string {
 	return charStep(&b.charSt, sb.String(), now)
 }
 
-// KeyDown reports whether a script key code is held. Modifier codes
-// 16/17/18 match either side (left or right).
+// KeyDown はスクリプトのキーコードが押されているかを報告する。
+// 修飾キーのコード 16/17/18 はいずれかの側（左右）に一致する。
 func (b *WindowBackend) KeyDown(code int) (bool, bool) {
 	switch code {
 	case 16:

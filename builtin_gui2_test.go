@@ -13,8 +13,8 @@ import (
 	"gsh/gui"
 )
 
-// GUI builtin validation. A headless WindowBackend (no RunGame) serves
-// calls that never touch the GPU; live queries run in the gui pixel test.
+// GUI組み込み関数の妥当性検証。ヘッドレスWindowBackend（RunGameなし）が
+// GPUに触れない呼び出しを処理する。実クエリはgui画素テストで実行する。
 func guiEval(t *testing.T, src string) (Value, error) {
 	t.Helper()
 	prog, err := Parse(src)
@@ -40,7 +40,7 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	if _, err := guiEval(t, "getkey(999)"); err == nil || !strings.Contains(err.Error(), "不明なキーコード") {
 		t.Fatalf("getkey(999): got %v", err)
 	}
-	// Extended keys are accepted (headless: nothing pressed).
+	// 拡張キーは受け付ける（ヘッドレス：何も押されていない）。
 	for _, src := range []string{"getkey(8)", "getkey(9)", "getkey(16)", "getkey(17)", "getkey(18)", "getkey(33)", "getkey(46)", "getkey(112)", "getkey(123)", "getkey(186)", "getkey(222)"} {
 		v, err := guiEval(t, src)
 		if err != nil || v.K != KBool || v.B {
@@ -102,8 +102,8 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	if err != nil || v.K != KBool || v.B {
 		t.Fatalf("closing(): got %v, %v", v, err)
 	}
-	// screensize() reports the OS window, not the monitor: pin the window
-	// size so the value is deterministic in the headless run.
+	// screensize()はモニタではなくOSウィンドウを報告する：ヘッドレス実行で
+	// 値が確定するようウィンドウサイズを固定する。
 	ebiten.SetWindowSize(320, 200)
 	v, err = guiEval(t, "screensize()")
 	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
@@ -157,10 +157,10 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	}
 }
 
-// Oversized images panic inside the engine on the loop goroutine
-// (uncatchable), so the builtins must reject them with script errors
-// before anything reaches Ebiten. Headless-safe: rejection happens
-// before any GPU/window call.
+// 巨大画像はループgoroutine内のエンジン内部でパニックになるため
+//（捕捉不可）、Ebitenに届く前に組み込み関数側でスクリプトエラーとして
+// 拒否しなければならない。ヘッドレス安全：GPU/ウィンドウ呼び出しの
+// 前に拒否される。
 func TestGuiImageLimits(t *testing.T) {
 	if _, err := guiEval(t, "screen(4097, 1)"); err == nil || !strings.Contains(err.Error(), "上限") {
 		t.Fatalf("screen width over limit: got %v", err)
@@ -168,14 +168,14 @@ func TestGuiImageLimits(t *testing.T) {
 	if _, err := guiEval(t, "screen(100000, 100000)"); err == nil || !strings.Contains(err.Error(), "上限") {
 		t.Fatalf("screen huge: got %v", err)
 	}
-	// buffer() shares the cap and the positive-size rule.
+	// buffer()は上限と正サイズ規則を共有する。
 	if _, err := guiEval(t, "buffer(1, 4097, 1)"); err == nil || !strings.Contains(err.Error(), "上限") {
 		t.Fatalf("buffer width over limit: got %v", err)
 	}
 	if _, err := guiEval(t, "buffer(1, 0, 8)"); err == nil || !strings.Contains(err.Error(), "正の値") {
 		t.Fatalf("buffer zero size: got %v", err)
 	}
-	// The visible canvas belongs to screen(); off-screen ids only.
+	// 表示キャンバスはscreen()専用：画面外IDのみ。
 	if _, err := guiEval(t, "buffer(0, 8, 8)"); err == nil || !strings.Contains(err.Error(), "1 から") {
 		t.Fatalf("buffer(0, ...): got %v", err)
 	}
@@ -191,8 +191,8 @@ func TestGuiImageLimits(t *testing.T) {
 	if _, err := guiEval(t, `title("a\0b")`); err == nil || !strings.Contains(err.Error(), "NUL") {
 		t.Fatalf("title NUL: got %v", err)
 	}
-	// 4097x1 PNG decodes fine but must fail before upload (and must not
-	// leak a buffer id doing so).
+	// 4097x1のPNGは復号できるが、転送前に失敗しなければならず（その際に
+	// バッファIDを漏らさないこと）。
 	dir := t.TempDir()
 	p := filepath.Join(dir, "wide.png")
 	f, err := os.Create(p)
@@ -230,14 +230,14 @@ func TestGuiWidgetValidation(t *testing.T) {
 	if _, err := guiEval(t, "button(1, \"x\", 0, 0, 0, 10)"); err == nil {
 		t.Fatal("button zero width should error")
 	}
-	// Argument order: (id, label, x, y, w, h). A string id must fail
-	// as arg 0 before anything blocks.
+	// 引数順：(id, label, x, y, w, h)。文字列idはブロック前に
+	// 引数0として失敗しなければならない。
 	if _, err := guiEval(t, "button(\"x\", \"y\", 0, 0, 10, 10)"); err == nil {
 		t.Fatal("button string id should error")
 	}
-	// Success paths enqueue game-thread work that guiEval never pumps
-	// (they would block); the backend-level fit is covered by
-	// TestListboxItemsFitAndStayUnique / TestButtonLabelFits.
+	// 成功系はguiEvalが汲み上げないゲームスレッド作業をキューに入れる
+	//（ブロックしてしまう）。バックエンド側の収まりは
+	// TestListboxItemsFitAndStayUnique / TestButtonLabelFitsで扱う。
 	if _, err := guiEval(t, "listbox_set(1)"); err == nil {
 		t.Fatal("listbox_set arity should error")
 	}
@@ -250,9 +250,9 @@ func TestGuiWidgetValidation(t *testing.T) {
 }
 
 func TestGuiFormValidation(t *testing.T) {
-	// chkbox sizes itself: the w/h form is gone (4-5 args). NOTE: guiEval
-	// never pumps the draw queue, so only pre-loop errors are asserted
-	// here; the success path is covered headless in TestFormWidgetsHeadless.
+	// chkboxは自動サイズ：w/h形式は廃止（4〜5引数）。注意：guiEvalは
+	// 描画キューを汲み上げないため、ここではループ前のエラーのみ検証する。
+	// 成功系はヘッドレスのTestFormWidgetsHeadlessで扱う。
 	if _, err := guiEval(t, "chkbox(1, \"x\", 0, 0, 0, 10)"); err == nil {
 		t.Fatal("old 6-arg chkbox should error")
 	}
@@ -283,7 +283,7 @@ func TestGuiFormValidation(t *testing.T) {
 	if _, err := guiEval(t, "objprm(1, \"bogus\", 1)"); err == nil {
 		t.Fatal("objprm bogus key should error")
 	}
-	// Removed color keys report unknown keys (theme is fixed).
+	// 廃止された色キーは不明キーとして報告される（テーマ固定）。
 	for _, src := range []string{
 		"objprm(99, \"textcolor\", 255)",
 		"objprm(1, \"textcolor\", 16777216)",
@@ -368,10 +368,10 @@ func TestGuiDrawValidation(t *testing.T) {
 }
 
 func TestGuiPgetValidation(t *testing.T) {
-	// CUI backend has no canvas to read from.
+	// CUIバックエンドには読み取るキャンバスがない。
 	mustErrIO(t, "pget(10, 10)\n", "pget は GUI ビルドが必要です")
-	// Headless window backend (320x200): validation runs before any
-	// game-thread readback.
+	// ヘッドレスウィンドウバックエンド（320x200）：検証は
+	// ゲームスレッド読み戻しより先に実行される。
 	if _, err := guiEval(t, "pget(-1, 0)"); err == nil {
 		t.Fatal("pget negative x should error")
 	}

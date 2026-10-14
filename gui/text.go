@@ -15,26 +15,27 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Out exposes os.Stdout for exec passthrough in GUI mode.
+// Out は exec の透過用に os.Stdout を公開する（GUI モード）。
 func (b *WindowBackend) Out() io.Writer {
 	return os.Stdout
 }
 
-// tabSpaces is the GUI rendering of a tab in mes()/print(): four
-// half-width cells of blank. It is a fixed advance, not a tab stop, so
-// the cell math stays independent of the current column.
+// tabSpaces は mes()/print() におけるタブの GUI 描画: 半角セル4つ分の
+// 空白。固定の送り幅でありタブストップではないため、セルの計算は現在の
+// 桁位置に依存しない。
 const tabSpaces = "    "
 
-// textOp is one ordered step of a mes()/print() call: an optional buffer
-// wipe or upward scroll, followed by an optional text fragment. A whole
-// call is applied as one game-thread closure in order, so text shares the
-// canvas layer with pset()/line()/boxf(): a later boxf() covers earlier
-// text, and later text covers an earlier boxf() (call order wins, like HSP).
+// textOp は1回の mes()/print() 呼出の順序付き1ステップ: 任意の
+// バッファ消去または上方スクロール、その後ろに任意のテキスト断片。
+// 呼出1回全体は順序どおり1つのゲームスレッド・クロージャとして
+// 適用されるため、文字は pset()/line()/boxf() とキャンバス層を共有する:
+// 後ろの boxf() は前の文字を覆い、後ろの文字は前の boxf() を覆う
+// （呼出順が勝つ。HSP と同じ）。
 type textOp struct {
-	clear    bool // wipe the buffer (a scroll jump past a whole screen)
-	scrollPx int  // shift the buffer image up first
-	frag     bool // draw the fragment after scrolling
-	x, y     int  // pixel origin of the fragment (whole pixels)
+	clear    bool // バッファを消去（全画面を超えるスクロールジャンプ）
+	scrollPx int  // まずバッファ画像を上にずらす
+	frag     bool // スクロール後に断片を描画する
+	x, y     int  // 断片のピクセル原点（全ピクセル）
 	s        string
 	fg       color.NRGBA
 	st       TextStyle
@@ -43,18 +44,18 @@ type textOp struct {
 	fontSize float64
 }
 
-// textDraw is one Print/Println call bound to its target buffer.
+// textDraw は対象バッファに結び付けられた1回の Print/Println 呼出。
 type textDraw struct {
 	sel int
 	ops []textOp
 }
 
-// textBatch accumulates consecutive Print/Println calls before they are
-// handed to the game thread. A burst of mes()/print() calls is merged into
-// one ordered op list (and normally one queued closure), while any other
-// drawing, immediate frame read, yield, or target switch flushes first so
-// script call order is preserved. Batched calls are not atomic: they are
-// only a spool for repetition, mirroring Ebiten's own command batching.
+// textBatch はゲームスレッドへ渡される前の連続する Print/Println 呼出
+// を蓄える。mes()/print() 呼出の一塊は1つの順序付き操作列（通常は1つの
+// キュー済みクロージャ）に統合されるが、他の描画・即時のフレーム読み
+// 出し・yield・対象切り替えは先にフラッシュし、スクリプトの呼出順が
+// 保たれるようにする。まとめた呼出はアトミックではない: 繰返しのための
+// スプールにすぎず、Ebiten 自身の命令のバッチ化と同じ考え方である。
 type textBatch struct {
 	sel int
 	ops []textOp
@@ -64,9 +65,9 @@ func (x *textBatch) empty() bool {
 	return x == nil || len(x.ops) == 0
 }
 
-// merge appends the next text call. Adjacent upward scrolls can be summed:
-// with no fragment/clear in between, shifting twice in a row moves the
-// same pixels as shifting once by the total.
+// merge は次のテキスト呼出を追加する。隣接する上方スクロールは合計
+// できる: 間に断片や消去がなければ、続けて2回ずらすのは合計分を1回
+// ずらすのと同じだからである。
 func (x *textBatch) merge(sel int, ops []textOp) {
 	if len(ops) == 0 {
 		return
@@ -84,21 +85,21 @@ func (x *textBatch) merge(sel int, ops []textOp) {
 	}
 }
 
-// Print appends text without a newline, rasterized onto the current canvas
-// buffer like any other drawing.
+// Print は改行なしでテキストを追加し、他の描画と同じく現在のキャンバス
+// バッファにラスタライズする。
 func (b *WindowBackend) Print(s string, st TextStyle) {
 	b.printRaw(s, st, false)
 }
 
-// Println appends text with a trailing newline, rasterized onto the
-// current canvas buffer like any other drawing.
+// Println は末尾改行付きでテキストを追加し、他の描画と同じく現在の
+// キャンバスバッファにラスタライズする。
 func (b *WindowBackend) Println(s string, st TextStyle) {
 	b.printRaw(s, st, true)
 }
 
-// printRaw lays out one call on the cell grid and stages it in the pending
-// text batch (nil when nothing is visible). It returns the draw so tests
-// can inspect fragment positions and styles.
+// printRaw は1回の呼出をセルグリッド上に配置し、保留中のテキスト
+// バッチに準備する（何も見えない場合は nil）。描画を返すため、テストは
+// 断片の位置とスタイルを検査できる。
 func (b *WindowBackend) printRaw(s string, st TextStyle, newline bool) *textDraw {
 	b.mu.Lock()
 	d := b.layoutTextLocked(s, st, newline)
@@ -112,8 +113,8 @@ func (b *WindowBackend) printRaw(s string, st TextStyle, newline bool) *textDraw
 	return d
 }
 
-// flushTextBatchLocked moves the accumulated Print/Println calls into one
-// game-thread closure. Caller must hold mu.
+// flushTextBatchLocked は蓄えた Print/Println 呼出を1つのゲームスレッド
+// ・クロージャへ移す。呼出し側は mu を保持すること。
 func (b *WindowBackend) flushTextBatchLocked() {
 	if b.textBatch.empty() {
 		return
@@ -127,15 +128,15 @@ func (b *WindowBackend) flushTextBatchLocked() {
 	b.queue = append(b.queue, func() { b.applyTextDraw(d) })
 }
 
-// layoutTextLocked splits s into drawable fragments, advancing the text
-// cursor by pixels. When the cursor passes the bottom edge the whole
-// screen scrolls (text and graphics share one screen, like HSP). Caller
-// must hold mu; the returned draw captures all rendering state, so later
-// font()/color() calls never affect already-queued text.
+// layoutTextLocked は s を描画可能な断片に分割し、テキストカーソルを
+// ピクセルで送る。カーソルが下端を過ぎると全画面がスクロールする
+// （文字とグラフィックスは HSP と同じく1画面を共有する）。呼出し側は
+// mu を保持すること。返される描画は描画状態をすべて捉えるため、後続の
+// font()/color() 呼出が既にキュー済みの文字に影響することはない。
 func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *textDraw {
 	sel := b.sel
-	// Text honors its own alpha multiplied by the global alpha (galpha),
-	// exactly like fillColor() does for shapes.
+	// 文字は自身のアルファに全体のアルファ（galpha）を掛けたものを
+	// 尊重する。図形に対する fillColor() とまったく同じである。
 	fg := color.NRGBA{R: b.fg.R, G: b.fg.G, B: b.fg.B,
 		A: uint8(uint16(b.fg.A) * uint16(b.alpha) / 255)}
 	face, lineH, fontSize := b.face, b.lineH, b.fontSize
@@ -143,13 +144,13 @@ func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *
 		lineH = lineHeight
 	}
 	h := b.h
-	// lastY is the lowest origin whose line box still fits the canvas;
-	// a cursor below it scrolls (or clears on a huge jump).
+	// lastY はその行ボックスがまだキャンバスに収まる最下の原点。
+	// それより下のカーソルはスクロールする（巨大なジャンプでは消去）。
 	lastY := float64(h) - lineH
 	d := &textDraw{sel: sel}
-	// scrollForRow keeps the cursor visible. A jump past a whole screen
-	// (e.g. pos() far below) clears instead of replaying hundreds of
-	// full-screen shifts: the old content would scroll away anyway.
+	// scrollForRow はカーソルを見えるままに保つ。全画面を超える
+	// ジャンプ（例: pos() が大きく下）では、何百回もの全画面シフトを
+	// 再現せず消去する: 古い内容はどうせスクロールして見えなくなる。
 	scrollForRow := func() {
 		if b.curY <= lastY {
 			return
@@ -160,15 +161,15 @@ func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *
 			return
 		}
 		for b.curY > lastY {
-			// The current lineHeight ratio is an integer, so one row is
-			// exactly one step; the carry still keeps a fractional pitch
-			// (should lineHeight ever change) drift-free over time.
+			// 現在の lineHeight 比は整数なので、1行はちょうど1ステップ。
+			// 桁上げにより、小数のピッチ（lineHeight が変わった場合）も
+			// 時間とともにずれない。
 			b.scrollExact += lineH
 			want := int(b.scrollExact + 0.5)
 			px := want - b.scrollDone
 			if px < 1 {
-				// Sub-pixel heights can round to no step; always move at
-				// least one pixel so the text never stalls.
+				// サブピクセルの高さはステップが0に丸められうるため、
+				// 文字が停止しないよう常に少なくとも1ピクセル動かす。
 				px = 1
 				want = b.scrollDone + px
 			}
@@ -181,27 +182,28 @@ func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *
 		lines := strings.Split(s, "\n")
 		for i, ln := range lines {
 			if i > 0 {
-				// One line down, back to the block anchor: continuation
-				// lines start at the x this call began at (the pos()
-				// origin), not at the screen's left edge.
+				// 1行下がり、ブロックのアンカーに戻る: 継続行は画面の
+				// 左端ではなく、この呼出が始まった x（pos() の原点）
+				// から始まる。
 				b.curY += lineH
 				b.curX = b.lineStartX
 			}
-			// pos() may have parked the cursor off-screen: scroll (or
-			// clear on a huge jump) before drawing, not after.
+			// pos() はカーソルを画面外に置いたかもしれない: 描画後では
+			// なく、描画前にスクロール（巨大なジャンプでは消去）する。
 			scrollForRow()
 			if ln == "" {
 				continue
 			}
-			// A tab advances 4 half-width columns; expanding it here
-			// keeps the drawn text and the cursor advance in agreement.
+			// タブは半角4桁送る。ここで展開することで、描かれる文字と
+			// カーソルの送りが一致する。
 			ln = expandTabs(ln)
 			d.ops = append(d.ops, textOp{frag: true,
 				x: pxRound(b.curX), y: pxRound(b.curY), s: ln,
 				fg: fg, st: st, face: face, lineH: lineH, fontSize: fontSize})
-			// Advance by the width actually drawn, so the next fragment
-			// (a continuation print(), or CJK echoed one char per call)
-			// lands right where this one ended, at any face's metrics.
+			// 実際に描かれた幅で送るため、次の断片（継続の print()、
+			// または1呼出1文字でエコーされる CJK）が、この断片が
+			// 終わったちょうどその位置に、どのフェイスのメトリックでも
+			// 収まるようにする。
 			adv, _ := text.Measure(ln, face, 0)
 			b.curX += adv
 		}
@@ -217,14 +219,14 @@ func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *
 	return d
 }
 
-// pxRound snaps a float pixel origin to whole pixels: a subpixel origin
-// would soften the raster (the glyph image lands between pixels), and a
-// 1px-granular cursor has no use for the fractional part.
+// pxRound は浮動小数点のピクセル原点を全ピクセルに丸める: サブピクセル
+// の原点ではラスタが柔らかく見え（グリフ画像がピクセル間に乗る）、
+// 1px 刻みのカーソルには小数部分の使い道がない。
 func pxRound(v float64) int {
 	return int(math.Floor(v + 0.5))
 }
 
-// applyTextDraw runs a laid-out call on the game thread, in order.
+// applyTextDraw は配置済みの呼出をゲームスレッドで順番に実行する。
 func (b *WindowBackend) applyTextDraw(d *textDraw) {
 	img := b.ensureTarget(d.sel)
 	for _, op := range d.ops {
@@ -240,10 +242,10 @@ func (b *WindowBackend) applyTextDraw(d *textDraw) {
 	}
 }
 
-// scrollCanvasUp shifts the buffer image up by px pixels, leaving the
-// bottom strip transparent (black shows through). A scratch copy keeps the
-// overlapping self-blit well-defined; the scratch is reused per size so
-// scrolling stays allocation-free after the first shift.
+// scrollCanvasUp はバッファ画像を px ピクセル上にずらし、下端の帯を
+// 透明（黒が透ける）のままにする。スクラッチの複製により、重なり合う
+// 自己ブリットが明確に定義される。スクラッチはサイズごとに再利用
+// されるため、最初のシフト以降はスクロールが割当てなしで済む。
 func (b *WindowBackend) scrollCanvasUp(img *ebiten.Image, px int) {
 	if px <= 0 {
 		return
@@ -268,11 +270,11 @@ func (b *WindowBackend) scrollCanvasUp(img *ebiten.Image, px int) {
 	img.DrawImage(tmp, nil)
 }
 
-// drawTextFrag rasterizes one fragment onto the canvas buffer with the
-// faux text styles (single deformed face: bold over-strikes, italic
-// shears, underline rules below the baseline). Because it writes straight
-// into the canvas, shapes can cover the text and the text can cover
-// shapes, depending on call order.
+// drawTextFrag は断片1つをフォークスのテキストスタイル（単一の変形
+// フェイス: ボールドは重ね打ち、イタリックはシアー、下線はベース
+// ライン下の罫線）でキャンバスバッファにラスタライズする。キャンバスに
+// 直接書き込むため、呼出順に応じて図形が文字を覆ったり、文字が図形を
+// 覆ったりできる。
 func drawTextFrag(img *ebiten.Image, op textOp) {
 	if op.s == "" || op.face == nil || op.lineH <= 0 {
 		return
@@ -281,14 +283,14 @@ func drawTextFrag(img *ebiten.Image, op textOp) {
 	italic := op.st&StyleItalic != 0
 	draw := func(dx float64) {
 		dop := &text.DrawOptions{}
-		// Region top lands on the origin; glyphs hang below it.
+		// 領域の上端は原点に乗る。グリフはその下にぶら下がる。
 		dop.GeoM.Translate(baseX+dx, baseY)
 		if italic {
-			// Element (0,1) is b in x' = a*x + b*y + tx:
-			// slant glyphs right around the pen point.
+			// 要素 (0,1) は x' = a*x + b*y + tx の b である:
+			// ペンの位置を中心にグリフを右に傾斜させる。
 			dop.GeoM.SetElement(0, 1, italicShear)
 		}
-		// ColorScale zero value is transparent; reset to identity first.
+		// ColorScale のゼロ値は透明。まず恒等にリセットする。
 		dop.ColorScale.Reset()
 		dop.ColorScale.ScaleWithColor(op.fg)
 		text.Draw(img, op.s, op.face, dop)
@@ -309,30 +311,31 @@ func drawTextFrag(img *ebiten.Image, op textOp) {
 		if op.fontSize >= 32 {
 			th = 2
 		}
-		y := float32(baseY + ascent + descent*0.5) // baseline + half descent
+		y := float32(baseY + ascent + descent*0.5) // ベースライン + ディセントの半分
 		vector.StrokeLine(img, float32(baseX), y, float32(baseX+w), y, th, op.fg, false)
 	}
 }
 
-// ReadLine is a Backend-interface stub: the GUI has no blocking line
-// editor. GUI input() is immediate (see ReadImmediate); script text
-// entry uses inputbox widgets. Always reports EOF so any accidental
-// use ends promptly instead of hanging.
+// ReadLine は Backend インタフェースのスタブ: GUI にはブロックする
+// 行エディタがない。GUI の input() は即時（ReadImmediate を参照）で、
+// スクリプトのテキスト入力は inputbox ウィジェットを使う。偶発的な使用
+// がハングせず速やかに終わるよう、常に EOF を報告する。
 //
-// IME: focus an inputbox (or call ime(1)) to enable conversion input
-// (Windows/macOS/Web); committed text lands in the box or the
-// input() stream, and the in-conversion string shows in the fixed bar.
+// IME: 変換入力（Windows/macOS/Web）を有効にするには inputbox を
+// フォーカスするか ime(1) を呼ぶ。確定したテキストはボックスまたは
+// input() ストリームに入り、変換中の文字列は固定のバーに表示される。
 func (b *WindowBackend) ReadLine(prompt string) (string, bool) {
 	_ = prompt
 	return "", false
 }
 
-// Clear wipes the current canvas buffer (text is baked into it, like any
-// other drawing, so it goes together). Widgets survive: they are removed
-// only by clrobj(), so draw loops can cls() every frame with live widgets.
-// Canvas removal runs on the game thread via enqueue, so after the
-// first yield it is staged in pending and applied together with the rest
-// of the frame at await()/sleep()/end (no one-frame flicker).
+// Clear は現在のキャンバスバッファを消去する（文字は他の描画と同じく
+// そこに焼き込まれるため、一緒に消える）。ウィジェットは生き残る:
+// それらは clrobj() でのみ削除されるため、描画ループは生きた
+// ウィジェットとともに毎フレーム cls() できる。キャンバスの削除は
+// enqueue 経由でゲームスレッドで実行されるため、最初の yield 以降は
+// pending に準備され、フレームの残りとともに
+// await()/sleep()/end() で適用される（1フレームのちらつきなし）。
 func (b *WindowBackend) Clear() {
 	b.mu.Lock()
 	b.curX, b.curY = 0, 0
@@ -345,28 +348,28 @@ func (b *WindowBackend) Clear() {
 	})
 }
 
-// SetColor sets subsequent text/draw color (alpha included).
+// SetColor は以降の文字/描画色を設定する（アルファを含む）。
 func (b *WindowBackend) SetColor(r, g, bl, a int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.fg = color.NRGBA{R: uint8(clamp(r)), G: uint8(clamp(g)), B: uint8(clamp(bl)), A: uint8(clamp(a))}
 }
 
-// ResetColor restores black text (the white-window default).
+// ResetColor は黒文字（白いウィンドウの既定）に戻す。
 func (b *WindowBackend) ResetColor() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.fg = color.NRGBA{0x00, 0x00, 0x00, 0xFF}
 }
 
-// IsFullscreen reports fullscreen state (script-thread safe).
+// IsFullscreen は全画面状態を報告する（スクリプトスレッド安全）。
 func (b *WindowBackend) IsFullscreen() bool {
 	return ebiten.IsFullscreen()
 }
 
-// Closing reports whether the user asked to close the window. The
-// first call opts in: the close button stops terminating the loop so
-// the script can save and call end() itself.
+// Closing はユーザーがウィンドウを閉じるよう求めたかを報告する。
+// 最初の呼出がオプトインになる: 閉じるボタンはループの終了をやめるため、
+// スクリプトは保存して自身で end() を呼べる。
 func (b *WindowBackend) Closing() bool {
 	b.mu.Lock()
 	armed := b.closingArmed
@@ -380,24 +383,24 @@ func (b *WindowBackend) Closing() bool {
 	return ebiten.IsWindowBeingClosed()
 }
 
-// SetFullscreen toggles fullscreen on the game thread.
+// SetFullscreen はゲームスレッドで全画面を切り替える。
 func (b *WindowBackend) SetFullscreen(on bool) {
 	b.runOnLoop(func() {
 		ebiten.SetFullscreen(on)
 	})
 }
 
-// IsResizable reports whether the window can be dragged to resize.
+// IsResizable はウィンドウをドラッグしてリサイズできるかを報告する。
 func (b *WindowBackend) IsResizable() bool {
 	return ebiten.IsWindowResizable()
 }
 
-// SetResizable allows (or forbids) drag-resizing the window.
-// While resizing is allowed the drawing resolution follows the window:
-// the canvas is re-created at the window size (1:1 pixels, no scaling),
-// so a widened window widens the drawing area instead of magnifying a
-// fixed canvas. Turning it off freezes the current resolution; screen()
-// re-establishes the logical size.
+// SetResizable はウィンドウのドラッグによるリサイズを許可（または禁止）
+// する。リサイズが許可されている間は描画解像度がウィンドウに追従する:
+// キャンバスはウィンドウサイズで作り直される（1:1 ピクセル、スケーリング
+// なし）ため、広げたウィンドウは固定キャンバスを拡大するのではなく
+// 描画領域を広げる。オフにすると現在の解像度が凍結される。screen() が
+// 論理サイズを再確立する。
 func (b *WindowBackend) SetResizable(on bool) {
 	b.mu.Lock()
 	b.followWindow = on
@@ -405,29 +408,29 @@ func (b *WindowBackend) SetResizable(on bool) {
 	ebiten.SetWindowResizable(on)
 }
 
-// WindowSize reports the OS window size in pixels: the real window, not
-// the logical screen() canvas and not the monitor. Following a drag
-// resize (see SetResizable), the window and the canvas are the same
-// pixels. Safe to call headless in tests (Ebiten tracks the size even
-// without a running loop).
+// WindowSize は OS のウィンドウサイズをピクセルで報告する: 論理的な
+// screen() キャンバスでもモニタでもなく、実際のウィンドウである。
+// ドラッグによるリサイズ（SetResizable を参照）の後では、ウィンドウと
+// キャンバスは同じピクセルになる。テストではヘッドレスでも安全に
+// 呼べる（Ebiten は実行中のループがなくてもサイズを追跡する）。
 func WindowSize() (w, h int) {
 	return ebiten.WindowSize()
 }
 
-// MoveWindow moves the window (concurrent-safe; desktop only).
+// MoveWindow はウィンドウを移動する（並行安全。デスクトップのみ）。
 func (b *WindowBackend) MoveWindow(x, y int) {
 	ebiten.SetWindowPosition(x, y)
 }
 
-// SetTitle changes the window title.
+// SetTitle はウィンドウのタイトルを変更する。
 func (b *WindowBackend) SetTitle(s string) {
 	ebiten.SetWindowTitle(s)
 }
 
-// SetFontSize changes the text face size in pixels (8..64). The line
-// pitch scales with it so mes()/print() lines keep their spacing; widgets
-// follow through uiFace. Script-thread safe (face/buffer swaps are
-// mutex-guarded).
+// SetFontSize は文字フェイスのサイズをピクセル（8..64）で変更する。
+// 行のピッチもそれに応じてスケールするため、mes()/print() の行は
+// 間隔を保つ。ウィジェットは uiFace 経由で追従する。スクリプトスレッド
+// 安全（フェイス/バッファの入れ替えはミューテックスで保護される）。
 func (b *WindowBackend) SetFontSize(size int) error {
 	if size < 8 || size > 64 {
 		return fmt.Errorf("font：サイズは 8 から 64 の範囲で指定してください。%d が指定されました", size)
@@ -444,15 +447,15 @@ func (b *WindowBackend) SetFontSize(size int) error {
 	return nil
 }
 
-// FontSize reports the current face size in pixels.
+// FontSize は現在のフェイスサイズをピクセルで報告する。
 func (b *WindowBackend) FontSize() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return int(b.fontSize + 0.5)
 }
 
-// FontFile reports the resolved font file in use ("" when the
-// discovery default is active and unchanged).
+// FontFile は使用中の解決済みフォントファイルを報告する（探索の既定が
+// 有効で変更されていない場合は ""）。
 func (b *WindowBackend) FontFile() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -462,17 +465,17 @@ func (b *WindowBackend) FontFile() string {
 	return FontPath()
 }
 
-// TextWidth measures s in pixels at the current face (whole string;
-// editors typically pass a single line for caret placement). Tabs count
-// as tabSpaces, exactly like the mes()/print() canvas rendering.
+// TextWidth は s を現在のフェイスでピクセル測定する（文字列全体。
+// エディタはふつうキャレット位置決め用に1行を渡す）。タブは
+// mes()/print() のキャンバス描画とまったく同じく tabSpaces として数える。
 func (b *WindowBackend) TextWidth(s string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.textWidthLocked(s)
 }
 
-// textWidthLocked is TextWidth without locking: the caller already holds
-// b.mu (or runs on the game thread).
+// textWidthLocked はロックを取らない TextWidth: 呼出し側は既に b.mu を
+// 保持している（またはゲームスレッドで実行されている）。
 func (b *WindowBackend) textWidthLocked(s string) int {
 	if b.face == nil {
 		return len([]rune(expandTabs(s)))
@@ -481,8 +484,8 @@ func (b *WindowBackend) textWidthLocked(s string) int {
 	return int(w + 0.5)
 }
 
-// expandTabs replaces every tab with tabSpaces, the fixed 4-cell advance
-// mes()/print() render (and strwidth() measures).
+// expandTabs はすべてのタブを tabSpaces（mes()/print() が描画し、
+// strwidth() が測定する固定の4セル送り）に置き換える。
 func expandTabs(s string) string {
 	if strings.ContainsRune(s, '\t') {
 		return strings.ReplaceAll(s, "\t", tabSpaces)
@@ -490,10 +493,11 @@ func expandTabs(s string) string {
 	return s
 }
 
-// SetFontFile switches the typeface to spec (path or system font name)
-// at the given pixel size (8..64), rescaling the line pitch like
-// SetFontSize. Script-thread safe. extraDirs are searched before the
-// system font directories (script directory, working directory).
+// SetFontFile は書体を spec（パスまたはシステムフォント名）に、指定の
+// ピクセルサイズ（8..64）で切り替え、SetFontSize と同じく行のピッチを
+// 再スケールする。スクリプトスレッド安全。extraDirs はシステムの
+// フォントディレクトリより先に検索される（スクリプトディレクトリ、
+// 作業ディレクトリ）。
 func (b *WindowBackend) SetFontFile(spec string, size int, extraDirs ...string) error {
 	if size < 8 || size > 64 {
 		return fmt.Errorf("font：サイズは 8 から 64 の範囲で指定してください。%d が指定されました", size)
@@ -512,25 +516,25 @@ func (b *WindowBackend) SetFontFile(spec string, size int, extraDirs ...string) 
 	return nil
 }
 
-// MoveTo sets the cursor. In GUI both cursors are pixel-based: the
-// graphics cursor (gcopy etc) and the mes()/print() text origin, which
-// takes the pixel as-is (1px granularity, no character-cell rounding).
-// In CUI the console backend moves by character cells.
+// MoveTo はカーソルを設定する。GUI では両方のカーソルがピクセル基準:
+// グラフィックスカーソル（gcopy 等）と mes()/print() のテキスト原点で、
+// 後者はピクセルをそのまま使う（1px 刻み。文字セルへの丸めはしない）。
+// CUI ではコンソールバックエンドが文字セル単位で動かす。
 func (b *WindowBackend) MoveTo(x, y int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.gx = x
 	b.gy = y
 	b.curX, b.curY = float64(x), float64(y)
-	// A pos() call re-anchors the line: embedded newlines from here on
-	// return to this x.
+	// pos() 呼出は行を再アンカーする: これ以降の埋め込み改行は
+	// この x に戻る。
 	b.lineStartX = b.curX
 }
 
-// Sleep pauses the script; the window keeps rendering.
-// Like await() it is a frame boundary: the frame built so far (text and
-// shapes alike, all staged canvas commands) is published first, so the
-// paused frame is complete (no half-drawn content left over during pause).
+// Sleep はスクリプトを一時停止する。ウィンドウは描画を続ける。
+// await() と同じくフレーム境界である: それまでに構築したフレーム
+// （文字も図形も、準備されたすべてのキャンバス命令）がまず公開される
+// ため、一時停止中のフレームは完全である（半描画の内容が残らない）。
 func (b *WindowBackend) Sleep(ms int64) {
 	b.publishAtYieldLocked()
 	time.Sleep(time.Duration(ms) * time.Millisecond)

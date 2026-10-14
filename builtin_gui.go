@@ -1,12 +1,12 @@
-// GUI builtins (G1 drawing). Always registered; GUI calls need a
-// window (a GUI backend), otherwise they report an error.
+// GUI組み込み関数（G1 描画）。常に登録される。GUI呼び出しには
+// ウィンドウ（GUIバックエンド）が必要で、なければエラーを返す。
 package main
 
 import (
 	"gsh/gui"
 )
 
-// guiBE fetches the window backend or reports a clean error.
+// guiBE はウィンドウバックエンドを取得し、なければ整形済みエラーを返す。
 func guiBE(in *Interp, at Pos, name string) (*gui.WindowBackend, error) {
 	wb, ok := in.Backend().(*gui.WindowBackend)
 	if !ok {
@@ -16,7 +16,7 @@ func guiBE(in *Interp, at Pos, name string) (*gui.WindowBackend, error) {
 }
 
 func init() {
-	// screen(w, h): resize the window and re-init the canvas.
+	// screen(w, h): ウィンドウをリサイズしキャンバスを再初期化する。
 	register("screen", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "screen")
 		if err != nil {
@@ -33,8 +33,8 @@ func init() {
 		if w <= 0 || h <= 0 {
 			return Null(), rtErrf(at, "screen のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
 		}
-		// Oversized canvases panic inside the engine on the loop
-		// goroutine (uncatchable), so cap them here with a script error.
+		// 巨大なキャンバスはループ用ゴルーチン内でエンジン内部でパニックし（捕捉不可）、
+		// ここでスクリプトエラーとして上限を設ける。
 		if w > int64(gui.MaxImageDim) || h > int64(gui.MaxImageDim) {
 			return Null(), rtErrf(at, "screen のサイズは上限 %d x %d までです", gui.MaxImageDim, gui.MaxImageDim)
 		}
@@ -42,7 +42,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// gsel(id): switch the draw buffer (0 = main, visible).
+	// gsel(id): 描画バッファを切り替える（0 = メイン、表示対象）。
 	register("gsel", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "gsel")
 		if err != nil {
@@ -58,9 +58,9 @@ func init() {
 		return Null(), nil
 	})
 
-	// buffer(id, w, h): create (or replace) an empty drawing buffer.
-	// The visible canvas (id 0) stays with screen(); buffer() owns the
-	// off-screen ids a script gsel()s into.
+	// buffer(id, w, h): 空の描画バッファを作成（または置換）する。
+	// 表示キャンバス（id 0）は screen() のまま。buffer() は
+	// スクリプトが gsel() で切り替えるオフスクリーン id を管理する。
 	register("buffer", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "buffer")
 		if err != nil {
@@ -84,8 +84,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// pget(x, y): read one pixel from the current target.
-	// Returns the color as a 0xRRGGBB integer (r*65536+g*256+b).
+	// pget(x, y): 現在の描画先から1ピクセルを読み取る。
+	// 色を 0xRRGGBB 整数（r*65536+g*256+b）で返す。
 	register("pget", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pget")
 		if err != nil {
@@ -106,7 +106,7 @@ func init() {
 		return Int(int64(c[0])*65536 + int64(c[1])*256 + int64(c[2])), nil
 	})
 
-	// pset(x, y): one pixel in the current color.
+	// pset(x, y): 現在の色で1ピクセルを描く。
 	register("pset", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pset")
 		if err != nil {
@@ -124,7 +124,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// line(x1, y1, x2, y2): 1px line in the current color.
+	// line(x1, y1, x2, y2): 現在の色で1ピクセル幅の直線を引く。
 	register("line", 4, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "line")
 		if err != nil {
@@ -142,7 +142,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// boxf(): filled fullscreen. boxf(x1, y1, x2, y2): filled rectangle (corners normalized).
+	// boxf(): 画面全体を塗りつぶす。boxf(x1, y1, x2, y2): 塗りつぶし矩形（角は正規化される）。
 	register("boxf", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "boxf")
 		if err != nil {
@@ -170,7 +170,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// circle(x, y, r [, fill]): circle in the current color.
+	// circle(x, y, r [, fill]): 現在の色で円を描く。
 	register("circle", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "circle")
 		if err != nil {
@@ -203,10 +203,10 @@ func init() {
 		return Null(), nil
 	})
 
-	// gcopy(src, sx, sy, w, h [, zx, zy [, deg]]): blit a buffer
-	// region at the cursor. 5 args is a plain copy; zx, zy scale
-	// it (former gzoom); deg additionally rotates about the region
-	// center (former grotate), keeping the center at the cursor.
+	// gcopy(src, sx, sy, w, h [, zx, zy [, deg]]): バッファの
+	// 領域をカーソル位置に転送する。引数5個は単純コピー。zx, zy は
+	// 拡大縮小（旧 gzoom）。deg はさらに領域中心を軸に回転し
+	// （旧 grotate）、中心をカーソル位置に保つ。
 	register("gcopy", 5, 8, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "gcopy")
 		if err != nil {
@@ -257,7 +257,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// gmode(mode): 0 normal, 1 additive.
+	// gmode(mode): 0 通常描画、1 加算合成。
 	register("gmode", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "gmode")
 		if err != nil {
@@ -273,7 +273,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// picload(path): load an image into a new buffer, return its id.
+	// picload(path): 画像を新しいバッファに読み込み、その id を返す。
 	register("picload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "picload")
 		if err != nil {

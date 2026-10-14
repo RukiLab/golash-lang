@@ -1,5 +1,5 @@
-// GUI builtins (G2 input + audio). Always registered; GUI calls need a
-// window (a GUI backend), otherwise they report an error.
+// GUI組み込み関数（G2 入力＋音声）。常に登録される。GUI呼び出しには
+// ウィンドウ（GUIバックエンド）が必要で、なければエラーを返す。
 package main
 
 import (
@@ -7,11 +7,11 @@ import (
 )
 
 func init() {
-	// getkey(code): whether the key is held. Codes follow Windows
-	// virtual keys: 8 backspace, 9 tab, 13 enter, 16 shift, 17 ctrl,
-	// 18 alt, 27 esc, 32 space, 33-36 pageup/pagedown/end/home, 37-40
-	// arrows, 45 insert, 46 delete, 48-57 digits, 65-90 A-Z, 112-123
-	// F1-F12, 186-192/219-222 punctuation.
+	// getkey(code): キーが押されているかどうか。コードは Windows
+	// 仮想キーに従う: 8 backspace、9 tab、13 enter、16 shift、17 ctrl、
+	// 18 alt、27 esc、32 space、33-36 pageup/pagedown/end/home、37-40
+	// 矢印キー、45 insert、46 delete、48-57 数字、65-90 A-Z、112-123
+	// F1-F12、186-192/219-222 記号キー。
 	register("getkey", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "getkey")
 		if err != nil {
@@ -28,7 +28,7 @@ func init() {
 		return Bool(down), nil
 	})
 
-	// mousex()/mousey(): cursor position in window pixels.
+	// mousex()/mousey(): ウィンドウピクセルでのカーソル位置。
 	register("mousex", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mousex")
 		if err != nil {
@@ -46,8 +46,8 @@ func init() {
 		return Int(int64(y)), nil
 	})
 
-	// clicked([btn]): click since the last call (consumed).
-	// btn is 0 left (default), 1 middle, 2 right.
+	// clicked([btn]): 前回呼び出し以降のクリック（消費される）。
+	// btn は 0 左（既定）、1 中、2 右。
 	register("clicked", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "clicked")
 		if err != nil {
@@ -68,9 +68,9 @@ func init() {
 		return Bool(c), nil
 	})
 
-	// mousedown([btn]): whether the button is held right now (0 left,
-	// 1 middle, 2 right). Never consumed, unlike clicked(): latch it
-	// with a press to implement dragging (scrollbars, sliders).
+	// mousedown([btn]): ボタンが現在押されているかどうか（0 左、
+	// 1 中、2 右）。clicked() と違って消費されない。押下でラッチして
+	// ドラッグ操作（スクロールバー、スライダー）に使う。
 	register("mousedown", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mousedown")
 		if err != nil {
@@ -90,7 +90,7 @@ func init() {
 		return Bool(d), nil
 	})
 
-	// cursor([v]): query (no args) or set (nonzero = on) IME input.
+	// cursor([v]): 引数なしは IME 入力の照会、ありは設定（0以外 = オン）。
 	register("cursor", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "cursor")
 		if err != nil {
@@ -107,8 +107,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// mousewheel(): vertical wheel detents since the last call
-	// (consumed; positive is up/away).
+	// mousewheel(): 前回呼び出し以降の垂直ホイール量
+	// （消費される。正は上・奥方向）。
 	register("mousewheel", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mousewheel")
 		if err != nil {
@@ -117,7 +117,7 @@ func init() {
 		return Int(int64(wb.MouseWheel())), nil
 	})
 
-	// padcount(): connected gamepads.
+	// padcount(): 接続中のゲームパッド数。
 	register("padcount", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "padcount")
 		if err != nil {
@@ -126,7 +126,7 @@ func init() {
 		return Int(int64(wb.PadCount())), nil
 	})
 
-	// padbtn(id, btn): standard-layout button (0-16).
+	// padbtn(id, btn): 標準配置のボタン（0-16）。
 	register("padbtn", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "padbtn")
 		if err != nil {
@@ -147,7 +147,7 @@ func init() {
 		return Bool(down), nil
 	})
 
-	// padaxis(id, axis): stick axis 0-3 in -1..1.
+	// padaxis(id, axis): スティック軸 0-3（-1..1）。
 	register("padaxis", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "padaxis")
 		if err != nil {
@@ -168,7 +168,7 @@ func init() {
 		return Float(v), nil
 	})
 
-	// padname(id): gamepad name.
+	// padname(id): ゲームパッド名。
 	register("padname", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "padname")
 		if err != nil {
@@ -185,7 +185,7 @@ func init() {
 		return Str(name), nil
 	})
 
-	// touchcount(): active touches.
+	// touchcount(): 有効なタッチ数。
 	register("touchcount", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "touchcount")
 		if err != nil {
@@ -194,7 +194,7 @@ func init() {
 		return Int(int64(wb.TouchCount())), nil
 	})
 
-	// touchx(i)/touchy(i): i-th touch position (window pixels).
+	// touchx(i)/touchy(i): i 番目のタッチ位置（ウィンドウピクセル）。
 	register("touchx", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "touchx")
 		if err != nil {
@@ -226,8 +226,8 @@ func init() {
 		return Int(int64(y)), nil
 	})
 
-	// dropfiles(): names dropped onto the window since the last call
-	// (consumed; empty when none).
+	// dropfiles(): 前回呼び出し以降にウィンドウへドロップされた名前
+	// （消費される。なければ空）。
 	register("dropfiles", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "dropfiles")
 		if err != nil {
@@ -241,7 +241,7 @@ func init() {
 		return ArrayOf(elems), nil
 	})
 
-	// dropload(name): decode a dropped file into a buffer, return its id.
+	// dropload(name): ドロップされたファイルをバッファに展開し、その id を返す。
 	register("dropload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "dropload")
 		if err != nil {
@@ -258,10 +258,10 @@ func init() {
 		return Int(int64(id)), nil
 	})
 
-	// screensize(): [window width, height] in pixels — the real OS
-	// window, not the monitor and not the logical screen() canvas. While
-	// resizable() is allowed, the canvas follows the window, so these
-	// are also the drawing pixels.
+	// screensize(): [ウィンドウ幅, 高さ]（ピクセル）。実際の OS
+	// ウィンドウであり、モニターでも screen() の論理キャンバスでもない。
+	// resizable() が許可されている間はキャンバスがウィンドウに追従するため、
+	// 描画ピクセルでもある。
 	register("screensize", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if _, err := guiBE(in, at, "screensize"); err != nil {
 			return Null(), err
@@ -270,8 +270,8 @@ func init() {
 		return ArrayOf([]Value{Int(int64(w)), Int(int64(h))}), nil
 	})
 
-	// winmove(x, y): move the window (desktop pixels from the
-	// monitor's upper-left corner).
+	// winmove(x, y): ウィンドウを移動する（モニタ左上角からの
+	// デスクトップピクセル）。
 	register("winmove", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "winmove")
 		if err != nil {
@@ -289,9 +289,9 @@ func init() {
 		return Null(), nil
 	})
 
-	// closing(): whether the close button was pressed. The first call
-	// opts in: closing stops terminating the loop, so poll this,
-	// save, then end().
+	// closing(): 閉じるボタンが押されたかどうか。最初の呼出がオプト
+	// インになる: closing はループの終了をやめるため、これをポーリング
+	// して保存し、それから end() する。
 	register("closing", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "closing")
 		if err != nil {
@@ -300,8 +300,8 @@ func init() {
 		return Bool(wb.Closing()), nil
 	})
 
-	// fullscreen([v]): without arguments reports fullscreen state
-	// (1/0); with v toggles it (nonzero = on).
+	// fullscreen([v]): 引数なしなら全画面状態を報告（1/0）する。v を
+	// 渡すと切り替える（非ゼロ=オン）。
 	register("fullscreen", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "fullscreen")
 		if err != nil {
@@ -318,10 +318,10 @@ func init() {
 		return Null(), nil
 	})
 
-	// resizable([v]): without arguments reports whether the
-	// window can be dragged to resize (1/0); with v sets it
-	// (nonzero = on). The canvas keeps its logical size; a larger
-	// window scales the view.
+	// resizable([v]): 引数なしならウィンドウをドラッグしてリサイズ
+	// できるかを報告（1/0）する。v を渡すと設定する（非ゼロ=オン）。
+	// キャンバスは論理サイズを保ち、大きなウィンドウはビューを
+	// スケールする。
 	register("resizable", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "resizable")
 		if err != nil {
@@ -338,7 +338,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// mmload(path): decode wav/mp3/ogg, return a sound id.
+	// mmload(path): wav/mp3/ogg をデコードし、サウンド id を返す。
 	register("mmload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mmload")
 		if err != nil {
@@ -355,7 +355,8 @@ func init() {
 		return Int(int64(id)), nil
 	})
 
-	// mmplay(id [, loop]): play a sound, restarting any current play.
+	// mmplay(id [, loop]): サウンドを再生する。現在の再生があれば
+	// 最初から再開する。
 	register("mmplay", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mmplay")
 		if err != nil {
@@ -379,8 +380,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// mmstop([id]): stop one sound, or all without arguments.
-	// Unknown ids are a silent no-op.
+	// mmstop([id]): 1つのサウンドを停止する。引数なしならすべて。
+	// 未知の id は無音で何もしない。
 	register("mmstop", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mmstop")
 		if err != nil {
@@ -399,7 +400,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// mmvol(id, vol): sound volume in percent (0..100, default 100).
+	// mmvol(id, vol): サウンドの音量をパーセントで（0..100、既定 100）。
 	register("mmvol", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mmvol")
 		if err != nil {

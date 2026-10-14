@@ -1,4 +1,4 @@
-// Runtime value model for HSP successor language.
+// HSP 後継言語の実行時値モデル。
 package main
 
 import (
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Kind classifies a Value.
+// Kind は Value を分類する。
 type Kind int
 
 const (
@@ -21,8 +21,8 @@ const (
 func (k Kind) String() string {
 	switch k {
 	case KNull:
-		// Internal null surfaces to scripts as void: the word null
-		// never appears in user-visible output.
+		// 内部的な null はスクリプトからは void として見える。語 null は
+		// ユーザーに見える出力に現れることはない。
 		return "void"
 	case KInt:
 		return "int"
@@ -38,9 +38,9 @@ func (k Kind) String() string {
 	return "unknown"
 }
 
-// Value is a dynamically typed value. Arrays hold shared pointers
-// so `b = a` shares elements (reference semantics). Functions are not
-// values: def registers a callable name, never a value.
+// Value は動的型付けの値。配列は共有ポインタを保持するため
+// `b = a` は要素を共有する（参照意味論）。関数は値ではない:
+// def は呼出し可能な名前を登録するだけで、値を登録することはない。
 type Value struct {
 	K   Kind
 	I   int64
@@ -50,13 +50,13 @@ type Value struct {
 	Arr *Array
 }
 
-// Array is a heterogeneous resizable sequence.
+// Array は異種混合の可変長列。
 type Array struct {
 	Elems []Value
 }
 
-// FuncVal is a user function: top-level only, no closure. Calls run
-// with the globals as the parent scope.
+// FuncVal はユーザー定義関数: トップレベルのみで、クロージャは持たない。
+// 呼出はグローバルを親スコープとして実行される。
 type FuncVal struct {
 	Name   string
 	Params []Param
@@ -70,8 +70,8 @@ func Str(v string) Value      { return Value{K: KString, S: v} }
 func Bool(v bool) Value       { return Value{K: KBool, B: v} }
 func ArrayOf(e []Value) Value { return Value{K: KArray, Arr: &Array{Elems: e}} }
 
-// Stringify renders a value for mes() output and error messages.
-// Strings print raw; floats use the shortest round-trip form.
+// Stringify は値を mes() 出力やエラーメッセージ用に描画する。
+// 文字列はそのまま印字され、浮動小数点は最短のラウンドトリップ形式を使う。
 func Stringify(v Value) string {
 	switch v.K {
 	case KNull:
@@ -97,13 +97,13 @@ func Stringify(v Value) string {
 	return "unknown"
 }
 
-// typeNameOf reports the type name of a value for diagnostics.
+// typeNameOf は診断用に値の型名を返す。
 func typeNameOf(v Value) string {
 	return v.K.String()
 }
 
-// valuesEqual implements ==/!=. Arrays compare by reference (identity);
-// deep comparison is abolished.
+// valuesEqual は ==/!= を実装する。配列は参照（同一性）で比較され、
+// 深い比較は廃止された。
 func valuesEqual(a, b Value) bool {
 	if a.K == KInt && b.K == KFloat {
 		return float64(a.I) == b.F

@@ -1,7 +1,7 @@
-// Lexer for HSP successor language.
+// HSP 後継言語の字句解析器。
 //
-// Statements are separated by NEWLINE. A ';' is lexed as SEMICOLON so the
-// parser can reject it with a clear error (semicolons are forbidden).
+// 文は NEWLINE で区切られる。';' は SEMICOLON として字句化し、
+// パーサが明確なエラーで拒否する（セミコロンは禁止）。
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// TokenType identifies a lexical token.
+// TokenType は字句トークンの種別を表す。
 type TokenType string
 
 const (
@@ -81,13 +81,13 @@ const (
 	TokRBrace   TokenType = "RBRACE"   // }
 )
 
-// Token is a single lexical unit with source position.
+// Token はソース位置付きの単一の字句単位である。
 type Token struct {
 	Type   TokenType
 	Lit    string
-	File   string // display path; "" for single-source inputs
-	Line   int    // 1-based, file-local
-	Column int    // 1-based
+	File   string // 表示用パス。単一ソース入力では ""
+	Line   int    // 1 始まり。ファイル内での行番号
+	Column int    // 1 始まり
 }
 
 func (t Token) String() string {
@@ -97,7 +97,7 @@ func (t Token) String() string {
 	return fmt.Sprintf("%s(%q)@%d:%d", t.Type, t.Lit, t.Line, t.Column)
 }
 
-// LexError is a lexical error with position.
+// LexError は位置付きの字句エラーである。
 type LexError struct {
 	File   string
 	Line   int
@@ -129,7 +129,7 @@ var keywords = map[string]TokenType{
 	"false":    TokFalse,
 }
 
-// Lex tokenizes src. It returns the token slice (ending with EOF) or an error.
+// Lex は src をトークン化する。トークン列（末尾は EOF）を返すか、エラーを返す。
 func Lex(src string) ([]Token, error) {
 	l := &lexer{runes: []rune(src), line: 1, col: 1}
 	var toks []Token
@@ -191,14 +191,14 @@ func isAlpha(c rune) bool {
 func isAlnum(c rune) bool { return isAlpha(c) || isDigit(c) }
 
 func (l *lexer) next() (Token, error) {
-	// Skip blanks (but not newlines).
+	// 空白を読み飛ばす（改行は除く）。
 	for !l.eof() {
 		c := l.peek()
 		if c == ' ' || c == '\t' || c == '\r' {
 			l.advance()
 			continue
 		}
-		// Line comment.
+		// 行コメント。
 		if c == '/' && l.peekAt(1) == '/' {
 			for !l.eof() && l.peek() != '\n' {
 				if l.peek() == 0 {
@@ -208,7 +208,7 @@ func (l *lexer) next() (Token, error) {
 			}
 			continue
 		}
-		// Block comment (nestable).
+		// ブロックコメント（入れ子可）。
 		if c == '/' && l.peekAt(1) == '*' {
 			if err := l.skipBlockComment(); err != nil {
 				return Token{}, err
@@ -225,30 +225,29 @@ func (l *lexer) next() (Token, error) {
 	line, col := l.line, l.col
 	c := l.peek()
 
-	// A raw NUL byte is never valid source text (the `\0` escape is
-	// the only way to spell one). peek() also returns 0 at EOF, but
-	// that case returned above.
+	// 生の NUL バイトは正当なソース文字にはならない（`\0` エスケープでのみ
+	// 表記できる）。peek() は EOF でも 0 を返すが、その場合は上で返している。
 	if c == 0 {
 		return Token{}, &LexError{Line: line, Column: col, Msg: "不正な文字 \"\\0\" です"}
 	}
 
-	// Newline = statement separator.
+	// 改行は文の区切りである。
 	if c == '\n' {
 		l.advance()
 		return Token{Type: TokNewline, Lit: "\n", Line: line, Column: col}, nil
 	}
 
-	// String literal.
+	// 文字列リテラル。
 	if c == '"' {
 		return l.readString()
 	}
 
-	// Number (including leading-dot floats like .5).
+	// 数値（.5 のような先行ドット付き小数を含む）。
 	if isDigit(c) || (c == '.' && isDigit(l.peekAt(1))) {
 		return l.readNumber()
 	}
 
-	// Identifier / keyword.
+	// 識別子・キーワード。
 	if isAlpha(c) {
 		start := l.pos
 		for !l.eof() && isAlnum(l.peek()) {
@@ -261,7 +260,7 @@ func (l *lexer) next() (Token, error) {
 		return Token{Type: TokIdent, Lit: lit, Line: line, Column: col}, nil
 	}
 
-	// Three-character operators first (<<= >>=).
+	// 3文字演算子を最初に（<<= >>=）。
 	three := string([]rune{c, l.peekAt(1), l.peekAt(2)})
 	switch three {
 	case "<<=":
@@ -276,7 +275,7 @@ func (l *lexer) next() (Token, error) {
 		return Token{Type: TokShrAssign, Lit: ">>=", Line: line, Column: col}, nil
 	}
 
-	// Two-character operators first.
+	// 2文字演算子を最初に。
 	two := string([]rune{c, l.peekAt(1)})
 	switch two {
 	case "==":
@@ -345,7 +344,7 @@ func (l *lexer) next() (Token, error) {
 		return Token{Type: TokBitXorAssign, Lit: "^=", Line: line, Column: col}, nil
 	}
 
-	// Single-character tokens.
+	// 1文字トークン。
 	l.advance()
 	switch c {
 	case '+':
@@ -402,7 +401,7 @@ func (l *lexer) next() (Token, error) {
 
 func (l *lexer) skipBlockComment() error {
 	startLine, startCol := l.line, l.col
-	// Consume "/*".
+	// "/*" を消費する。
 	l.advance()
 	l.advance()
 	depth := 1
@@ -432,7 +431,7 @@ func (l *lexer) skipBlockComment() error {
 
 func (l *lexer) readString() (Token, error) {
 	line, col := l.line, l.col
-	l.advance() // opening quote
+	l.advance() // 開始クォート
 	var sb strings.Builder
 	for {
 		if l.eof() {
@@ -490,14 +489,14 @@ func (l *lexer) readNumber() (Token, error) {
 		l.advance()
 	}
 	isFloat := false
-	// `3.` is not a float: a dot must be followed by a digit here.
-	// (A leading-dot float like `.5` enters through the caller.)
+	// `3.` は浮動小数点数ではない: ここではドットの後に数字が続く必要が
+	// ある。（`.5` のような先頭ドット浮動小数点数は呼出し側から入る。）
 	if l.peek() == '.' && !isDigit(l.peekAt(1)) {
 		return Token{}, &LexError{Line: line, Column: col, Msg: "不正な数値リテラルです"}
 	}
 	if l.peek() == '.' && isDigit(l.peekAt(1)) {
 		isFloat = true
-		l.advance() // dot
+		l.advance() // ドット
 		for !l.eof() && isDigit(l.peek()) {
 			l.advance()
 		}
@@ -521,8 +520,8 @@ func (l *lexer) readNumber() (Token, error) {
 			l.advance()
 		}
 	}
-	// Digits glued to letters or `_` (1_000, 123abc, 0d5) are a
-	// malformed number, not a number plus an identifier.
+	// 文字や `_` に接着した数字（1_000、123abc、0d5）は数ではなく
+	// 不正な形式の数である（数＋識別子ではない）。
 	if c := l.peek(); isAlpha(c) || c == '_' {
 		return Token{}, &LexError{Line: line, Column: col, Msg: "不正な数値リテラルです"}
 	}
@@ -533,7 +532,7 @@ func (l *lexer) readNumber() (Token, error) {
 	return Token{Type: TokInt, Lit: lit, Line: line, Column: col}, nil
 }
 
-// radixPrefix maps a radix letter to its base (0x/0b/0o, either case).
+// radixPrefix は基数文字を基数に写像する（0x/0b/0o、大小文字無別）。
 func radixPrefix(c rune) (int, string, bool) {
 	switch c {
 	case 'x', 'X':
@@ -558,11 +557,12 @@ func radixDigit(c rune, base int) bool {
 	return false
 }
 
-// readRadix lexes a 0x/0b/0o integer literal, normalizing Lit to decimal
-// so the parser needs no base-aware path. Position points at the `0`.
+// readRadix は 0x/0b/0o 整数リテラルを字句解析し、Lit を十進に
+// 正規化するため、パーサは基数を意識した経路を必要としない。
+// 位置は `0` を指す。
 func (l *lexer) readRadix(line, col, base int, name string) (Token, error) {
 	l.advance() // 0
-	l.advance() // prefix letter
+	l.advance() // 基数文字
 	start := l.pos
 	for !l.eof() && radixDigit(l.peek(), base) {
 		l.advance()
@@ -584,9 +584,8 @@ func (l *lexer) readRadix(line, col, base int, name string) (Token, error) {
 	}
 	v, err := strconv.ParseInt(digits, base, 64)
 	if err != nil {
-		// Exactly 2^63 is allowed through as decimal so unary minus
-		// can fold it to MinInt64; the bare positive literal still
-		// fails in the parser.
+		// ちょうど 2^63 は十進で通るため、単項マイナスで MinInt64 に
+		// 畳める。しかし裸の正のリテラルはパーサで依然失敗する。
 		if u, uerr := strconv.ParseUint(digits, base, 64); uerr == nil && u == 1<<63 {
 			return Token{Type: TokInt, Lit: "9223372036854775808", Line: line, Column: col}, nil
 		}

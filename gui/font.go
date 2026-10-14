@@ -12,23 +12,24 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
-// System font discovery.
+// システムフォントの探索。
 //
-// Text is rendered with an OS system font; no font file is bundled.
-// GOULASH_FONT (path to a .ttf/.otf/.ttc file) overrides discovery.
-// Otherwise the first readable, parseable candidate for the current OS
-// wins. Candidates are ordered by line pitch fit first: one text line is
-// lineHeight tall (16px at the default 16px face size), so a font whose
-// ascent+descent is exactly 16px packs lines with neither overlap nor
-// gap (MS Gothic, MS Mincho, BIZ UD Gothic), while a taller line box
-// (Yu Gothic ~17.6px, Noto ~19.2px, Meiryo 24px) crowds them. Character
-// advances are the font's own widths — pos() places text at an exact
-// pixel, so a proportional face flows naturally, it just looks less
-// terminal-like than a fixed-pitch one. Fonts missing on the machine
-// are skipped, then the OS UI font, and last a Latin-only fallback.
+// 文字は OS のシステムフォントで描画される。フォントファイルは
+// バンドルされない。GOULASH_FONT（.ttf/.otf/.ttc ファイルへのパス）が
+// 探索を上書きする。さもなくば現在の OS に対する読み込めて解析できる
+// 最初の候補が採用される。候補は行のピッチへの適合を優先して並ぶ:
+// テキスト1行は lineHeight の高さ（既定の16pxフェイスで16px）である
+// ため、ascent+descent がちょうど16pxのフォントは行を重なりも隙間も
+// なく詰める（MS ゴシック、MS 明朝、BIZ UD ゴシック）。一方、行ボックス
+// が高いフォント（游ゴシック 約17.6px、Noto 約19.2px、メイリオ 24px）
+// は行を窮屈にする。文字の送り幅はフォント自身の幅である —
+// pos() は文字を正確なピクセルに置くため、プロポーショナルなフェイス
+// は自然に流れ、等幅よりは端末らしく見えないだけである。マシンに
+// 無いフォントは飛ばされ、次に OS の UI フォント、最後にラテン文字
+// のみのフォールバックが使われる。
 const fontEnvOverride = "GOULASH_FONT"
 
-// systemFontCandidates lists font files in preference order.
+// systemFontCandidates は優先順にフォントファイルを列挙する。
 func systemFontCandidates() []string {
 	switch runtime.GOOS {
 	case "windows":
@@ -38,14 +39,14 @@ func systemFontCandidates() []string {
 		}
 		dir := filepath.Join(root, "Fonts")
 		names := []string{
-			"msgothic.ttc",      // MS Gothic (default: 16px line box = the line pitch)
-			"YuGothR.ttc",       // Yu Gothic Regular
-			"meiryo.ttc",        // Meiryo
-			"NotoSansJP-VF.ttf", // Noto Sans JP (variable font, default instance)
-			"BIZ-UDGothicR.ttc", // BIZ UD Gothic
-			"msmincho.ttc",      // MS Mincho
-			"YuGothM.ttc",       // Yu Gothic Medium
-			"segoeui.ttf",       // Latin-only last resort
+			"msgothic.ttc",      // MS ゴシック（既定: 16px の行ボックス = 行のピッチ）
+			"YuGothR.ttc",       // 游ゴシック Regular
+			"meiryo.ttc",        // メイリオ
+			"NotoSansJP-VF.ttf", // Noto Sans JP（可変フォント、既定インスタンス）
+			"BIZ-UDGothicR.ttc", // BIZ UD ゴシック
+			"msmincho.ttc",      // MS 明朝
+			"YuGothM.ttc",       // 游ゴシック Medium
+			"segoeui.ttf",       // ラテン文字のみの最終手段
 		}
 		out := make([]string, 0, len(names))
 		for _, n := range names {
@@ -53,9 +54,9 @@ func systemFontCandidates() []string {
 		}
 		return out
 	case "darwin":
-		// Osaka ships with many macOS releases and matches the 8x16 cell
-		// grid; the ProN files are the Roman-named Hiragino faces of
-		// newer releases. Missing files are just skipped.
+		// Osaka は多くの macOS リリースに同梱され、8x16 のセルグリッドに
+		// 一致する。ProN ファイルは新しいリリースのローマ字名のヒラギノ
+		// フェイスである。無いファイルは単に飛ばされる。
 		return []string{
 			"/System/Library/Fonts/Osaka.ttf",
 			"/System/Library/Fonts/ヒラギノ角ゴ ProN W3.ttc",
@@ -65,10 +66,10 @@ func systemFontCandidates() []string {
 			"/System/Library/Fonts/Supplemental/NotoSansJP-Regular.otf",
 			"/System/Library/Fonts/Helvetica.ttc",
 		}
-	default: // linux and other unix-likes
-		// Grid-fitting monospace Japanese faces first (present only when
-		// their font package is installed), then Noto CJK/JP, which is
-		// the common default but proportional.
+	default: // linux およびその他の unix 系
+		// グリッドに適合する等幅の日本語フォントを先に（フォント
+		// パッケージがインストールされているときのみ存在）、次に
+		// Noto CJK/JP。これは一般的な既定だがプロポーショナルである。
 		return []string{
 			"/usr/share/fonts/truetype/migu/migu-1m-regular.ttf",
 			"/usr/share/fonts/truetype/vlgothic/VL-Gothic-Regular.ttf",
@@ -89,7 +90,7 @@ var (
 	fontDone bool
 )
 
-// systemFontSource loads and caches the system font source.
+// systemFontSource はシステムフォントのソースを読み込んでキャッシュする。
 func systemFontSource() (*text.GoTextFaceSource, string, error) {
 	fontMu.Lock()
 	defer fontMu.Unlock()
@@ -118,8 +119,8 @@ func systemFontSource() (*text.GoTextFaceSource, string, error) {
 	return nil, "", fontErr
 }
 
-// loadFontFile parses one font file; .ttc collections yield their
-// first face (conventionally the Regular weight).
+// loadFontFile はフォントファイル1つを解析する。.ttc コレクションは
+// 最初のフェイス（慣例的に Regular ウェイト）を返す。
 func loadFontFile(path string) (*text.GoTextFaceSource, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -138,8 +139,8 @@ func loadFontFile(path string) (*text.GoTextFaceSource, error) {
 	return text.NewGoTextFaceSource(bytes.NewReader(b))
 }
 
-// loadFace builds a text face of the given pixel size from the cached
-// system font.
+// loadFace はキャッシュされたシステムフォントから指定ピクセルサイズの
+// テキストフェイスを構築する。
 func loadFace(size float64) (*text.GoTextFace, error) {
 	src, _, err := systemFontSource()
 	if err != nil {
@@ -148,10 +149,11 @@ func loadFace(size float64) (*text.GoTextFace, error) {
 	return &text.GoTextFace{Source: src, Size: size}, nil
 }
 
-// fontDirs lists directories searched for bare font file names.
-// On Windows, per-user installs (%LOCALAPPDATA%\Microsoft\Windows\Fonts,
-// the default for non-admin installs) are searched after the system
-// directory; other OSes already list their per-user directories below.
+// fontDirs は裸のフォントファイル名に対して検索されるディレクトリを
+// 列挙する。Windows ではユーザーごとのインストール先
+// （%LOCALAPPDATA%\\Microsoft\\Windows\\Fonts、非管理者インストールの
+// 既定）がシステムディレクトリの後に検索される。他の OS はユーザー
+// ごとのディレクトリを既に下記に列挙している。
 func fontDirs() []string {
 	switch runtime.GOOS {
 	case "windows":
@@ -182,24 +184,23 @@ func fontDirs() []string {
 	}
 }
 
-// fontExts are the tried extensions for extension-less font specs,
-// in preference order.
+// fontExts は拡張子なしのフォント指定に対して試される拡張子（優先順）。
 var fontExts = []string{".ttc", ".ttf", ".otf"}
 
-// resolveFontSpec resolves a font() typeface spec to a file path:
-//   - an existing path is used as-is;
-//   - otherwise extension-less names are completed in each search
-//     directory (extraDirs first, then the system font directories):
-//     exact file names (with an extension tried when omitted), then
-//     prefix matches (e.g. "PlemolJP" finds "PlemolJP-Regular.ttf"),
-//     preferring the Regular weight; otherwise the first name
-//     alphabetically wins. Directories keep their priority order.
+// resolveFontSpec は font() の書体指定をファイルパスに解決する:
+//   - 存在するパスはそのまま使う。
+//   - さもなくば拡張子なしの名前は各検索ディレクトリで補完される
+//     （extraDirs が先、次にシステムのフォントディレクトリ）:
+//     正確なファイル名（省略時に拡張子を試す）、次に前方一致
+//     （例: "PlemolJP" は "PlemolJP-Regular.ttf" を見つける）で、
+//     Regular ウェイトを優先する。さもなくばアルファベット順で
+//     最初の名前が採用される。ディレクトリは優先順を保つ。
 //
-// An extension-bearing name that names no file falls through to the
-// directory search, so "Foo.ttf" still finds "Foo.ttf" or its Regular
-// face without a path.
-// extraDirs are caller-owned search roots (script directory, working
-// directory); the system directories always stay in the search order.
+// どのファイルも指さない拡張子付きの名前はディレクトリ検索へ通り
+// 抜けるため、"Foo.ttf" は "Foo.ttf" またはその Regular フェイスを
+// パスなしで見つけられる。
+// extraDirs は呼出し側が所有する検索ルート（スクリプトディレクトリ、
+// 作業ディレクトリ）。システムディレクトリは常に検索順に残る。
 func resolveFontSpec(spec string, extraDirs ...string) (string, error) {
 	if spec == "" {
 		return "", fmt.Errorf("font: 空のフォント指定です")
@@ -240,9 +241,9 @@ func resolveFontSpec(spec string, extraDirs ...string) (string, error) {
 	return "", fmt.Errorf("font: フォント %q が見つかりません", spec)
 }
 
-// candidateBases lists the file names tried for an exact directory
-// match: the name itself first, then the known font extensions when the
-// spec carries none.
+// candidateBases はディレクトリ内の正確な一致に対して試される
+// ファイル名を列挙する: 名前自身が先、次に指定に拡張子が無い場合は
+// 既知のフォント拡張子。
 func candidateBases(base string) []string {
 	out := []string{base}
 	if filepath.Ext(base) == "" {
@@ -253,17 +254,17 @@ func candidateBases(base string) []string {
 	return out
 }
 
-// prefixFontMatch finds a font file whose base name starts with spec
-// (case-insensitive, extension-less specs only; exact matches are
-// handled before this runs). It searches dirs in order; within each
-// directory the Regular weight wins, otherwise the first name
-// alphabetically wins (ReadDir sorts). prefixFontMatch keeps the
-// original behavior over the system font directories.
+// prefixFontMatch はベース名が spec で始まるフォントファイルを
+// 見つける（大文字小文字無別。拡張子なしの指定のみ。正確な一致は
+// これより前に処理される）。ディレクトリを順に検索し、各ディレクトリ内
+// では Regular ウェイトが採用され、さもなくばアルファベット順で最初の
+// 名前が採用される（ReadDir はソート済み）。prefixFontMatch は
+// システムのフォントディレクトリに対する従来の挙動を保つ。
 func prefixFontMatch(spec string) (string, bool) {
 	return prefixFontMatchIn(spec, fontDirs())
 }
 
-// prefixFontMatchIn is prefixFontMatch over explicit directories.
+// prefixFontMatchIn は明示的なディレクトリに対する prefixFontMatch。
 func prefixFontMatchIn(spec string, dirs []string) (string, bool) {
 	var first string
 	rs := []rune(spec)
@@ -300,8 +301,8 @@ func prefixFontMatchIn(spec string, dirs []string) (string, bool) {
 	return first, first != ""
 }
 
-// fontBaseNoExt strips a known font extension, reporting whether the
-// name is a font file at all.
+// fontBaseNoExt は既知のフォント拡張子を除去し、その名前がフォント
+// ファイルであるかを報告する。
 func fontBaseNoExt(name string) (string, bool) {
 	for _, ext := range fontExts {
 		if len(name) > len(ext) && strings.EqualFold(name[len(name)-len(ext):], ext) {
@@ -311,9 +312,9 @@ func fontBaseNoExt(name string) (string, bool) {
 	return "", false
 }
 
-// isFontPath reports whether spec looks like a file path rather than a
-// bare font name: absolute paths, paths with separators, or an
-// extension-bearing name that exists relative to the working directory.
+// isFontPath は spec がファイルパスのように見えるか、裸のフォント名
+// かを報告する: 絶対パス、区切りを含むパス、または作業ディレクトリに
+// 対して存在する拡張子付きの名前。
 func isFontPath(spec string) bool {
 	if filepath.IsAbs(spec) || strings.ContainsAny(spec, `/\`) {
 		return true
@@ -326,9 +327,9 @@ func isFontPath(spec string) bool {
 	return false
 }
 
-// loadFontSpec parses a resolved-or-bare font spec into a face source.
-// extraDirs are searched before the system font directories (script
-// directory, working directory).
+// loadFontSpec は解決済みまたは裸のフォント指定をフェイスのソースに
+// 解析する。extraDirs はシステムのフォントディレクトリより先に検索
+// される（スクリプトディレクトリ、作業ディレクトリ）。
 func loadFontSpec(spec string, extraDirs ...string) (*text.GoTextFaceSource, string, error) {
 	path, err := resolveFontSpec(spec, extraDirs...)
 	if err != nil {
@@ -341,8 +342,8 @@ func loadFontSpec(spec string, extraDirs ...string) (*text.GoTextFaceSource, str
 	return src, path, nil
 }
 
-// FontPath reports the system font file in use ("" if none loaded).
-// Handy for diagnostics and for tests to assert discovery works.
+// FontPath は使用中のシステムフォントファイルを報告する（読み込まれて
+// いなければ ""）。診断や、探索が動くことをテストで確認するのに便利。
 func FontPath() string {
 	src, p, _ := systemFontSource()
 	if src == nil {

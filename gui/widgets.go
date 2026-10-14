@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"slices"
 	"strings"
 	"sync"
 
@@ -14,11 +15,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
-// Widgets (G3) on ebitenui: buttons, text inputs, lists, modal dialogs.
-// Script threads enqueue mutations; the game thread applies them.
-// HSP-style absolute positioning via fixedLayout.
+// ウィジェット（G3）を ebitenui 上に: ボタン、テキスト入力、リスト、
+// モーダルダイアログ。スクリプトスレッドは変更をエンキューし、
+// ゲームスレッドが適用する。HSP 風の絶対位置決めを fixedLayout で行う。
 
-// fixedLayout places children at exact rectangles (HSP-like coordinates).
+// fixedLayout は子を正確な矩形（HSP 風の座標）に配置する。
 type fixedLayout struct {
 	w, h  int
 	rects map[widget.PreferredSizeLocateableWidget]image.Rectangle
@@ -52,34 +53,42 @@ type widgetEntry struct {
 	kind   widgetKind
 	child  widget.PreferredSizeLocateableWidget
 	remove widget.RemoveChildFunc
-	// disabled freezes interaction (objprm "enable"; guarded by mu).
+	// disabled は操作を凍結する（objprm "enable"。mu で保護）。
 	disabled bool
-	// button latch + list state (guarded by backend mu).
+	// ボタンのラッチ＋リスト状態（バックエンドの mu で保護）。
 	pressed bool
 	items   []string
 	selIdx  int
-	// listW is the width a listbox was placed at; listbox_set carries
-	// no width, so entries are fitted to this. Reading the widget rect
-	// instead would see 0 until the first layout pass.
+	// listW は listbox が配置された幅。listbox_set は幅を持たないため、
+	// 項目はこれに合わせて収められる。代わりにウィジェットの矩形を
+	// 読むと、最初のレイアウト通過まで 0 に見えてしまう。
 	listW int
-	// label is the button text as drawn (shortened to the button face);
-	// kept so it can be inspected without reaching into ebitenui.
+	// listX/listY/listH は配置された矩形を完成させ、listbox() の
+	// 繰返し呼出（典型的な即時モードのスクリプトは毎フレーム呼ぶ）が
+	// 同じウィジェットとして認識され、作り直されないようにする。
+	listX int
+	listY int
+	listH int
+	// label は描画されるボタンのテキスト（ボタンのフェイスに短縮）。
+	// ebitenui の内部に触れずに検査できるよう保持される。
 	label string
-	// cached mirrors the widget's text, refreshed on the game thread
-	// every Update so InputText never blocks the script (a blocking
-	// read mid-frame would stall cls/mes redraws and flicker).
+	// cached はウィジェットのテキストを映し、毎 Update でゲームスレッド
+	// が更新するため、InputText がスクリプトをブロックすることはない
+	// （フレーム途中でブロックする読み出しは cls/mes の再描画を止め、
+	// ちらつきを招く）。
 	cached string
-	// form widgets (G5): checkbox, combo, textarea mirrors.
+	// フォームウィジェット（G5）: チェックボックス、コンボ、テキスト
+	// エリアのミラー。
 	check   *widget.Checkbox
 	combo   *widget.ListComboButton
 	area    *widget.TextArea
 	checked bool
 	list    *widget.List
-	// custom-drawn single-line editor (wInput; no ebitenui child).
+	// カスタム描画の単一行エディタ（wInput。ebitenui の子は持たない）。
 	edit *inputState
 }
 
-// ensureUI builds the retained UI on the game thread.
+// ensureUI はゲームスレッドで保持中の UI を構築する。
 func (b *WindowBackend) ensureUI() {
 	if b.ui != nil {
 		return
@@ -103,7 +112,7 @@ func (b *WindowBackend) ensureUI() {
 	b.ui = &ebitenui.UI{Container: root, DisableDefaultFocus: true}
 }
 
-// placeChild adds a child at an absolute rect on the game thread.
+// placeChild はゲームスレッドで子を絶対矩形に追加する。
 // widgets マップは script goroutine と共有のため mu で保護する。
 // ebitenui 呼び出しはコールバックで mu を掴まないので、保持したまま
 // 行い原子性を保つ (途中状態を Pressed/selected 等が観測してちらつかない)。
@@ -127,8 +136,9 @@ func (b *WindowBackend) placeChild(id int, e *widgetEntry, child widget.Preferre
 	b.root.RequestRelayout()
 }
 
-// placeCustom registers a custom-drawn entry (toggle/input: no
-// ebitenui child), replacing any entry under id. Game thread only.
+// placeCustom はカスタム描画エントリ（トグル/入力: ebitenui の子は
+// 持たない）を登録し、id 配下の既存エントリを置き換える。
+// ゲームスレッドのみ。
 func (b *WindowBackend) placeCustom(id int, e *widgetEntry) {
 	b.ensureUI()
 	b.mu.Lock()
@@ -147,7 +157,8 @@ func (b *WindowBackend) placeCustom(id int, e *widgetEntry) {
 	}
 }
 
-// removeWidgetLocked drops a widget; caller runs on the game thread.
+// removeWidgetLocked はウィジェットを落とす。呼出し側はゲームスレッド
+// で実行される。
 func (b *WindowBackend) removeWidgetLocked(id int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -160,13 +171,12 @@ func (b *WindowBackend) removeWidgetLocked(id int) error {
 	return nil
 }
 
-// ---------- theme (Windows standard: white, gray frame, black text) ----------
+// ---------- テーマ（Windows 標準: 白、灰色の枠、黒文字） ----------
 
-// Fixed palette: white faces, 1px gray borders, black text. Focus is a
-// pale-blue face with a blue frame; pressed/selected is a blue face
-// with a dark-blue frame. Hover keeps its own pale blue. No per-widget
-// overrides: objprm "textcolor"/"backcolor" were removed with the dark
-// theme.
+// 固定パレット: 白い面、1px の灰色の枠、黒い文字。フォーカスは
+// 青枠の淡青の面。押下/選択は青い面に濃青の枠。ホバーは固有の
+// 淡青を保つ。ウィジェットごとの上書きはない: objprm の "textcolor"/
+// "backcolor" は暗いテーマとともに削除された。
 var (
 	themeWhite      = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
 	themeFrame      = color.NRGBA{0x80, 0x80, 0x80, 0xFF}
@@ -180,9 +190,9 @@ var (
 	themeFaceDis    = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}
 )
 
-// frame builds a stretchable face: 1px border around bg. A 3x3 source
-// with 1px insets stretches without distorting the frame. Game thread
-// only (creates an image; ebiten.NewImage also works headless in tests).
+// frame は伸縮可能な面を構築する: bg の周りに 1px の枠。1px の内余白
+// を持つ 3x3 のソースは枠を歪めずに伸びる。ゲームスレッドのみ
+// （画像を生成する。ebiten.NewImage はテストではヘッドレスでも動く）。
 func frame(bg, border color.NRGBA) *euimage.NineSlice {
 	src := ebiten.NewImage(3, 3)
 	for y := 0; y < 3; y++ {
@@ -197,8 +207,9 @@ func frame(bg, border color.NRGBA) *euimage.NineSlice {
 	return euimage.NewNineSlice(src, [3]int{1, 1, 1}, [3]int{1, 1, 1})
 }
 
-// nineImage stretches src across the widget (pure-stretch nine-slice,
-// zero borders). Snapshots are already button-sized, so it is exact.
+// nineImage は src をウィジェット全体に伸ばす（純ストレッチの
+// ナインスライス、枠はゼロ）。スナップショットは既にボタンサイズ
+// なので、ぴったり一致する。
 func nineImage(src *ebiten.Image) *euimage.NineSlice {
 	w, h := src.Bounds().Dx(), src.Bounds().Dy()
 	if w <= 0 {
@@ -210,8 +221,9 @@ func nineImage(src *ebiten.Image) *euimage.NineSlice {
 	return euimage.NewNineSlice(src, [3]int{0, w, 0}, [3]int{0, h, 0})
 }
 
-// uiFace adapts our face to ebitenui's *text.Face (pointer to interface).
-// The face swaps on font(), so read it under mu.
+// uiFace は我々のフェイスを ebitenui の *text.Face（インタフェース
+// へのポインタ）に適合させる。フェイスは font() で入れ替わるため、
+// mu の下で読む。
 func (b *WindowBackend) uiFace() *text.Face {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -239,15 +251,17 @@ func buttonTextColor() *widget.ButtonTextColor {
 	return &widget.ButtonTextColor{Idle: themeInk, Hover: themeInk, Pressed: themeInk, Disabled: themeGrey}
 }
 
-// checkBoxSize is the checkbox art edge length, tracking font().
-// Even and >= 12 so the nine-slice faces below reassemble pixel-perfect.
+// checkBoxSize はフォントに追従するチェックボックスの見た目の辺長。
+// 偶数かつ 12 以上にして、下記のナインスライス面がピクセル単位で
+// 組み立て直せるようにする。
 func (b *WindowBackend) checkBoxSize() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.checkBoxSizeLocked()
 }
 
-// checkBoxSizeLocked is checkBoxSize without locking (caller holds mu).
+// checkBoxSizeLocked はロックを取らない checkBoxSize（呼出し側が mu を
+// 保持）。
 func (b *WindowBackend) checkBoxSizeLocked() int {
 	s := int(b.fontSize*1.25 + 0.5)
 	if s < 12 {
@@ -259,9 +273,9 @@ func (b *WindowBackend) checkBoxSizeLocked() int {
 	return s &^ 1
 }
 
-// checkArtRGBA renders one size×size checkbox face into plain pixels:
-// body fill, 1px frame ring, and an optional check glyph. Pure Go, so
-// tests can inspect the art without a game loop.
+// checkArtRGBA は size×size のチェックボックス面を1枚、素のピクセルに
+// 描画する: 本体の塗り、1px の枠リング、任意のチェックのグリフ。
+// 純粋な Go なので、テストはゲームループなしで見た目を検査できる。
 func checkArtRGBA(size int, body, frameC color.NRGBA, check bool, mark color.NRGBA) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 	for y := 0; y < size; y++ {
@@ -279,15 +293,17 @@ func checkArtRGBA(size int, body, frameC color.NRGBA, check bool, mark color.NRG
 	return img
 }
 
-// checkArt uploads one checkbox face. Created on the game thread
-// (like all images; ebiten.NewImage also works headless in tests).
-// The ring uses the theme frame so the white box reads on any canvas.
+// checkArt はチェックボックス面を1枚アップロードする。ゲームスレッドで
+// 生成される（他のすべての画像と同じ。ebiten.NewImage はテストでは
+// ヘッドレスでも動く）。リングはテーマの枠を使い、白いボックスが
+// どんなキャンバスでも読めるようにする。
 func checkArt(size int, body color.NRGBA, check bool, mark color.NRGBA) *ebiten.Image {
 	return ebiten.NewImageFromImage(checkArtRGBA(size, body, themeFrame, check, mark))
 }
 
-// drawCheckMark paints a check from (0.28,0.55)->(0.45,0.72)->(0.74,0.30)
-// with a square brush, so the checked state reads at any box size.
+// drawCheckMark は四角いブラシで
+// (0.28,0.55)->(0.45,0.72)->(0.74,0.30) のチェックを描き、
+// どんなボックスサイズでもチェック状態が読めるようにする。
 func drawCheckMark(img *image.NRGBA, size int, c color.NRGBA) {
 	f := float64(size)
 	pts := [][2]float64{{0.28 * f, 0.55 * f}, {0.45 * f, 0.72 * f}, {0.74 * f, 0.30 * f}}
@@ -320,13 +336,14 @@ func absf(v float64) float64 {
 	return v
 }
 
-// checkImage builds the checkbox faces with a real minimum size
-// (white box, gray ring, black check glyph).
+// checkImage は実際の最小サイズ（白いボックス、灰色のリング、黒い
+// チェックグリフ）でチェックボックスの面を構築する。
 //
-// NOTE: solid-color nine slices (NewNineSliceColor) report MinSize 0,
-// and ebitenui draws the *labeled* box at checkboxPreferredSize, so the
-// old faces rendered 0x0 (invisible box, label text only). Sized art
-// reassembles pixel-perfect at MinSize == size and fixes it.
+// 注意: 単色のナインスライス（NewNineSliceColor）は MinSize 0 を報告し、
+// ebitenui はラベル付きボックスを checkboxPreferredSize で描画するため、
+// 古い面は 0x0 で描画されていた（見えないボックス、ラベル文字のみ）。
+// サイズを指定した見た目は MinSize == size でピクセル単位で組み立て
+// 直され、これを修正する。
 func (b *WindowBackend) checkImage() *widget.CheckboxImage {
 	return b.checkImageForSize(b.checkBoxSize())
 }
@@ -346,12 +363,12 @@ func (b *WindowBackend) checkImageForSize(s int) *widget.CheckboxImage {
 	}
 }
 
-// listEntryColors defines every list state. Press/hover backgrounds must
-// never stay nil (transparent): with SelectPressed the entry is selected
-// on press, and a nil Pressed background would hide the highlight until
-// mouse release even though selected() already flipped. Selecting and
-// selected entries use the pressed blue; the focused (but unselected)
-// entry uses the focus pale blue (entries are flat colors, no frames).
+// listEntryColors はすべてのリスト状態を定義する。押下/ホバーの背景が
+// nil（透明）のままになってはならない: SelectPressed では押下で項目が
+// 選択され、nil の Pressed 背景だと selected() が既に切り替わっていても
+// マウスを離すまでハイライトが隠れてしまう。選択中と選択済みの項目は
+// 押下時の青を使う。フォーカス中（ただし未選択）の項目はフォーカスの
+// 淡青を使う（項目は枠なしの平坦な色）。
 func listEntryColors() *widget.ListEntryColor {
 	return &widget.ListEntryColor{
 		Unselected:                 themeInk,
@@ -367,12 +384,12 @@ func listEntryColors() *widget.ListEntryColor {
 	}
 }
 
-// ---------- script-thread API (mutations block until applied) ----------
+// ---------- スクリプトスレッド API（変更は適用までブロック） ----------
 
-// AddButton creates (or replaces) a button. imgs holds up to 4
-// picload/dropload buffer ids for the Idle/Hover/Pressed/Disabled
-// states (0 = slot unused): missing Hover/Pressed fall back to Idle,
-// missing Disabled falls back to a darkened Idle.
+// AddButton はボタンを作成（または置換）する。imgs は
+// Idle/Hover/Pressed/Disabled 状態用の picload/dropload バッファ id を
+// 最大4つ保持する（0 = スロット未使用）: Hover/Pressed が無ければ
+// Idle に、Disabled が無ければ暗くした Idle にフォールバックする。
 func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...int) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("button のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
@@ -386,8 +403,8 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 		}
 	}
 	var opErr error
-	// ebitenui draws the whole label, so a wide one spills past the
-	// button frame; shorten it to the button width first.
+	// ebitenui はラベル全体を描画するため、広いものはボタンの枠から
+	// あふれる。まずボタン幅に短縮する。
 	label = fitText(label, w-buttonPadX, b.TextWidth)
 	b.runOnLoop(func() {
 		face := b.uiFace()
@@ -396,8 +413,8 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 		bt := buttonTextColor()
 		opts := []widget.ButtonOpt{
 			widget.ButtonOpts.Image(bi),
-			// Tight padding so short tab bars (18px with a 16px
-			// font) keep their labels inside the face.
+			// 狭い内余白にして、短いタブバー（16px フォントで 18px）が
+			// ラベルを面の内側に保てるようにする。
 			widget.ButtonOpts.TextPadding(widget.NewInsetsSimple(2)),
 			widget.ButtonOpts.ClickedHandler(func(args *widget.ButtonClickedEventArgs) {
 				b.mu.Lock()
@@ -406,10 +423,10 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 			}),
 		}
 		if len(imgs) > 0 && imgs[0] != 0 {
-			// Snapshot each state into button-sized images: Graphic
-			// centers its image, so a raw window-sized buffer would
-			// show the wrong (usually transparent) region. Exact-fit
-			// buffers keep the live reference.
+			// 各状態をボタンサイズの画像にスナップショットする:
+			// Graphic は画像を中央寄せするため、生のウィンドウサイズの
+			// バッファでは間違った（ふつう透明な）領域が表示される。
+			// 正確に一致するバッファは生きた参照を保つ。
 			snap := func(src *ebiten.Image) *ebiten.Image {
 				sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
 				if sw == w && sh == h {
@@ -447,16 +464,17 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 				disabled = dimImage(idle)
 			}
 			if label != "" {
-				// Labeled: the icon row is centered by design, and
-				// TextAndImage enables ebitenui's per-state swap
-				// (separate Text+Graphic opts leave it frozen).
+				// ラベルあり: アイコン行は設計上中央寄せで、
+				// TextAndImage は ebitenui の状態ごとの差し替えを
+				// 有効にする（Text+Graphic を別々の opts にすると
+				// 凍結してしまう）。
 				opts = append(opts, widget.ButtonOpts.TextAndImage(label, face, &widget.GraphicImage{
 					Idle: idle, Hover: hover, Pressed: pressed, Disabled: disabled,
 				}, bt))
 			} else {
-				// Icon-only: state faces fill the button exactly.
-				// (A Graphic row would add an empty-text member and
-				// shift the icon a few pixels off center.)
+				// アイコンのみ: 状態の面がボタンをちょうど満たす。
+				// （Graphic 行は空文字のメンバを追加し、アイコンを
+				// 中心から数ピクセルずらしてしまう。）
 				// PressedHover 等も埋めないと押下+ホバーで透明に瞬く。
 				niIdle, niHover := nineImage(idle), nineImage(hover)
 				niPressed, niDis := nineImage(pressed), nineImage(disabled)
@@ -473,8 +491,8 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 	return opErr
 }
 
-// dimImage returns a darkened copy for the Disabled state.
-// Call on the game thread (creates an image).
+// dimImage は Disabled 状態用の暗くした複製を返す。
+// ゲームスレッドで呼ぶ（画像を生成する）。
 func dimImage(src *ebiten.Image) *ebiten.Image {
 	w, h := src.Bounds().Dx(), src.Bounds().Dy()
 	out := ebiten.NewImage(w, h)
@@ -484,7 +502,7 @@ func dimImage(src *ebiten.Image) *ebiten.Image {
 	return out
 }
 
-// Pressed reports a click since the last call (consumed).
+// Pressed は最後の呼出以降のクリックを報告する（消費される）。
 func (b *WindowBackend) Pressed(id int) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -497,11 +515,12 @@ func (b *WindowBackend) Pressed(id int) (bool, error) {
 	return p, nil
 }
 
-// AddInput lives in edit.go (custom-drawn editor).
+// AddInput は edit.go にある（カスタム描画エディタ）。
 
-// syncWidgetCache mirrors widget runtime state (game thread only;
-// called from Update). Script reads use the mirrors so getters never
-// block the script mid-frame (cf. the gettext flicker fix).
+// syncWidgetCache はウィジェットの実行時状態を映す（ゲームスレッドのみ。
+// Update から呼ばれる）。スクリプトの読み出しはこのミラーを使うため、
+// ゲッターがフレーム途中でスクリプトをブロックすることはない
+// （gettext のちらつき修正を参照）。
 func (b *WindowBackend) syncWidgetCache() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -524,22 +543,60 @@ func (b *WindowBackend) syncWidgetCache() {
 	}
 }
 
-// InputText lives in edit.go (custom editor state).
+// InputText は edit.go にある（カスタムエディタの状態）。
 
-// AddList creates (or replaces) a list box. Items wider than the list
-// are shortened with an ellipsis so they never spill past the frame.
+// AddList はリストボックスを作成（または置換）する。リストより広い
+// 項目は省略記号で短縮し、枠からあふれないようにする。同じ id、矩形、
+// 項目での繰返し呼出は既存ウィジェットをその場で再利用する:
+// 毎フレーム作り直す（典型的な即時モードのスクリプトは repeat の中で
+// listbox() を呼ぶ）とスクロールオフセットと ebitenui のフォーカスが
+// リセットされ、スクロール済みのリストが飛び戻り、新たにフォーカス
+// されたリストが直前にフォーカスされていたものの可視オフセットを
+// 引き継いでしまう。
 func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("listbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
 	}
 	items = fitItems(items, w-listSliderW-listPadX, b.TextWidth)
+	b.mu.Lock()
+	old, sameID := b.widgets[id]
+	// 同じ id/矩形/項目: ウィジェットを保ち、スクロールとフォーカスが
+	// 生き残るようにする。（典型的なスクリプトは毎フレーム listbox()
+	// を呼ぶ。作り直すとスクロールオフセットと ebitenui のフォーカスが
+	// リセットされ、スクロール済みのリストが飛び戻り、新たに
+	// フォーカスされたリストが古いオフセットを表示した。）
+	if sameID && old.kind == wList && old.list != nil &&
+		old.listW == w && old.listH == h && old.listX == x && old.listY == y &&
+		slices.Equal(old.items, items) {
+		b.mu.Unlock()
+		return nil
+	}
+	// 同じ id/矩形、異なる項目: listbox_set と同じように項目をその場で
+	// 入れ替え、リストごとのスクロールとフォーカスが生き残るようにする
+	// （ウィジェットを作り直すと毎フレーム失われた）。
+	if sameID && old.kind == wList && old.list != nil &&
+		old.listW == w && old.listH == h && old.listX == x && old.listY == y {
+		old.items = append([]string(nil), items...)
+		old.selIdx = -1
+		list := old.list
+		b.mu.Unlock()
+		entries := make([]any, len(items))
+		for i, s := range items {
+			entries[i] = s
+		}
+		b.runOnLoop(func() {
+			list.SetEntries(entries)
+		})
+		return nil
+	}
+	b.mu.Unlock()
 	entries := make([]any, len(items))
 	for i, s := range items {
 		entries[i] = s
 	}
 	b.runOnLoop(func() {
 		face := b.uiFace()
-		e := &widgetEntry{id: id, kind: wList, selIdx: -1, listW: w}
+		e := &widgetEntry{id: id, kind: wList, selIdx: -1, listW: w, listX: x, listY: y, listH: h}
 		e.items = append([]string(nil), items...)
 		list := newListWidget(b, face, e, entries)
 		b.placeChild(id, e, list, x, y, w, h)
@@ -548,11 +605,12 @@ func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 	return nil
 }
 
-// UpdateList replaces an existing listbox's entries in place via
-// widget.List.SetEntries. It keeps the same ebitenui widget, so the list's
-// scroll offset and focus survive the update. Recreating the widget (as a
-// second listbox() call would) throws that state away, which is what made
-// the editor's outline visibly jump on every keystroke.
+// UpdateList は widget.List.SetEntries 経由で既存の listbox の項目を
+// その場で置き換える。同じ ebitenui ウィジェットを保つため、リストの
+// スクロールオフセットとフォーカスが更新後も生き残る。ウィジェットを
+// 作り直す（2回目の listbox() 呼出がするように）とその状態が捨てられ、
+// それがエディタのアウトラインがキー入力ごとに目に見えて飛んでいた
+// 原因だった。
 func (b *WindowBackend) UpdateList(id int, items []string) error {
 	b.mu.Lock()
 	e, ok := b.widgets[id]
@@ -560,12 +618,14 @@ func (b *WindowBackend) UpdateList(id int, items []string) error {
 		b.mu.Unlock()
 		return nil
 	}
-	// listbox_set carries no width: fit to the width listbox() recorded
-	// (listbox() is called again on every relayout, e.g. window resize).
+	// listbox_set は幅を持たない: listbox() が記録した幅に合わせる
+	// （listbox() は再レイアウトのたび、例: ウィンドウリサイズ、に
+	// 再び呼ばれる）。
 	items = fitItems(items, e.listW-listSliderW-listPadX, b.textWidthLocked)
-	// Mirror the new items and clear the cached selection synchronously
-	// (under mu) so a same-frame selected() read never sees the pre-update
-	// index; the widget itself swaps its buttons on the game thread.
+	// 新しい項目を映し、キャッシュされた選択を（mu の下で）同期的に
+	// クリアし、同じフレーム内の selected() 読み出しが更新前の
+	// インデックスを決して見ないようにする。ウィジェット自体は
+	// ゲームスレッドでボタンを入れ替える。
 	e.items = append([]string(nil), items...)
 	e.selIdx = -1
 	list := e.list
@@ -580,10 +640,11 @@ func (b *WindowBackend) UpdateList(id int, items []string) error {
 	return nil
 }
 
-// SelectList sets a listbox's selected entry by index (0-based) without
-// firing the EntrySelectedHandler, so a programmatic selection (e.g. the
-// editor syncing its outline after a "go to definition") does not look like
-// a user click. The cached index is updated under mu for a consistent read.
+// SelectList は EntrySelectedHandler を発火させずに listbox の選択項目
+// をインデックス（0 始まり）で設定する。これによりプログラム的な選択
+// （例: "定義へ移動" 後にエディタがアウトラインを同期する）がユーザーの
+// クリックのように見えない。キャッシュされたインデックスは一貫した
+// 読み出しのために mu の下で更新される。
 func (b *WindowBackend) SelectList(id, index int) error {
 	b.mu.Lock()
 	e, ok := b.widgets[id]
@@ -605,17 +666,18 @@ func (b *WindowBackend) SelectList(id, index int) error {
 	return nil
 }
 
-// listEntryTextPos is the shared entry text alignment for listbox and
-// combox: left/top, like the hand-drawn outline in the Golash editor.
-// Centering adds a second int() rounding on top of the scroll offset's
-// (glyph origin = int((rectH - lineH) / 2)), which can leave row
-// baselines a pixel apart while the list scrolls (reads as jitter).
+// listEntryTextPos は listbox と combox で共有される項目テキストの
+// 配置: 左上寄せ。Golash エディタの手描きアウトラインと同じ。
+// 中央寄せにすると、スクロールオフセットの int() 丸め
+// （グリフ原点 = int((rectH - lineH) / 2)）に加えて2回目の丸めが乗り、
+// リストのスクロール中に行のベースラインが1ピクセルずれて見える
+// （ちらつきとして現れる）。
 func listEntryTextPos() (widget.TextPosition, widget.TextPosition) {
 	start := widget.TextPositionStart
 	return start, start
 }
 
-// newListWidget builds a list in the fixed Windows-standard theme.
+// newListWidget は固定の Windows 標準テーマでリストを構築する。
 func newListWidget(b *WindowBackend, face *text.Face, e *widgetEntry, entries []any) *widget.List {
 	list := widget.NewList(
 		widget.ListOpts.ContainerOpts(widget.ContainerOpts.BackgroundImage(
@@ -624,28 +686,29 @@ func newListWidget(b *WindowBackend, face *text.Face, e *widgetEntry, entries []
 			Idle: frame(themeWhite, themeFrame),
 			Mask: frame(themeWhite, themeFrame),
 		}),
-		// Entries sit 1px inside the frame: without padding the
-		// selected row paints over the 1px gray border.
+		// 項目は枠の 1px 内側に置く: 内余白がないと選択行が 1px の
+		// 灰色の枠を塗り潰してしまう。
 		widget.ListOpts.ScrollContainerPadding(widget.NewInsetsSimple(1)),
-		// Left/top aligned, matching the hand-drawn outline in the
-		// Golash editor: centered text depends on two int() roundings
-		// (the scroll offset, then the centering bias) that can leave
-		// baselines a pixel apart, which reads as jitter while scrolling.
+		// 左上寄せで、Golash エディタの手描きアウトラインに合わせる:
+		// 中央寄せテキストは2つの int() 丸め（スクロールオフセット、
+		// 次に中央寄せの偏り）に依存し、ベースラインが1ピクセルずれて
+		// しまい、スクロール中にちらつきとして現れる。
 		widget.ListOpts.EntryTextPosition(widget.TextPositionStart, widget.TextPositionStart),
 		widget.ListOpts.EntryTextPadding(widget.NewInsetsSimple(2)),
-		// The script owns every key (arrows move its own caret):
-		// a focused list must not also consume them, or one press
-		// would drive both the list and the script at once.
+		// スクリプトがあらゆるキーを所有する（矢印は自身のキャレットを
+		// 動かす）: フォーカスされたリストもそれらを消費してはならない。
+		// さもないと1回のキー押下でリストとスクリプトの両方が同時に
+		// 動いてしまう。
 		widget.ListOpts.DisableDefaultKeys(true),
-		// The vertical slider stays visible (wheel-only scrolling
-		// strands keyboard/touch users with no affordance). Its
-		// images come from the fixed theme, like the dropdown's:
-		// a imageless handle button panics on draw.
+		// 垂直スライダーは見えるままにする（ホイールのみのスクロール
+		// では、キーボード/タッチユーザーが手がかりなしに取り残される）。
+		// その画像はドロップダウンと同じく固定テーマから来る:
+		// 画像なしのハンドルボタンは描画時に panic する。
 		widget.ListOpts.SliderParams(b.comboSliderParams()),
 		widget.ListOpts.HideHorizontalSlider(),
-		// Select on press (not release): native listboxes highlight
-		// the instant the button goes down; release-to-select
-		// feels like a laggy click.
+		// 押下時に選択する（リリース時ではない）: ネイティブの
+		// リストボックスはボタンが下がった瞬間にハイライトする。
+		// リリースで選択すると遅いクリックのように感じられる。
 		widget.ListOpts.SelectPressed(),
 		widget.ListOpts.Entries(entries),
 		widget.ListOpts.EntryLabelFunc(func(en any) string {
@@ -671,7 +734,7 @@ func newListWidget(b *WindowBackend, face *text.Face, e *widgetEntry, entries []
 	return list
 }
 
-// SelectedIndex returns the list/combo selection (-1 when none).
+// SelectedIndex はリスト/コンボの選択を返す（無選択なら -1）。
 func (b *WindowBackend) SelectedIndex(id int) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -682,9 +745,9 @@ func (b *WindowBackend) SelectedIndex(id int) (int, error) {
 	return e.selIdx, nil
 }
 
-// AddCheck creates (or replaces) a checkbox. Non-positive w/h fall back
-// to the preferred size (box + label), since the box art no longer
-// scales with the layout rect.
+// AddCheck はチェックボックスを作成（または置換）する。正でない
+// w/h は推奨サイズ（ボックス＋ラベル）にフォールバックする。ボックス
+// の見た目はもはやレイアウト矩形に応じてスケールしないため。
 func (b *WindowBackend) AddCheck(id int, label string, x, y, w, h int, checked bool) error {
 	b.runOnLoop(func() {
 		face := b.uiFace()
@@ -700,8 +763,9 @@ func (b *WindowBackend) AddCheck(id int, label string, x, y, w, h int, checked b
 			widget.CheckboxOpts.Spacing(6),
 			widget.CheckboxOpts.InitialState(init),
 		)
-		// Validate now (fail fast): PreferredSize needs computedParams,
-		// which ebitenui otherwise fills lazily on first UI update.
+		// 今すぐ検証する（早期失敗）: PreferredSize は computedParams を
+		// 必要とし、それは ebitenui がさもなくば最初の UI 更新で遅延に
+		// 埋める。
 		cb.Validate()
 		if pw, ph := cb.PreferredSize(); w <= 0 || h <= 0 {
 			if w <= 0 {
@@ -717,8 +781,8 @@ func (b *WindowBackend) AddCheck(id int, label string, x, y, w, h int, checked b
 	return nil
 }
 
-// Checked reports a checkbox state (script-thread safe, never blocks:
-// it reads the Update-time mirror).
+// Checked はチェックボックスの状態を報告する（スクリプトスレッド安全、
+// 決してブロックしない: Update 時のミラーを読む）。
 func (b *WindowBackend) Checked(id int) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -729,7 +793,8 @@ func (b *WindowBackend) Checked(id int) (bool, error) {
 	return e.checked, nil
 }
 
-// comboSliderParams images the dropdown scrollbar in the fixed theme.
+// comboSliderParams はドロップダウンのスクロールバーを固定テーマで
+// 描画する。
 func (b *WindowBackend) comboSliderParams() *widget.SliderParams {
 	track := frame(themeWhite, themeFrame)
 	return &widget.SliderParams{
@@ -738,8 +803,8 @@ func (b *WindowBackend) comboSliderParams() *widget.SliderParams {
 	}
 }
 
-// AddCombo creates (or replaces) a dropdown list. sel is the initial
-// index (-1 for none).
+// AddCombo はドロップダウンリストを作成（または置換）する。sel は初期
+// インデックス（無しなら -1）。
 func (b *WindowBackend) AddCombo(id, x, y, w, h int, items []string, sel int) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("combox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
@@ -772,10 +837,10 @@ func (b *WindowBackend) AddCombo(id, x, y, w, h int, items []string, sel int) er
 	return nil
 }
 
-// newComboWidget builds a dropdown in the fixed Windows-standard theme.
+// newComboWidget は固定の Windows 標準テーマでドロップダウンを構築する。
 func (b *WindowBackend) newComboWidget(face *text.Face, e *widgetEntry, entries []any, labelOf func(any) string, h int) *widget.ListComboButton {
 	pressed := true
-	// Left/top entry text, same as newListWidget.
+	// 左上の項目テキスト。newListWidget と同じ。
 	textPosH, textPosV := listEntryTextPos()
 	return widget.NewListComboButton(
 		widget.ListComboButtonOpts.ButtonParams(&widget.ButtonParams{
@@ -790,17 +855,18 @@ func (b *WindowBackend) newComboWidget(face *text.Face, e *widgetEntry, entries 
 			EntryTextPadding:            widget.NewInsetsSimple(2),
 			EntryTextHorizontalPosition: &textPosH,
 			EntryTextVerticalPosition:   &textPosV,
-			// Same 1px inset as listbox: selected rows must not
-			// paint over the dropdown frame.
+			// listbox と同じ 1px の内余白: 選択行がドロップダウンの枠を
+			// 塗り潰してはならない。
 			ScrollContainerPadding: widget.NewInsetsSimple(1),
 			SelectPressed:          &pressed,
 			ScrollContainerImage: &widget.ScrollContainerImage{
 				Idle: frame(themeWhite, themeFrame),
 				Mask: frame(themeWhite, themeFrame),
 			},
-			// The dropdown keeps its vertical slider: without images
-			// the slider handle button renders with a nil Image and
-			// panics on open (Button.draw dereferences Image.Idle).
+			// ドロップダウンは垂直スライダーを保つ: 画像がないと
+			// スライダーのハンドルボタンが nil の Image で描画され、
+			// 開いたときに panic する（Button.draw は Image.Idle を
+			// 参照外しする）。
 			Slider: b.comboSliderParams(),
 		}),
 		widget.ListComboButtonOpts.Text(face, nil, buttonTextColor()),
@@ -821,7 +887,7 @@ func (b *WindowBackend) newComboWidget(face *text.Face, e *widgetEntry, entries 
 	)
 }
 
-// AddArea creates (or replaces) a multiline text box.
+// AddArea は複数行のテキストボックスを作成（または置換）する。
 func (b *WindowBackend) AddArea(id, x, y, w, h int, text string) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("mesbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
@@ -836,11 +902,11 @@ func (b *WindowBackend) AddArea(id, x, y, w, h int, text string) error {
 	return nil
 }
 
-// newAreaWidget builds a multiline box in the fixed Windows-standard
-// theme: a log viewer with a vertical scrollbar that sticks to the
-// bottom on every update (editors append results and expect the tail
-// to stay visible). Slider images are required (an imageless handle
-// panics on draw, like the listbox/combo sliders).
+// newAreaWidget は固定の Windows 標準テーマで複数行ボックスを構築する:
+// 毎回の更新で下端に張り付く垂直スクロールバーを持つログビューア
+// （エディタは結果を追記し、末尾が見えるままでいることを期待する）。
+// スライダー画像は必須（画像なしのハンドルは描画時に panic する。
+// listbox/コンボのスライダーと同じ）。
 func newAreaWidget(b *WindowBackend, face *text.Face, content string) *widget.TextArea {
 	return widget.NewTextArea(
 		widget.TextAreaOpts.ContainerOpts(widget.ContainerOpts.BackgroundImage(
@@ -859,8 +925,8 @@ func newAreaWidget(b *WindowBackend, face *text.Face, content string) *widget.Te
 	)
 }
 
-// AreaText returns the multiline box content (script-thread safe,
-// never blocks: it reads the Update-time mirror).
+// AreaText は複数行ボックスの内容を返す（スクリプトスレッド安全、
+// 決してブロックしない: Update 時のミラーを読む）。
 func (b *WindowBackend) AreaText(id int) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -871,13 +937,14 @@ func (b *WindowBackend) AreaText(id int) (string, error) {
 	return e.cached, nil
 }
 
-// SetAreaText replaces the multiline box content (game thread).
-// ebitenui TextArea is display-only (no keyboard editing), so mesbox
-// works as a program-driven log viewer: setstr() writes, getstr()
-// reads. The mirror updates inline so a following getstr() is exact.
+// SetAreaText は複数行ボックスの内容を置き換える（ゲームスレッド）。
+// ebitenui の TextArea は表示専用（キーボード編集なし）のため、mesbox
+// はプログラム駆動のログビューアとして機能する: setstr() が書き、
+// getstr() が読む。ミラーはインラインで更新されるため、続く
+// getstr() は正確になる。
 func (b *WindowBackend) SetAreaText(id int, text string) error {
-	// Existence is checked up front (like AddButton/AddArea) so unknown
-	// ids fail without blocking on the game thread.
+	// 存在確認を先頭で行う（AddButton/AddArea と同じように）ため、未知の
+	// id はゲームスレッドでブロックせずに失敗する。
 	b.mu.Lock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wArea || e.area == nil {
@@ -896,9 +963,9 @@ func (b *WindowBackend) SetAreaText(id int, text string) error {
 	return nil
 }
 
-// SetEnabled toggles widget interactivity; applied on the game thread.
-// Custom-drawn entries (toggle/input) track it in e.disabled since
-// they have no ebitenui child to grey out.
+// SetEnabled はウィジェットの操作可否を切り替える。ゲームスレッドで
+// 適用される。カスタム描画エントリ（トグル/入力）は灰色化する
+// ebitenui の子を持たないため、e.disabled でそれを追跡する。
 func (b *WindowBackend) SetEnabled(id int, on bool) error {
 	b.mu.Lock()
 	_, ok := b.widgets[id]
@@ -919,7 +986,7 @@ func (b *WindowBackend) SetEnabled(id int, on bool) error {
 	return nil
 }
 
-// RemoveWidget drops one widget.
+// RemoveWidget は1つのウィジェットを落とす。
 func (b *WindowBackend) RemoveWidget(id int) error {
 	b.mu.Lock()
 	_, ok := b.widgets[id]
@@ -934,7 +1001,7 @@ func (b *WindowBackend) RemoveWidget(id int) error {
 	return opErr
 }
 
-// ClearWidgets drops all widgets.
+// ClearWidgets はすべてのウィジェットを落とす。
 func (b *WindowBackend) ClearWidgets() {
 	b.runOnLoop(func() {
 		// removeWidgetLocked が都度ロックするため、イテレーション中の
@@ -952,7 +1019,7 @@ func (b *WindowBackend) ClearWidgets() {
 	})
 }
 
-// HasWidget reports registry presence (tests).
+// HasWidget は登録簿に存在するかを報告する（テスト用）。
 func (b *WindowBackend) HasWidget(id int) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -960,8 +1027,8 @@ func (b *WindowBackend) HasWidget(id int) bool {
 	return ok
 }
 
-// Dialog shows a modal choice and blocks until answered.
-// mode: "ok" -> 1, "okcancel" -> 1/0, "yesno" -> 1/0.
+// Dialog はモーダルな選択を表示し、応答があるまでブロックする。
+// mode: "ok" -> 1、"okcancel" -> 1/0、"yesno" -> 1/0。
 func (b *WindowBackend) Dialog(msg, mode string) (int, error) {
 	var labels []string
 	var values []int
@@ -1055,25 +1122,25 @@ func (b *WindowBackend) Dialog(msg, mode string) (int, error) {
 	return <-result, nil
 }
 
-// isCJKBreakable reports runes that may start a wrapped line anywhere
-// (Japanese kana/kanji, Hangul, CJK symbols, fullwidth forms).
+// isCJKBreakable はどこでも折り返して行を始められるルーン
+// （日本語の仮名/漢字、ハングル、CJK 記号、全角形）を報告する。
 func isCJKBreakable(r rune) bool {
 	switch {
-	case r >= 0x3040 && r <= 0x30FF: // hiragana + katakana
+	case r >= 0x3040 && r <= 0x30FF: // ひらがな＋カタカナ
 		return true
-	case r >= 0x3400 && r <= 0x9FFF: // CJK ext-A .. ideographs
+	case r >= 0x3400 && r <= 0x9FFF: // CJK 拡張A .. 漢字
 		return true
-	case r >= 0xAC00 && r <= 0xD7AF: // hangul syllables
+	case r >= 0xAC00 && r <= 0xD7AF: // ハングル音節
 		return true
-	case r >= 0xFF00 && r <= 0xFFEF: // fullwidth forms
+	case r >= 0xFF00 && r <= 0xFFEF: // 全角形
 		return true
 	}
 	return false
 }
 
-// wrapDialogText breaks s into lines fitting maxW pixels (measured
-// with face). Explicit newlines are honored; Latin prefers word
-// boundaries while CJK breaks anywhere.
+// wrapDialogText は s を maxW ピクセル（face で測定）に収まる行に
+// 分割する。明示的な改行は尊重される。ラテン文字は語境界を好み、
+// CJK はどこでも折り返す。
 func wrapDialogText(s string, face *text.GoTextFace, maxW float64) []string {
 	if face == nil {
 		return strings.Split(s, "\n")
@@ -1095,11 +1162,11 @@ func wrapDialogText(s string, face *text.GoTextFace, maxW float64) []string {
 				n--
 			}
 			if n == 0 {
-				n = 1 // single rune wider than the window
+				n = 1 // ウィンドウより広い単一ルーン
 			}
 			if n < len(rs) {
-				// Back to the last space when cutting inside a
-				// Latin word (both sides non-space, non-CJK).
+				// ラテン語の単語の途中で切るとき、両側が非空白・非CJK
+				// なら最後の空白まで戻る。
 				tail := rs[:n]
 				sp := -1
 				for i := len(tail) - 1; i >= 0; i-- {

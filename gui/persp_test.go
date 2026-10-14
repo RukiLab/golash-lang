@@ -7,7 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// applyH maps (u, v) through row-major H with the projective divide.
+// applyH は (u, v) を行優先の H と射影除算を通じて写像する。
 func applyH(h [9]float64, u, v float64) (float64, float64) {
 	w := h[6]*u + h[7]*v + h[8]
 	return (h[0]*u + h[1]*v + h[2]) / w, (h[3]*u + h[4]*v + h[5]) / w
@@ -45,8 +45,8 @@ func TestSolveHomographyAffine(t *testing.T) {
 			t.Fatalf("corner %d maps to (%v,%v), want (%v,%v)", i, x, y, du[i], dv[i])
 		}
 	}
-	// Affine maps keep every weight at 1: the shader path then matches
-	// DrawTriangles exactly.
+	// アフィンな写像はすべての重みを 1 に保つ: シェーダ経路はそれから
+	// DrawTriangles と正確に一致する。
 	for i, wv := range quadWs(h, su, sv) {
 		if math.Abs(wv-1) > 1e-9 {
 			t.Fatalf("affine weight %d = %v, want 1", i, wv)
@@ -74,8 +74,9 @@ func TestSolveHomographyTrapezoid(t *testing.T) {
 			t.Fatalf("weight %d = %v, want finite positive", i, wv)
 		}
 	}
-	// The correction must actually kick in: a trapezoid is not affine,
-	// so the weights cannot all be 1 (that would crease the diagonal).
+	// 補正は実際に効いていなければならない: 台形はアフィンではないため、
+	// 重みがすべて 1 になることはありえない（それでは対角線に折れ目が
+	// できる）。
 	allOne := true
 	for _, wv := range w {
 		if math.Abs(wv-1) > 1e-6 {
@@ -85,7 +86,8 @@ func TestSolveHomographyTrapezoid(t *testing.T) {
 	if allOne {
 		t.Fatalf("trapezoid weights = %v, want non-affine", w)
 	}
-	// Interior stays inside: the source center must land inside the quad.
+	// 内部は内側に収まる: ソースの中心は四角形の内側に着地しなければ
+	// ならない。
 	if x, y := applyH(h, 50, 50); x < 0 || x > 200 || y < 0 || y > 100 {
 		t.Fatalf("center maps to (%v,%v), want inside the trapezoid", x, y)
 	}
@@ -94,7 +96,7 @@ func TestSolveHomographyTrapezoid(t *testing.T) {
 func TestSolveHomographySingular(t *testing.T) {
 	su := [4]float64{0, 10, 10, 0}
 	sv := [4]float64{0, 0, 10, 10}
-	// All four images collinear: no projective map exists.
+	// 4枚の画像すべてが共線: 射影の写像は存在しない。
 	du := [4]float64{0, 10, 20, 30}
 	dv := [4]float64{0, 0, 0, 0}
 	if _, ok := solveHomography(su, sv, du, dv); ok {
@@ -118,17 +120,17 @@ func TestPerspVertEncodesProjective(t *testing.T) {
 var white3 = [3][3]float64{{1, 1, 1}, {1, 1, 1}, {1, 1, 1}}
 
 func TestPerspShaderCompiles(t *testing.T) {
-	// NewShader type-checks the Kage source on the CPU; a failure here
-	// means the embedded shader no longer compiles, independent of any
-	// window or game loop.
+	// NewShader は Kage のソースを CPU 上で型検査する。ここでの失敗は
+	// 埋め込みのシェーダがもはやコンパイルできないことを意味し、
+	// いかなるウィンドウやゲームループにも依存しない。
 	if _, err := ebiten.NewShader([]byte(perspShaderSrc)); err != nil {
 		t.Fatalf("perspShaderSrc: %v", err)
 	}
 }
 
-// TestDrawQuadsValidation covers gquad checks without a game loop:
-// every failure returns before enqueueing anything, and a batch lands
-// as exactly one command.
+// TestDrawQuadsValidation はゲームループなしで gquad の検査を扱う:
+// あらゆる失敗は何かをエンキューする前に戻り、まとまりはちょうど
+// 1つの命令として着地する。
 func TestDrawQuadsValidation(t *testing.T) {
 	b := mustNew(t)
 	if err := b.SelectTarget(0); err != nil {
@@ -145,7 +147,7 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if err := b.DrawQuads(99, []Quad{q()}); err == nil {
 		t.Fatal("unknown buffer should error")
 	}
-	// NaN/Inf coordinates are rejected (defense in depth for Go callers).
+	// NaN/Inf の座標は拒否される（Go 側の呼出しに対する多層防御）。
 	bad := q()
 	bad.Y[1] = math.NaN()
 	if err := b.DrawQuads(0, []Quad{bad}); err == nil {
@@ -156,7 +158,8 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if err := b.DrawQuads(0, []Quad{bad}); err == nil {
 		t.Fatal("Inf light should error")
 	}
-	// A point quad is a silent no-op, never an error, and enqueues nothing.
+	// 点の四角形は無音で何もせず、決してエラーにならず、何も
+	// エンキューしない。
 	pt := q()
 	pt.X = [4]float64{5, 5, 5, 5}
 	pt.Y = [4]float64{5, 5, 5, 5}
@@ -166,7 +169,7 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if p, q := queuedLens(b); p != 0 || q != 0 {
 		t.Fatalf("degenerate quad enqueued: pending=%d queue=%d", p, q)
 	}
-	// Two source corners sharing one image forces a singular map.
+	// 2つのソースの隅が1枚の画像を共有すると特異な写像が強制される。
 	dup := q()
 	dup.U = [4]float64{0, 0, 10, 0}
 	dup.V = [4]float64{0, 0, 0, 10}
@@ -176,23 +179,23 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if p, q := queuedLens(b); p != 0 || q != 0 {
 		t.Fatalf("a bad quad must not stage anything: pending=%d queue=%d", p, q)
 	}
-	// An empty batch is a no-op (a loop that culled every face), staging
-	// nothing — the builtin returns before even reaching here, but the
-	// face layer holds the same rule for Go-side callers.
+	// 空のまとまりは何もしない（すべての面を間引いたループ）。何も
+	// 準備しない — 組込みはここに到着する前に戻るが、面の層も Go 側の
+	// 呼出しに対して同じ規則を保つ。
 	if err := b.DrawQuads(0, nil); err != nil {
 		t.Fatalf("empty batch: %v", err)
 	}
 	if p, q := queuedLens(b); p != 0 || q != 0 {
 		t.Fatalf("empty batch enqueued: pending=%d queue=%d", p, q)
 	}
-	// One valid quad stages exactly one command.
+	// 有効な四角形1つはちょうど1つの命令を準備する。
 	if err := b.DrawQuads(0, []Quad{q()}); err != nil {
 		t.Fatalf("DrawQuads: %v", err)
 	}
 	if p, q := queuedLens(b); p != 0 || q != 1 {
 		t.Fatalf("valid quad staged: pending=%d queue=%d, want 0/1", p, q)
 	}
-	// A batch of N faces still stages exactly one command.
+	// N 面のまとまりも依然ちょうど1つの命令を準備する。
 	batch := make([]Quad, 0, 7)
 	for i := 0; i < 7; i++ {
 		f := q()
@@ -205,7 +208,7 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if p, q := queuedLens(b); p != 0 || q != 2 {
 		t.Fatalf("batch staged: pending=%d queue=%d, want 0/2 (one per command)", p, q)
 	}
-	// Past the face cap the command is rejected before staging.
+	// 面上限を超えると命令は準備前に拒否される。
 	if err := b.DrawQuads(0, make([]Quad, maxQuadsPerCall+1)); err == nil {
 		t.Fatal("over the face cap should error")
 	}

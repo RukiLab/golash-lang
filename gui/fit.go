@@ -1,30 +1,28 @@
 package gui
 
-// Text fitting for widgets that ebitenui draws without clipping: a
-// label wider than its button, or a list entry wider than the list,
-// would spill past the frame. Both are shortened with an ellipsis here
-// instead, measured with the same face that renders them.
+// ebitenui がクリッピングなしで描くウィジェット用のテキスト収め処理:
+// ボタン幅を超えるラベルやリスト幅を超える項目は枠からはみ出すため、
+// ここで省略記号付きに短縮する。描画と同じフェイスで測る。
 
 const (
-	// listSliderW is the visible vertical slider's width
-	// (MinHandleSize default 16 + zero track padding). The
-	// horizontal slider stays hidden, so nothing is reserved for it.
+	// listSliderW は表示される垂直スライダーの幅
+	// (MinHandleSize 既定 16 + トラック余白ゼロ)。水平スライダーは
+	// 非表示のため予約しない。
 	listSliderW = 16
 
-	// listPadX is the horizontal inset inside a listbox:
-	// ScrollContainerPadding(1) + EntryTextPadding(2) per side.
+	// listPadX はリストボックス内の水平余白:
+	// ScrollContainerPadding(1) + EntryTextPadding(2) の両側分。
 	listPadX = 8
 
-	// buttonPadX is the horizontal inset inside a button:
-	// TextPadding(2) per side plus a little safety.
+	// buttonPadX はボタン内の水平余白:
+	// TextPadding(2) の両側分に安全分を足したもの。
 	buttonPadX = 6
 
-	// ell is the truncation marker.
+	// ell は省略マーカー。
 	ell = "..."
 )
 
-// longestEllFit returns how many runes of r fit maxw when followed by
-// ell, or -1 when even ell alone does not fit.
+// longestEllFit は ell を後ろに付けたときに maxw に収まる r のルーン数を返し、ell 単体でも収まらない場合は -1 を返す。
 func longestEllFit(r []rune, maxw int, measure func(string) int) int {
 	if measure(ell) > maxw {
 		return -1
@@ -41,9 +39,8 @@ func longestEllFit(r []rune, maxw int, measure func(string) int) int {
 	return lo
 }
 
-// fitText shortens s with an ellipsis so it measures at most maxw.
-// Runes are kept whole (no half characters for CJK), and a string that
-// already fits is returned unchanged.
+// fitText は s を省略記号付きで短縮し、幅が最大で maxw になるようにする。
+// ルーン単位で保持し（CJK の文字化けなし）、既に収まっている文字列はそのまま返す。
 func fitText(s string, maxw int, measure func(string) int) string {
 	if maxw <= 0 || measure(s) <= maxw {
 		return s
@@ -56,12 +53,9 @@ func fitText(s string, maxw int, measure func(string) int) string {
 	return string(r[:n]) + ell
 }
 
-// fitUniqueText shortens s like fitText but skips any form already
-// claimed by an earlier item. List selection is index-based, yet the
-// EntrySelectedHandler resolves a chosen entry back to its index by
-// comparing strings, so two items that shortened to the same text would
-// both resolve to the first one: clicking the second row would jump to
-// the wrong definition.
+// fitUniqueText は fitText と同様に s を短縮するが、先行する項目が既に使った形は避ける。リスト選択はインデックス基準だが、
+// EntrySelectedHandler は選ばれた項目を文字列比較でインデックスに戻すため、2つの項目が同じ短縮形になると
+// どちらも最初のものに解決されてしまう。2行目をクリックすると誤った定義に飛ぶことになる。
 func fitUniqueText(s string, maxw int, measure func(string) int, used map[string]bool) string {
 	r := []rune(s)
 	for k := longestEllFit(r, maxw, measure); k >= 0; k-- {
@@ -70,16 +64,12 @@ func fitUniqueText(s string, maxw int, measure func(string) int, used map[string
 			return cand
 		}
 	}
-	// Every shortened form is taken: keep the full text. It spills past
-	// the frame, but the scroll mask clips it and the index stays
-	// correct. (A full text that is also taken means the script passed
-	// duplicates, which no display can tell apart.)
+	// 短縮形がすべて使われ尽くした場合は元の全文を保持する。枠からはみ出すが、スクロールマスクで切り取られ、インデックスは正しく保たれる。
+	// （全文まで重複している場合はスクリプト側が重複を渡したことになり、どの表示でも区別できない。）
 	return s
 }
 
-// fitItems shortens every item to maxw, keeping order and length so a
-// selection index still points at the same item. Distinct inputs stay
-// distinct after fitting; the input slice is never modified.
+// fitItems は全項目を maxw に短縮し、順序と件数を保つことで選択インデックスが同じ項目を指し続けるようにする。異なる入力は短縮後も異なるままになり、入力スライス自体は変更しない。
 func fitItems(items []string, maxw int, measure func(string) int) []string {
 	out := make([]string, len(items))
 	used := make(map[string]bool, len(items))

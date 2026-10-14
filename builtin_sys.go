@@ -1,8 +1,8 @@
-// System/OS-window builtins: environment, launching, networking.
+// システム／OS連携の組み込み関数：環境変数・外部起動・ネットワーク。
 //
-// These wrap OS facilities a script cannot reach on its own. Each stays
-// minimal on purpose; anything scriptable (parsing, formatting, math)
-// belongs in script code, not here.
+// スクリプト単体では届かない OS 機能を包む。各関数は意図的に
+// 最小限にとどめる；スクリプトで書ける処理（解析・整形・計算）は
+// こちらではなくスクリプト側に置く。
 package main
 
 import (
@@ -22,12 +22,12 @@ import (
 	"golang.design/x/clipboard"
 )
 
-// httpMaxBytes caps httpget bodies (16MB).
+// httpMaxBytes は httpget の本文上限（16MB）。
 const httpMaxBytes = 16 << 20
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// httpFetch gets url with shared limits: non-2xx and oversize are errors.
+// httpFetch は共通の制限付きで url を取得する：非2xx とサイズ超過はエラー。
 func httpFetch(url string) ([]byte, error) {
 	resp, err := httpClient.Get(url)
 	if err != nil {
@@ -37,7 +37,7 @@ func httpFetch(url string) ([]byte, error) {
 	return drainResp(resp)
 }
 
-// httpPost sends body to url with shared limits.
+// httpPost は body を url に共通の制限付きで送信する。
 func httpPost(url, body, contentType string) ([]byte, error) {
 	resp, err := httpClient.Post(url, contentType, strings.NewReader(body))
 	if err != nil {
@@ -47,7 +47,7 @@ func httpPost(url, body, contentType string) ([]byte, error) {
 	return drainResp(resp)
 }
 
-// drainResp checks the status and reads a capped body.
+// drainResp はステータスを確認し、上限付きで本文を読み込む。
 func drainResp(resp *http.Response) ([]byte, error) {
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("status %s", resp.Status)
@@ -62,8 +62,8 @@ func drainResp(resp *http.Response) ([]byte, error) {
 	return body, nil
 }
 
-// parseDlgFilter splits "名前|*.png;*.jpg" into description and
-// extensions (without "*."). Empty input means no filter.
+// parseDlgFilter は「名前|*.png;*.jpg」を説明文と
+// extensions（"*." なし）。空入力はフィルタなしを意味する。
 func parseDlgFilter(f string) (string, []string) {
 	parts := strings.SplitN(f, "|", 2)
 	if len(parts) != 2 {
@@ -85,7 +85,7 @@ func parseDlgFilter(f string) (string, []string) {
 	return parts[0], exts
 }
 
-// Clipboard state: initialized once, watched in the background.
+// クリップボードの状態：一度だけ初期化し、裏で監視する。
 var (
 	clipOnce sync.Once
 	clipErr  error
@@ -93,7 +93,7 @@ var (
 	clipText string
 )
 
-// clipEnsure initializes the clipboard and starts the watcher.
+// clipEnsure はクリップボードを初期化し、監視を開始する。
 func clipEnsure() error {
 	clipOnce.Do(func() {
 		if err := clipboard.Init(); err != nil {
@@ -116,9 +116,9 @@ func clipEnsure() error {
 }
 
 func init() {
-	// getenv(name): environment variable value, or "" when unset
-	// (unset and empty-but-set both read as ""; aborting on a
-	// missing variable would make optional configuration unusable).
+	// getenv(name)：環境変数の値。未設定時は「」
+	//（未設定と空文字設定のどちらも「」として読む；存在しない変数で
+	// 中断すると任意設定が使い物にならなくなるため）。
 	register("getenv", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("getenv", args, 0, at)
 		if err != nil {
@@ -131,8 +131,8 @@ func init() {
 		return Str(v), nil
 	})
 
-	// open(target): open a file, folder or URL with the associated
-	// application (detached; returns immediately).
+	// open(target)：関連付けアプリでファイル・フォルダ・URL を開く
+	//（切り離し起動で即時復帰する）。
 	register("open", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		target, err := needString("open", args, 0, at)
 		if err != nil {
@@ -141,8 +141,8 @@ func init() {
 		if target == "" {
 			return Null(), argErr("open", 0, at, "対象を空にすることはできません")
 		}
-		// URLs pass through untouched; file paths resolve against the
-		// script directory like every other file builtin.
+		// URL はそのまま通し、ファイルパスは他のファイル系組み込み関数と同様に
+		// スクリプトディレクトリ基準で解決する。
 		if !strings.Contains(target, "://") {
 			target = in.resolvePath(target)
 		}
@@ -158,14 +158,14 @@ func init() {
 		if err := cmd.Start(); err != nil {
 			return Null(), rtErrf(at, "open：%s", err.Error())
 		}
-		// Reap in the background (same as exec); the call stays async.
+		// 裏で回収する（exec と同様）；呼び出しは非同期のまま。
 		go func() { _ = cmd.Wait() }()
 		return Null(), nil
 	})
 
-	// Clipboard (text only): clipget polls the cached text,
-	// clipset writes it. External copies surface through a
-	// background watcher; our own writes update the cache at once.
+	// クリップボード（テキストのみ）：clipget は溜めたテキストを読み、
+	// clipset は書き込む。外部からのコピーは裏の監視経由で反映され、
+	// 自身の書き込みはキャッシュに即時反映される。
 	register("clipget", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if err := clipEnsure(); err != nil {
 			return Null(), rtErrf(at, "clipboard：%s", err.Error())
@@ -191,9 +191,9 @@ func init() {
 		return Null(), nil
 	})
 
-	// dlgopen([filter]): file-open dialog, or "" on cancel (an empty
-	// path is never a real selection, so it doubles as the sentinel).
-	// filter is "名前|*.png;*.jpg" (one group).
+	// dlgopen([filter])：ファイルを開くダイアログ。キャンセル時は「」（空の
+	// パスは実際の選択になり得ないため、番兵として兼ねる）。
+	// filter は「名前|*.png;*.jpg」（1グループ）。
 	register("dlgopen", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		filter := ""
 		if len(args) == 1 {
@@ -213,11 +213,10 @@ func init() {
 		return Str(path), nil
 	})
 
-	// dlgsave([filter] [, name]): file-save dialog, or "" on cancel.
-	// filter is "名前|*.png;*.jpg" (one group; pass "" to skip it) and name
-	// pre-fills the file name box. The dialog itself asks before
-	// overwriting an existing file (the OS prompt), so a returned path is
-	// always confirmed by the user.
+	// dlgsave([filter] [, name])：ファイル保存ダイアログ。キャンセル時は「」。
+	// filter は「名前|*.png;*.jpg」（1グループ；不要なら「」）で、name は
+	// ファイル名欄の初期値。上書き確認はダイアログ自体が行う（OS の問い合わせ）
+	// ため、返ってきたパスは常に利用者の確認済みになる。
 	register("dlgsave", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		filter, name := "", ""
 		var err error
@@ -243,9 +242,8 @@ func init() {
 		return Str(path), nil
 	})
 
-	// httpget(url [, path]): fetch over HTTP(S) with a 10s timeout and
-	// 16MB cap. One argument returns the body as a string; with path
-	// the body is saved and the byte count is returned.
+	// httpget(url [, path])：HTTP(S) で取得する（10秒タイムアウト・16MB上限）。
+	// 引数1個では本文を文字列で返し、path 付きでは保存してバイト数を返す。
 	register("httpget", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		url, err := needString("httpget", args, 0, at)
 		if err != nil {
@@ -273,10 +271,10 @@ func init() {
 		return Int(int64(len(body))), nil
 	})
 
-	// httppost(url, body [, contentType [, path]]): POST with the same
-	// 10s timeout and 16MB cap as httpget. contentType defaults to
-	// application/json. Returns the response body as a string; with
-	// path the body is saved and the byte count is returned.
+	// httppost(url, body [, contentType [, path]])：httpget と同じ
+	// 10秒タイムアウト・16MB上限で POST する。contentType の既定は
+	// application/json。path なしでは応答本文を文字列で返し、
+	// path 付きでは保存してバイト数を返す。
 	register("httppost", 2, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		url, err := needString("httppost", args, 0, at)
 		if err != nil {
@@ -315,7 +313,7 @@ func init() {
 		return Str(string(body)), nil
 	})
 
-	// setenv(name, value): set for this process (and children via exec).
+	// setenv(name, value)：このプロセス用に設定する（exec 経由で子にも継承）。
 	register("setenv", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("setenv", args, 0, at)
 		if err != nil {
@@ -332,10 +330,9 @@ func init() {
 	})
 }
 
-// dlgStartDir is the initial folder of a file dialog: the script's own
-// directory when it exists, else the working directory. It mirrors the
-// font() search order, so a script picks files next to itself by default
-// ("" when neither is a usable directory, leaving the OS to decide).
+// dlgStartDir はファイルダイアログの初期フォルダ：存在すればスクリプト自身の
+// ディレクトリ、なければ作業ディレクトリ。font() の探索順を写しているため、
+// スクリプトは既定で手元のファイルを拾う（どちらも使えない場合は「」で OS 任せ）。
 func dlgStartDir(in *Interp) string {
 	if d := in.ScriptDir(); d != "" {
 		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
@@ -348,10 +345,10 @@ func dlgStartDir(in *Interp) string {
 	return ""
 }
 
-// dlgFileBuilder configures a common file dialog: the start folder
-// (dlgStartDir), an optional filter ("名前|*.png;*.jpg", one group) and,
-// for save dialogs, a pre-filled file name. No OS window opens until
-// Load()/Save(), so the configuration is testable without a session.
+// dlgFileBuilder は共通のファイルダイアログを整える：開始フォルダ
+//（dlgStartDir）、任意フィルタ（「名前|*.png;*.jpg」、1グループ）、保存時は
+// 初期ファイル名。Load()／Save() までは OS 画面を開かないため、
+// セッションなしでも設定部分を試験できる。
 func dlgFileBuilder(in *Interp, title, filter, name string) *dialog.FileBuilder {
 	b := dialog.File().Title(title)
 	if dir := dlgStartDir(in); dir != "" {

@@ -17,9 +17,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
-// mustNew builds a backend or skips when no system font is available
-// (font-less CI containers); GUI text needs an OS font since no font
-// file is bundled.
+// mustNew はバックエンドを構築する。システムフォントが無い場合はスキップする
+// （フォント無しのCIコンテナ用）。フォントファイルは同梱されていないため
+// GUIテキストにはOSフォントが必要。
 func mustNew(t *testing.T) *WindowBackend {
 	t.Helper()
 	b, err := New(640, 480)
@@ -112,29 +112,29 @@ func TestCharStep(t *testing.T) {
 	if got := charStep(&st, "", 0); got != "" {
 		t.Fatalf("idle = %q, want empty", got)
 	}
-	// New text fires at once.
+	// 新しいテキストは即座に発火する。
 	if got := charStep(&st, "a", 0); got != "a" {
 		t.Fatalf("new = %q, want a", got)
 	}
-	// Same-tick re-poll stays quiet (no double report).
+	// 同一ティック内の再ポーリングは沈黙を保つ（二重報告なし）。
 	if got := charStep(&st, "a", 0); got != "" {
 		t.Fatalf("dup = %q, want empty", got)
 	}
-	// OS auto-repeat arrivals on later ticks pass through untouched.
+	// 後のティックで届くOSのオートリピートはそのまま通過させる。
 	if got := charStep(&st, "a", 1); got != "a" {
 		t.Fatalf("repeat = %q, want a", got)
 	}
 	if got := charStep(&st, "a", 2); got != "a" {
 		t.Fatalf("repeat2 = %q, want a", got)
 	}
-	// Different text always fires at once, even mid-tick.
+	// 異なるテキストはティック途中でも常に即座に発火する。
 	if got := charStep(&st, "b", 2); got != "b" {
 		t.Fatalf("switch = %q, want b", got)
 	}
 	if got := charStep(&st, "b", 2); got != "" {
 		t.Fatalf("switch dup = %q, want empty", got)
 	}
-	// Gaps stay quiet; later arrivals still fire.
+	// 空白期間は沈黙を保つ。後の到着分はそれでも発火する。
 	if got := charStep(&st, "", 3); got != "" {
 		t.Fatalf("gap = %q, want empty", got)
 	}
@@ -143,9 +143,9 @@ func TestCharStep(t *testing.T) {
 	}
 }
 
-// TestCtrlStep checks control-key repeat without a game loop:
-// fire on press, quiet during the delay, refire on the interval,
-// release resets to fire-at-once.
+// TestCtrlStep はゲームループなしで制御キーのリピートを検証する：
+// 押下で発火、遅延中は沈黙、間隔ごとに再発火、
+// 解放で即時発火に戻る。
 func TestCtrlStep(t *testing.T) {
 	var st ctrlState
 	if ctrlStep(&st, false, 0) {
@@ -183,8 +183,8 @@ func TestCtrlStep(t *testing.T) {
 	}
 }
 
-// TestImeDiff checks the field mirror: appends pass through,
-// in-field deletions become tail drops, identical text is a no-op.
+// TestImeDiff はフィールドミラーを検証する：追記は通過し、
+// フィールド内削除は末尾削除になり、同一テキストは無操作。
 func TestImeDiff(t *testing.T) {
 	if d, a := imeDiff("", "あ"); d != 0 || a != "あ" {
 		t.Fatalf("type = (%d,%q)", d, a)
@@ -204,17 +204,17 @@ func TestImeDiff(t *testing.T) {
 	if d, a := imeDiff("あ", "あ"); d != 0 || a != "" {
 		t.Fatalf("idle = (%d,%q)", d, a)
 	}
-	// Post-delete commits are not swallowed (the stale-mark bug).
+	// 削除後の確定は飲み込まれない（古いマークのバグ）。
 	if d, a := imeDiff("あ", "あい"); d != 0 || a != "い" {
 		t.Fatalf("retype = (%d,%q)", d, a)
 	}
 }
 
-// TestCaretPixelsHeadless in ime_test.go covers the caret anchor;
-// backend_test.go keeps input/edit coverage.
+// ime_test.go 内の TestCaretPixelsHeadless がキャレット位置を検証する；
+// backend_test.go 側は input/edit の範囲を保持する。
 
-// TestDropLastLocked checks tail truncation across the consumer
-// chain: pending first, then the focused editor.
+// TestDropLastLocked はコンシューマ連鎖をまたぐ末尾切り詰めを検証する：
+// まず保留分、次にフォーカス中のエディタ。
 func TestDropLastLocked(t *testing.T) {
 	b := mustNew(t)
 	b.mu.Lock()
@@ -247,11 +247,12 @@ func TestDropLastLocked(t *testing.T) {
 
 func TestReadImmediateHeadless(t *testing.T) {
 	b := mustNew(t)
-	// Headless: no loop, nothing typed.
+	// ヘッドレス: ループなし、何も入力されていない。
 	if got := b.ReadImmediate(); got != "" {
 		t.Fatalf("ReadImmediate = %q, want empty", got)
 	}
-	// While a focused inputbox owns the stream, input stays silent.
+	// フォーカス中の inputbox がストリームを所有している間、入力は無音の
+	// ままである。
 	b.mu.Lock()
 	if b.widgets == nil {
 		b.widgets = map[int]*widgetEntry{}
@@ -262,7 +263,7 @@ func TestReadImmediateHeadless(t *testing.T) {
 	if got := b.ReadImmediate(); got != "" {
 		t.Fatalf("ReadImmediate during edit = %q, want empty", got)
 	}
-	// Drained IME commits flow through input().
+	// 排出された IME の確定が input() を通って流れる。
 	b.mu.Lock()
 	b.widgets[4].edit.focused = false
 	b.imePending = "あ"
@@ -297,7 +298,7 @@ func TestSetFontFileHeadless(t *testing.T) {
 	if base == "" {
 		t.Skip("no system font")
 	}
-	// Bare base-name resolution hits the same file.
+	// 裸のベース名の解決が同じファイルに当たる。
 	name := base
 	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
 		name = name[i+1:]
@@ -326,9 +327,10 @@ func TestSetFontFileHeadless(t *testing.T) {
 	}
 }
 
-// TestFontPerUserDir covers bare-name resolution in the per-user font
-// directory (Windows default for non-admin installs). The scan only
-// needs the file name, so a dummy file suffices (no parsing involved).
+// TestFontPerUserDir はユーザーごとのフォントディレクトリ（非管理者
+// インストールでの Windows の既定）での裸の名前の解決を扱う。スキャンは
+// ファイル名のみを必要とするため、ダミーのファイルで十分である
+// （解析は関与しない）。
 func TestFontPerUserDir(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("per-user Fonts dir is a Windows concept")
@@ -351,11 +353,11 @@ func TestFontPerUserDir(t *testing.T) {
 	}
 }
 
-// TestFontExtraDirs covers caller-owned search roots (script directory,
-// working directory): exact file names, extension-less names (with
-// extension completion), and extension-less prefix matches all resolve
-// there before the system directories, on any OS. The scan only needs
-// the file name, so dummy files suffice (no parsing involved).
+// TestFontExtraDirs は呼出し側が所有する検索ルート（スクリプト
+// ディレクトリ、作業ディレクトリ）を扱う: 正確なファイル名、拡張子なし
+// の名前（拡張子補完付き）、拡張子なしの前方一致は、いかなる OS でも
+// システムディレクトリより先にそこへ解決される。スキャンはファイル名
+// のみを必要とするため、ダミーのファイルで十分である（解析は関与しない）。
 func TestFontExtraDirs(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{
@@ -368,7 +370,7 @@ func TestFontExtraDirs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Exact file name wins inside the extra dir.
+	// 正確なファイル名が追加ディレクトリ内で優先される。
 	got, err := resolveFontSpec("ZZZSibExact.ttf", dir)
 	if err != nil {
 		t.Fatalf("resolveFontSpec(exact, dir): %v", err)
@@ -376,7 +378,7 @@ func TestFontExtraDirs(t *testing.T) {
 	if !strings.EqualFold(got, filepath.Join(dir, "ZZZSibExact.ttf")) {
 		t.Fatalf("exact resolved = %q, want the sibling file", got)
 	}
-	// Extension-less name is completed inside the extra dir.
+	// 拡張子なしの名前が追加ディレクトリ内で補完される。
 	got, err = resolveFontSpec("zzzsibext", dir)
 	if err != nil {
 		t.Fatalf("resolveFontSpec(extless, dir): %v", err)
@@ -384,7 +386,8 @@ func TestFontExtraDirs(t *testing.T) {
 	if !strings.EqualFold(got, filepath.Join(dir, "ZZZSibExt.ttf")) {
 		t.Fatalf("extless resolved = %q, want the sibling file", got)
 	}
-	// Extension-less prefix prefers the Regular face inside the extra dir.
+	// 拡張子なしの前方一致は追加ディレクトリ内で Regular フェイスを
+	// 優先する。
 	got, err = resolveFontSpec("zzzsibprefix", dir)
 	if err != nil {
 		t.Fatalf("resolveFontSpec(prefix, dir): %v", err)
@@ -392,19 +395,19 @@ func TestFontExtraDirs(t *testing.T) {
 	if !strings.EqualFold(got, filepath.Join(dir, "ZZZSibPrefix-Regular.ttf")) {
 		t.Fatalf("prefix resolved = %q, want the Regular face", got)
 	}
-	// Without the extra dir the same names are unknown (siblings beat the
-	// system search only when the caller puts them first).
+	// 追加ディレクトリがなければ同じ名前は未知である（兄弟は呼出し側が
+	// それらを先に置いたときだけシステム検索に勝つ）。
 	if _, err := resolveFontSpec("ZZZSibExact.ttf"); err == nil {
 		t.Fatal("sibling name without its dir should error")
 	}
 }
 
-// printFrags drives the real mes()/print() path headless and returns the
-// fragments it lays out for the canvas layer (cell origin, text, style) in
-// call order. Text is baked into the canvas buffer like any other drawing,
-// so these fragments are the layout state Draw ends up showing; callers
-// must pump (Update) or b.drainQueue() for the staged batch first if they
-// want it rasterized.
+// printFrags は実際の mes()/print() 経路をヘッドレスで駆動し、それが
+// キャンバス層用に配置する断片（セル原点、テキスト、スタイル）を呼出順
+// で返す。テキストは他の描画と同じくキャンバスバッファに焼き込まれる
+// ため、これらの断片は Draw が最終的に示す配置状態である。呼出し側が
+// それをラスタライズしたい場合は、準備されたまとまりを先に
+// （Update または b.drainQueue() で）汲み上げなければならない。
 func printFrags(t *testing.T, b *WindowBackend, s string, st TextStyle, newline bool) []textOp {
 	t.Helper()
 	d := b.printRaw(s, st, newline)
@@ -420,10 +423,9 @@ func printFrags(t *testing.T, b *WindowBackend, s string, st TextStyle, newline 
 	return out
 }
 
-// fragLines joins the fragments of each row (left to right) back into the
-// text a reader sees: every print() call is its own fragment, but
-// consecutive calls continue the same line, so the visible composition is
-// what tests assert.
+// fragLines は各行の断片を（左から右へ）読み手が見るテキストに結合し
+// 直す: 各 print() 呼出はそれぞれ独自の断片だが、連続する呼出は同じ行を
+// 続けるため、可視の構成がテストが確認するものである。
 func fragLines(ops []textOp) []string {
 	idx := map[int]int{}
 	var out []string
@@ -442,9 +444,9 @@ func fragLines(ops []textOp) []string {
 	return out
 }
 
-// queuedLens reports the staged (pending) and ready (queue) draw command
-// counts, i.e. how much of the frame has been committed. Batched text
-// that has not been flushed for a closure yet counts as staged.
+// queuedLens は準備済み（pending）と準備完了（queue）の描画命令数を、
+// つまりフレームのどれだけが確定したかを報告する。まだクロージャ用に
+// フラッシュされていないまとめたテキストは準備済みとして数えられる。
 func queuedLens(b *WindowBackend) (pending, queue int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -474,13 +476,13 @@ func TestPrintlnState(t *testing.T) {
 	}
 }
 
-// TestPrintlnHonorsPos covers pos() + mes()/print() positioning: the text
-// origin is the pos() pixel itself (1px granularity), and a continuation
-// print() lands beside what came before.
+// TestPrintlnHonorsPos は pos() + mes()/print() の位置決めを扱う:
+// テキストの原点は pos() のピクセル自体（1px 刻み）であり、継続の
+// print() は前に来たものの隣に着地する。
 func TestPrintlnHonorsPos(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "plain", 0, true)
-	b.MoveTo(37, 41) // odd pixels: no cell snapping
+	b.MoveTo(37, 41) // 奇数のピクセル: セルへの丸めはしない
 	frags = append(frags, printFrags(t, b, "hi", 0, true)...)
 	if len(frags) != 2 {
 		t.Fatalf("frags: %+v", frags)
@@ -493,8 +495,8 @@ func TestPrintlnHonorsPos(t *testing.T) {
 	}
 }
 
-// TestPrintlnMultilinePos checks continuation lines come back to the
-// anchor the line started at (the pos() origin), one line pitch down.
+// TestPrintlnMultilinePos は継続行が行が始まったアンカー（pos() の
+// 原点）に、1行のピッチ下がって戻ることを確認する。
 func TestPrintlnMultilinePos(t *testing.T) {
 	b := mustNew(t)
 	b.MoveTo(24, 64)
@@ -510,9 +512,9 @@ func TestPrintlnMultilinePos(t *testing.T) {
 	}
 }
 
-// TestPrintPosContinue locks the print/pos/print composition on one
-// layer: the fragments of the first print() stay at the pixel they were
-// laid out on, and the continuation lands beside them.
+// TestPrintPosContinue は1つの層での print/pos/print の合成を固定する:
+// 最初の print() の断片はそれが配置されたピクセルに留まり、継続は
+// それらの隣に着地する。
 func TestPrintPosContinue(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "ab", 0, false)
@@ -528,7 +530,8 @@ func TestPrintPosContinue(t *testing.T) {
 	if frags[1].x != 32 || frags[1].s != "cd" {
 		t.Fatalf("frags[1]: %+v", frags[1])
 	}
-	// "cd" drew 16px, so "ef" starts 16px after it, not on a cell.
+	// "cd" は 16px 描画したため、"ef" はセルではなくその 16px 後から
+	// 始まる。
 	if frags[2].x != 48 || frags[2].s != "ef" {
 		t.Fatalf("frags[2]: %+v", frags[2])
 	}
@@ -537,8 +540,9 @@ func TestPrintPosContinue(t *testing.T) {
 	}
 }
 
-// TestPrintWideContinue locks continuation advances for CJK: printing
-// one char per print() call (IME echo loops do this) must not overlap.
+// TestPrintWideContinue は CJK の継続の送りを固定する: 1回の print()
+// 呼出で1文字を印字する（IME のエコーループがそうする）と重なっては
+// ならない。
 func TestPrintWideContinue(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "あ", 0, false)
@@ -551,13 +555,15 @@ func TestPrintWideContinue(t *testing.T) {
 	}
 }
 
-// TestTextScrollCarry locks the baked-text scroll math: text scrolls by
-// shifting the canvas buffer, and each line shifted accumulates in
-// scrollExact so the shifted pixels stay exact even if a future
-// lineHeight ratio is fractional. Plain layout state, no game loop.
+// TestTextScrollCarry は焼き込みテキストのスクロール計算を固定する:
+// テキストはキャンバスバッファをずらすことでスクロールし、ずらした
+// 各行は scrollExact に蓄積されるため、将来の lineHeight 比が小数でも
+// ずらしたピクセルは正確なままである。単なる配置状態で、ゲームループは
+// 不要。
 func TestTextScrollCarry(t *testing.T) {
 	b := mustNew(t)
-	// 10px font: the line pitch is 10px (lineHeight scales with the size).
+	// 10px フォント: 行のピッチは 10px（lineHeight はサイズに応じて
+	// スケールする）。
 	if err := b.SetFontSize(10); err != nil {
 		t.Fatalf("SetFontSize(10): %v", err)
 	}
@@ -599,9 +605,9 @@ func TestTextScrollCarry(t *testing.T) {
 	}
 }
 
-// TestPrintTabExpands locks the tab rendering: a tab in mes()/print()
-// advances 4 half-width cells of blank (a fixed advance, not a tab stop),
-// so the fragment carries the blank and the cursor lands after it.
+// TestPrintTabExpands はタブの描画を固定する: mes()/print() のタブは
+// 半角セル4つ分の空白を送る（固定の送り幅でありタブストップではない）
+// ため、断片はその空白を運び、カーソルはその後ろに着地する。
 func TestPrintTabExpands(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "a\tb", 0, false)
@@ -612,7 +618,7 @@ func TestPrintTabExpands(t *testing.T) {
 	if b.curX != 48 { // "a" + 4×8px + "b"
 		t.Fatalf("curX = %v, want 48", b.curX)
 	}
-	// A tab is a fixed 32px advance even away from the left edge.
+	// タブは左端から離れていても固定の 32px 送りである。
 	b.curX = 3
 	b.mu.Unlock()
 	frags = printFrags(t, b, "\tx", 0, false)
@@ -626,8 +632,8 @@ func TestPrintTabExpands(t *testing.T) {
 	}
 }
 
-// TestTextWidthTabs keeps strwidth() on the same grid as the mes()
-// rendering: a tab costs four half-width cells there too.
+// TestTextWidthTabs は strwidth() を mes() の描画と同じグリッドに保つ:
+// そこでもタブは半角セル4つ分のコストである。
 func TestTextWidthTabs(t *testing.T) {
 	b := mustNew(t)
 	if got, want := b.TextWidth("\t"), b.TextWidth("    "); got != want {
@@ -638,9 +644,9 @@ func TestTextWidthTabs(t *testing.T) {
 	}
 }
 
-// TestPrintNewlineSplit covers print() with embedded newlines: every
-// non-empty line becomes its own fragment (one per line), and the cursor
-// ends after the trailing chunk.
+// TestPrintNewlineSplit は埋め込み改行を含む print() を扱う: 空でない
+// 各行はそれぞれ独自の断片（1行に1つ）になり、カーソルは末尾の塊の
+// 後ろで終わる。
 func TestPrintNewlineSplit(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "a\nb\nc", 0, false)
@@ -650,7 +656,7 @@ func TestPrintNewlineSplit(t *testing.T) {
 	if frags[0].y != 0 || frags[1].y != 16 || frags[2].y != 32 {
 		t.Fatalf("rows: %+v", frags)
 	}
-	// Left-edge line: continuation lines come back to x=0.
+	// 左端の行: 継続行は x=0 に戻る。
 	if frags[0].x != 0 || frags[1].x != 0 || frags[2].x != 0 {
 		t.Fatalf("cols: %+v", frags)
 	}
@@ -659,18 +665,18 @@ func TestPrintNewlineSplit(t *testing.T) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.curY != 32 || b.curX != 8 { // "c" is 8px wide
+	if b.curY != 32 || b.curX != 8 { // "c" は幅 8px
 		t.Fatalf("cursor = (%v,%v), want (8,32)", b.curX, b.curY)
 	}
 }
 
-// TestPrintNewlineKeepsAnchor covers a multi-line string printed away from
-// the left edge: each embedded newline returns the cursor to the x the
-// line started at (the pos() anchor), one line pitch down, so a mes()
-// block prints as a rectangle.
+// TestPrintNewlineKeepsAnchor は左端から離れて印字された複数行の
+// 文字列を扱う: 各埋め込み改行はカーソルを行が始まった x（pos() の
+// アンカー）に、1行のピッチ下がって戻すため、mes() のブロックは矩形に
+// 印字される。
 func TestPrintNewlineKeepsAnchor(t *testing.T) {
 	b := mustNew(t)
-	b.MoveTo(80, 40) // any pixel origin, no cell snapping
+	b.MoveTo(80, 40) // 任意のピクセル原点。セルへの丸めはしない
 	frags := printFrags(t, b, "ab\ncd", 0, false)
 	if len(frags) != 2 || frags[0].s != "ab" || frags[1].s != "cd" {
 		t.Fatalf("frags: %+v", frags)
@@ -681,13 +687,13 @@ func TestPrintNewlineKeepsAnchor(t *testing.T) {
 	if frags[1].x != 80 || frags[1].y != 56 {
 		t.Fatalf("frags[1] at (%d,%d), want (80,56)", frags[1].x, frags[1].y)
 	}
-	// A second call with an embedded newline keeps the same anchor (the
-	// cursor is still on the row the previous block ended on).
+	// 埋め込み改行を含む2回目の呼出も同じアンカーを保つ（カーソルは
+	// 依然前のブロックが終わった行にある）。
 	frags = printFrags(t, b, "ef\ngh", 0, false)
 	if len(frags) != 2 || frags[1].x != 80 || frags[1].y != 72 {
 		t.Fatalf("second block: %+v", frags)
 	}
-	// A hard newline (mes) then anchors the next line back at x=0.
+	// ハードな改行（mes）は次の行のアンカーを x=0 に戻す。
 	_ = printFrags(t, b, "", 0, true)
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -696,8 +702,8 @@ func TestPrintNewlineKeepsAnchor(t *testing.T) {
 	}
 }
 
-// TestPrintJoinAcrossNewline checks print/print/mes composition across an
-// embedded newline: the pieces still read as one line per row.
+// TestPrintJoinAcrossNewline は埋め込み改行をまたいだ print/print/mes の
+// 合成を確認する: 部分は行ごとに1行として読める。
 func TestPrintJoinAcrossNewline(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "ab", 0, false)
@@ -711,8 +717,8 @@ func TestPrintJoinAcrossNewline(t *testing.T) {
 	}
 }
 
-// TestPrintTrailingNewline leaves the cursor clean on the next line (an
-// empty chunk emits no fragment).
+// TestPrintTrailingNewline はカーソルを次の行できれいに残す（空の塊は
+// 断片を発しない）。
 func TestPrintTrailingNewline(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "a\n", 0, false)
@@ -726,8 +732,8 @@ func TestPrintTrailingNewline(t *testing.T) {
 	}
 }
 
-// TestPrintNewlineStyleChange keeps per-fragment styles across the split:
-// each call is its own fragment with its own style.
+// TestPrintNewlineStyleChange は分割をまたいで断片ごとのスタイルを保つ:
+// 各呼出はそれぞれ独自のスタイルを持つ独自の断片である。
 func TestPrintNewlineStyleChange(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "a", StyleBold, false)
@@ -750,10 +756,10 @@ func TestPrintStyles(t *testing.T) {
 	b := mustNew(t)
 	frags := printFrags(t, b, "a", StyleBold, true)
 	frags = append(frags, printFrags(t, b, "b", StyleItalic, false)...)
-	// A style change mid-line is fine: the next call is its own fragment,
-	// so "b" keeps italic.
+	// 行の途中でのスタイル変更は問題ない: 次の呼出は独自の断片なので、
+	// "b" はイタリックを保つ。
 	frags = append(frags, printFrags(t, b, "c", 0, true)...)
-	// Same-style print() calls stay separate fragments in the same row.
+	// 同じスタイルの print() 呼出も同じ行内の別々の断片のままである。
 	frags = append(frags, printFrags(t, b, "x", StyleBold, false)...)
 	frags = append(frags, printFrags(t, b, "y", StyleBold, false)...)
 	frags = append(frags, printFrags(t, b, "z", StyleBold, true)...)
@@ -772,7 +778,7 @@ func TestPrintStyles(t *testing.T) {
 	if frags[3].st != StyleBold || frags[5].st != StyleBold {
 		t.Fatalf("styles: %+v", frags)
 	}
-	// a is the first line; b/c share the second; xyz share the third.
+	// a が最初の行。b/c は2番目を共有。xyz は3番目を共有。
 	if frags[0].y != 0 || frags[1].y != 16 || frags[2].y != 16 || frags[3].y != 32 || frags[5].y != 32 {
 		t.Fatalf("rows: %+v", frags)
 	}
@@ -781,15 +787,15 @@ func TestPrintStyles(t *testing.T) {
 	}
 }
 
-// TestTextStagedWithCanvas locks that mes()/print() ride the canvas
-// frame: consecutive calls are batched into one staged command and applied
-// together with the rest of the frame at a boundary, so Draw never sees
-// text half entered and text cannot overtake or lag the shapes drawn
-// around it.
+// TestTextStagedWithCanvas は mes()/print() がキャンバスのフレームに
+// 乗ることを固定する: 連続する呼出は1つの準備済み命令にまとめられ、
+// 境界でフレームの残りとともに適用されるため、Draw は入力途中のテキスト
+// を決して見ず、テキストがその周りに描かれた図形を追い越したり
+// 遅れたりすることはない。
 func TestTextStagedWithCanvas(t *testing.T) {
 	b := mustNew(t)
-	// No yield yet: the staged batch goes straight to the game queue
-	// when flushed.
+	// まだ yield がない: 準備されたまとまりはフラッシュされると直接
+	// ゲームキューへ行く。
 	b.Println("first", 0)
 	if p, q := queuedLens(b); q != 0 || p != 1 {
 		t.Fatalf("before yield: pending=%d queue=%d, want 1/0", p, q)
@@ -798,21 +804,21 @@ func TestTextStagedWithCanvas(t *testing.T) {
 	if p, q := queuedLens(b); q != 0 || p != 0 {
 		t.Fatalf("after drain: pending=%d queue=%d, want 0/0", p, q)
 	}
-	// First yield switches to staged mode: batched text stages with the
-	// rest of the frame.
+	// 最初の yield が準備モードに切り替わる: まとめたテキストは
+	// フレームの残りとともに準備される。
 	b.Await(0)
 	b.Print("one\ntwo", 0)
 	if p, q := queuedLens(b); q != 0 || p != 1 {
 		t.Fatalf("after yield: pending=%d queue=%d, want 1/0", p, q)
 	}
-	// Update alone must not publish the staged frame.
+	// Update 単独では準備されたフレームを公開してはならない。
 	if err := b.Update(); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if p, q := queuedLens(b); q != 0 || p != 1 {
 		t.Fatalf("Update flushed the staged text: pending=%d queue=%d", p, q)
 	}
-	// The next boundary commits it with the rest of the frame.
+	// 次の境界がそれをフレームの残りとともに確定する。
 	b.Await(0)
 	if p, q := queuedLens(b); q != 1 || p != 0 {
 		t.Fatalf("after boundary: pending=%d queue=%d, want 0/1", p, q)
@@ -823,14 +829,14 @@ func TestTextStagedWithCanvas(t *testing.T) {
 	}
 }
 
-// TestTextAppliesWithoutYield: a script that never awaits/sleeps has no
-// frame boundary, so Update applies its queued text (it must not be stuck
-// off screen). Once the script has yielded, only yield points commit.
+// TestTextAppliesWithoutYield: 一度も await/sleep しないスクリプトには
+// フレーム境界がないため、Update がそのキュー済みテキストを適用する
+// （画面外に留まってはならない）。スクリプトが yield した後は、
+// yield 地点だけが確定する。
 
-// TestTextBatchMergesBurst locks the batching contract: consecutive
-// mes()/print() calls collapse adjacent repeated scrolls, share one flush
-// point, and still apply in script order when merged with everything in
-// the burst.
+// TestTextBatchMergesBurst はまとめ処理の契約を固定する: 連続する
+// mes()/print() 呼出は隣接する繰返しスクロールを畳み、1つのフラッシュ
+// 地点を共有し、まとまりのすべてと統合されてもスクリプト順に適用される。
 func TestTextBatchMergesBurst(t *testing.T) {
 	b := mustNew(t)
 	b.Println("one", 0)
@@ -879,13 +885,14 @@ func TestTextBatchMergesBurst(t *testing.T) {
 	}
 }
 
-// TestTextBatchFlushesBeforeShapes locks the ordering contract: a shape
-// drawn after batched text flushes it first, so call order wins on the
-// shared canvas layer.
+// TestTextBatchFlushesBeforeShapes は順序の契約を固定する: まとめた
+// テキストの後に描かれた図形はそれを先にフラッシュするため、共有の
+// キャンバス層では呼出順が勝つ。
 func TestTextBatchFlushesBeforeShapes(t *testing.T) {
 	b := mustNew(t)
-	// Staged mode: the batch must land in pending (not the live queue)
-	// ahead of the shape, so one boundary commits them in call order.
+	// 準備モード: まとまりは図形より前に pending（生のキューではなく）
+	// に着地しなければならない。これにより1つの境界が呼出順でそれらを
+	// 確定する。
 	b.Await(0)
 	b.Println("first", 0)
 	b.FillRect(0, 0, 10, 10, [4]int{255, 0, 0, 255})
@@ -916,7 +923,7 @@ func TestTextAppliesWithoutYield(t *testing.T) {
 	if p, q := queuedLens(b); q != 0 || p != 0 {
 		t.Fatalf("Update should apply the immediate text draw: pending=%d queue=%d", p, q)
 	}
-	// After a yield, Update leaves the staged frame alone.
+	// yield の後、Update は準備されたフレームをそのままにする。
 	b.Await(0)
 	b.Println("later", 0)
 	if err := b.Update(); err != nil {
@@ -931,13 +938,13 @@ func TestTextAppliesWithoutYield(t *testing.T) {
 	}
 }
 
-// TestCanvasFrameBoundary locks the canvas flicker fix: after the first
-// yield, draw commands are staged in pending and flushed as one frame at
-// await()/sleep()/end, and Draw observes only the committed drawSel.
-// A cls()->draws sequence in progress must not blank the canvas for a frame.
+// TestCanvasFrameBoundary はキャンバスのちらつき修正を固定する: 最初の
+// yield の後、描画命令は pending に準備され await()/sleep()/end で1つの
+// フレームとしてフラッシュされ、Draw は確定した drawSel のみを観測する。
+// 進行中の cls()->描画 列がキャンバスを1フレーム空白にしてはならない。
 func TestCanvasFrameBoundary(t *testing.T) {
 	b := mustNew(t)
-	// No yield yet: enqueue goes straight to the game queue.
+	// まだ yield がない: enqueue は直接ゲームキューへ行く。
 	b.FillRect(0, 0, 10, 10, [4]int{255, 0, 0, 255})
 	b.mu.Lock()
 	if len(b.pending) != 0 || len(b.queue) != 1 {
@@ -952,7 +959,7 @@ func TestCanvasFrameBoundary(t *testing.T) {
 		t.Fatal("drainQueue should apply immediate commands")
 	}
 	b.mu.Unlock()
-	// First yield switches to staged mode.
+	// 最初の yield が準備モードに切り替わる。
 	b.Await(0)
 	b.FillRect(0, 0, 10, 10, [4]int{255, 0, 0, 255})
 	b.mu.Lock()
@@ -962,7 +969,7 @@ func TestCanvasFrameBoundary(t *testing.T) {
 		t.Fatalf("after yield: pending=%d queue=%d, want 1/0", pend, q)
 	}
 	b.mu.Unlock()
-	// Update alone must not publish the staged frame.
+	// Update 単独では準備されたフレームを公開してはならない。
 	if err := b.Update(); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -972,7 +979,7 @@ func TestCanvasFrameBoundary(t *testing.T) {
 		t.Fatal("Update must not flush a staged frame")
 	}
 	b.mu.Unlock()
-	// The next boundary flushes it as one batch.
+	// 次の境界がそれを1つのまとまりとしてフラッシュする。
 	b.Await(0)
 	b.mu.Lock()
 	if len(b.pending) != 0 || len(b.queue) != 1 {
@@ -982,7 +989,8 @@ func TestCanvasFrameBoundary(t *testing.T) {
 	}
 	b.mu.Unlock()
 	b.drainQueue()
-	// gsel() mid-frame must not switch the visible buffer until commit.
+	// フレーム途中の gsel() は確定まで可視バッファを切り替えては
+	// ならない。
 	if err := b.SelectTarget(1); err != nil {
 		t.Fatalf("SelectTarget: %v", err)
 	}
@@ -1001,8 +1009,9 @@ func TestCanvasFrameBoundary(t *testing.T) {
 	b.mu.Unlock()
 }
 
-// TestWidgetRegistryHeadless drives AddButton with a manual pump
-// (no game loop): creation path is pure Go until Draw/Update run.
+// TestWidgetRegistryHeadless は手動の汲み上げ（ゲームループなし）で
+// AddButton を駆動する: Draw/Update が実行されるまで生成経路は純粋な
+// Go である。
 func TestWidgetRegistryHeadless(t *testing.T) {
 	b := mustNew(t)
 	done := make(chan struct{})
@@ -1011,8 +1020,8 @@ func TestWidgetRegistryHeadless(t *testing.T) {
 		addErr = b.AddButton(11, "T", 10, 420, 100, 36, 0)
 		close(done)
 	}()
-	// Pump until done: the helper goroutine may need scheduling time,
-	// so poll with a deadline instead of a fixed iteration count.
+	// 完了まで汲み上げる: 補助のゴルーチンはスケジューリングの時間を
+	// 必要としうるため、固定の反復回数ではなく期限を設けてポーリングする。
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		b.drainQueue()
@@ -1035,11 +1044,11 @@ pumped:
 	}
 }
 
-// TestIMEStateHeadless covers focus/query/composition mirrors
-// without pumping (no game loop needed for state).
+// TestIMEStateHeadless は汲み上げなしでフォーカス/問い合わせ/合成の
+// ミラーを扱う（状態にはゲームループを必要としない）。
 func TestIMEStateHeadless(t *testing.T) {
 	b := mustNew(t)
-	// Another backend's focus must not leak: start clean.
+	// 別のバックエンドのフォーカスが漏れてはならない: クリーンに始める。
 	b.IMESet(false)
 	if got := b.IMEState(); got != 0 {
 		t.Fatalf("IMEState = %d, want 0", got)
@@ -1058,8 +1067,8 @@ func TestIMEStateHeadless(t *testing.T) {
 	}
 }
 
-// TestReadImmediateIdleHeadless: with no loop running nothing is
-// typed, so input reports "" and arms no session.
+// TestReadImmediateIdleHeadless: 実行中のループがなければ何も入力
+// されないため、input は "" を報告しセッションを武装しない。
 func TestReadImmediateIdleHeadless(t *testing.T) {
 	b := mustNew(t)
 	if got := b.ReadImmediate(); got != "" {
@@ -1070,8 +1079,8 @@ func TestReadImmediateIdleHeadless(t *testing.T) {
 	}
 }
 
-// TestPicLoadFirst is a regression test: PicLoad as the very first
-// image op must not panic on a nil targets map (global picload).
+// TestPicLoadFirst は回帰テスト: PicLoad が最初の画像操作である場合、
+// nil の targets マップで panic してはならない（グローバルな picload）。
 func TestPicLoadFirst(t *testing.T) {
 	b := mustNew(t)
 	if b.targets == nil || b.bufs == nil {
@@ -1121,8 +1130,9 @@ pumped:
 	}
 }
 
-// TestButtonImageHeadless covers the icon path: unknown buffer errors
-// without a loop, and a picload buffer attaches headless with a pump.
+// TestButtonImageHeadless はアイコンの経路を扱う: 未知のバッファは
+// ループなしでエラーになり、picload バッファは汲み上げにより
+// ヘッドレスで装着できる。
 func TestButtonImageHeadless(t *testing.T) {
 	b := mustNew(t)
 	if err := b.AddButton(11, "T", 10, 420, 100, 36, 99); err == nil {
@@ -1191,8 +1201,8 @@ pumped2:
 	}
 }
 
-// TestButtonImageStatesHeadless validates the 4 image slots
-// (normal/hover/pressed/disabled) without a game loop.
+// TestButtonImageStatesHeadless はゲームループなしで4つの画像スロット
+// （通常/ホバー/押下/無効）を検証する。
 func TestButtonImageStatesHeadless(t *testing.T) {
 	b := mustNew(t)
 	if err := b.AddButton(21, "T", 10, 10, 100, 36, 1, 2, 3, 4, 5); err == nil {
@@ -1206,10 +1216,10 @@ func TestButtonImageStatesHeadless(t *testing.T) {
 	}
 }
 
-// renderGame performs all pixel probes in a single RunGame: Ebiten allows
-// only one game loop per process, and draw commands batch a frame behind,
-// so each stage draws for two frames and samples on the next one.
-// pxRes carries one GetPixel round-trip result.
+// renderGame はすべてのピクセル探りを1回の RunGame で実行する: Ebiten
+// は1プロセスにつき1つのゲームループしか許さず、描画命令は1フレーム
+// 後ろにまとまるため、各段階は2フレーム描画し次のフレームでサンプリング
+// する。pxRes は1回の GetPixel の往復結果を運ぶ。
 type pxRes struct {
 	c   [4]int
 	err error
@@ -1260,7 +1270,8 @@ func (g *renderGame) Update() error {
 	if g.done {
 		return ebiten.Termination
 	}
-	// Pump the backend like the real loop does (drains the draw queue).
+	// 実際のループと同じようにバックエンドを汲み上げる（描画キューを
+	// 排出する）。
 	_ = g.b.Update()
 	return nil
 }
@@ -1286,23 +1297,24 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 	case g.frames <= 6:
 		g.b.Draw(screen)
 		if g.frames == 6 {
-			// White window: the pre-loop mes() text is black ink, so
-			// the row probe counts dark pixels, not lit ones. Zero
-			// means the backend drew nothing; a full region means a
-			// black screen (both are failures, asserted at the end).
+			// 白いウィンドウ: ループ前の mes() のテキストは黒いインク
+			// なので、行の探りは点灯したピクセルではなく暗いピクセルを
+			// 数える。ゼロはバックエンドが何も描かなかったことを意味し、
+			// 全体が埋まった領域は黒い画面を意味する（どちらも失敗で、
+			// 最後に検査される）。
 			g.backLit = countDark(screen, 0, 0, 320, 40)
 			g.backed = true
 		}
 	case g.frames == 7:
-		// Enqueue like a script would, then drain synchronously:
-		// ebiten does not guarantee 1:1 Update/Draw pairing, so a test
-		// must not depend on the next Update having run.
+		// スクリプトがするようにエンキューし、それから同期的に排出する:
+		// ebiten は Update/Draw の 1:1 対応を保証しないため、テストは
+		// 次の Update が実行済みであることに依存してはならない。
 		g.b.FillRect(300, 100, 40, 30, [4]int{255, 0, 0, 255})
 		g.b.Circle(100, 300, 20, true, [4]int{0, 255, 0, 255})
 		g.b.drainQueue()
 		g.b.Draw(screen)
 	case g.frames == 8:
-		// Text/shape layering probe (text shares the canvas layer).
+		// テキスト/図形の重なり探り（テキストはキャンバス層を共有する）。
 		g.checkTextLayer(screen)
 	case g.frames >= 9:
 		g.b.Draw(screen)
@@ -1317,7 +1329,7 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 		for y := 0; y < 480; y++ {
 			for x := 0; x < 640; x++ {
 				r, gg, bl, _ := screen.At(x, y).RGBA()
-				// Ink bounds on the white window (diagnostic log only).
+				// 白いウィンドウ上のインクの境界（診断ログのみ）。
 				if r < 0x8000 && gg < 0x8000 && bl < 0x8000 {
 					if x < g.minX {
 						g.minX = x
@@ -1335,8 +1347,8 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			}
 		}
 		g.shaped = true
-		// In-loop input queries (unsafe outside the loop).
-		// Idle arrows stand in for the removed stick() probe.
+		// ループ内の入力問い合わせ（ループ外では安全でない）。
+		// アイドル状態の矢印は削除された stick() の探りの代役である。
 		if left, ok := g.b.KeyDown(37); ok && left {
 			g.keyIdle = 1
 		}
@@ -1346,9 +1358,10 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 		g.mouseX, g.mouseY = g.b.MousePos()
 		g.clickedVal = g.b.Clicked()
 		g.probedInput = true
-		// Widget stage: blocking backend calls run on a helper goroutine
-		// (they wait for Update, so never call them on this thread).
-		// Phase 1 creates; phase 2 removes after game-thread checks.
+		// ウィジェット段階: ブロックするバックエンドの呼出は補助の
+		// ゴルーチンで実行される（Update を待つため、決してこのスレッドで
+		// 呼んではならない）。フェーズ1が作成し、フェーズ2はゲームスレッドの
+		// 検査後に削除する。
 		if !g.wLaunched {
 			g.wLaunched = true
 			g.wPhase1 = make(chan struct{})
@@ -1356,7 +1369,7 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 		}
 		select {
 		case <-g.wPhase1:
-			// Closed channels stay ready: check exactly once.
+			// 閉じたチャネルは準備完了のまま: ちょうど一度だけ確認する。
 			if !g.wChecked1 {
 				g.wChecked1 = true
 				g.checkWidgetsPhase1()
@@ -1376,8 +1389,9 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			}
 		default:
 		}
-		// Save stage: snapshot buffer 0 to PNG on a helper goroutine
-		// (SavePNG waits for Update, so never call it on this thread).
+		// 保存段階: 補助のゴルーチンでバッファ 0 を PNG にスナップ
+		// ショットする（SavePNG は Update を待つため、決してこのスレッドで
+		// 呼んではならない）。
 		if g.wChecked2 && g.wFail == "" && !g.saveChecked {
 			if !g.saveLaunched {
 				g.saveLaunched = true
@@ -1396,21 +1410,22 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			default:
 			}
 		}
-		// Zoom stage: 2x blit on the game thread, then resample.
-		// Runs after the save snapshot so buffer 0 stays pristine for it.
+		// 拡大段階: ゲームスレッドで 2 倍にブリットし、それから再標本化
+		// する。保存のスナップショットより後に実行されるため、
+		// バッファ 0 はそれに対して元のままである。
 		if g.saveChecked && g.wFail == "" && !g.gzChecked {
 			g.gzChecked = true
 			g.checkZoom(screen)
 		}
-		// Paint stage: white square then flood-fill, then resample.
+		// 塗り段階: 白い四角形、それから塗りつぶし、それから再標本化。
 		if g.gzChecked && g.wFail == "" && !g.pfChecked {
 			g.pfChecked = true
 			g.checkPaint(screen)
 		}
-		// Pixel stage: pget round-trip (SetPixel like a script, read
-		// back via GetPixel on a helper goroutine — it waits for
-		// Update, so never call it on this thread). Runs after paint
-		// so earlier fills cannot clobber the probe pixel.
+		// ピクセル段階: pget の往復（スクリプトのように SetPixel し、
+		// 補助のゴルーチンで GetPixel で読み戻す — それは Update を待つ
+		// ため、決してこのスレッドで呼んではならない）。塗り段階の後に
+		// 実行されるため、先行する塗りが探りのピクセルを上書きできない。
 		if g.pfChecked && g.wFail == "" && !g.pxChecked {
 			if !g.pxLaunched {
 				g.pxLaunched = true
@@ -1432,20 +1447,20 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			default:
 			}
 		}
-		// IME bar stage: composition box height (the thick clause
-		// underline must stay inside the frame). Runs before the ReadLine
-		// prompt stage, which claims the same top-left corner, and only
-		// after the buffer stage (it starts from a clean canvas).
+		// IME バー段階: 合成ボックスの高さ（太い句の下線が枠の内側に
+		// 留まらなければならない）。同じ左上の隅を占有する ReadLine の
+		// プロンプト段階より前に、そしてクリーンなキャンバスから始まる
+		// バッファ段階の後にのみ実行される。
 		if g.bufChecked && g.wFail == "" && !g.imeCompChecked {
 			g.imeCompChecked = true
 			g.checkIMEComp(screen)
 		}
-		// List-slider stage: a listbox keeps its vertical slider, so
-		// the entries (and the selected-row highlight) must end where
-		// the slider strip begins instead of bleeding under it. This
-		// proves the 16px fit budget from the drawing side. Runs after
-		// the pixel stage so earlier paints cannot clobber the probe
-		// area (bottom-left, clear of every other stage).
+		// リスト・スライダー段階: listbox は垂直スライダーを保つため、
+		// 項目（および選択行のハイライト）はスライダーの帯が始まる位置で
+		// 終わり、その下に染み出してはならない。これは描画側から
+		// 16px の収拾予算を証明する。ピクセル段階の後に実行されるため、
+		// 先行する塗りが探りの領域（左下、他のすべての段階から離れた
+		// 位置）を上書きできない。
 		if g.pxChecked && g.wFail == "" && !g.sliderChecked {
 			if !g.sliderLaunched {
 				g.sliderLaunched = true
@@ -1467,7 +1482,7 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 					g.wFail = "list slider setup: " + g.sliderErr.Error()
 					g.sliderChecked = true
 				} else if g.sliderSettle < 2 {
-					// Let layout and two draws settle before sampling.
+					// サンプリング前にレイアウトと2回の描画を落ち着かせる。
 					g.sliderSettle++
 				} else {
 					g.sliderChecked = true
@@ -1476,21 +1491,23 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 			default:
 			}
 		}
-		// Buffer stage: buffer(id, w, h) then gcopy the off-screen image
-		// back onto the canvas. Runs after the pixel stage so the earlier
-		// stages' paints stay put; probes a free corner (500,100)-(600,180).
+		// バッファ段階: buffer(id, w, h) し、それからオフスクリーン画像を
+		// キャンバスに gcopy で戻す。ピクセル段階の後に実行されるため、
+		// 先行する段階の塗りがそのまま残る。空いている隅
+		// (500,100)-(600,180) を探る。
 		if g.sliderChecked && g.wFail == "" && !g.bufChecked {
 			g.bufChecked = true
 			g.checkBuffer(screen)
 		}
-		// Editor stage: hold an active ReadLine prompt and hash its row
-		// every frame. A steady prompt yields exactly one distinct hash.
+		// エディタ段階: 有効な ReadLine のプロンプトを保持し、毎フレーム
+		// その行をハッシュする。安定したプロンプトはちょうど1つの異なる
+		// ハッシュを生じる。
 		if g.imeCompChecked && g.wFail == "" {
 			if !g.edLaunched {
 				g.edLaunched = true
 				go func() { _, _ = g.b.ReadLine("name? ") }()
 				g.b.mu.Lock()
-				// curY is the pixel origin of the prompt line now.
+				// curY は今やプロンプト行のピクセル原点である。
 				g.edRow = g.b.curY
 				g.b.mu.Unlock()
 			} else if g.edFrames < 90 {
@@ -1503,14 +1520,14 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 					seen[h] = true
 				}
 				g.edDistinct = len(seen)
-				// Resize stage last: it grows the canvas, so it must not
-				// disturb the row bands the editor stage hashed.
+				// Resize 段階は最後: キャンバスを大きくするため、
+				// エディタ段階がハッシュした行の帯を乱れてはならない。
 				g.checkResize(screen)
 				g.done = true
 			}
 		}
 		if g.frames > 1200 && !g.done {
-			// Preserve the first failure: overwriting would mask it.
+		// 最初の失敗を保持する: 上書きするとそれを隠してしまう。
 			if g.wFail == "" {
 				g.wFail = "widget stage timed out"
 			}
@@ -1519,7 +1536,7 @@ func (g *renderGame) Draw(screen *ebiten.Image) {
 	}
 }
 
-// absDiff32 is the per-channel distance of two 16-bit samples.
+// absDiff32 は2つの16ビット標本のチャネルごとの距離である。
 func absDiff32(a, b uint32) uint32 {
 	if a > b {
 		return a - b
@@ -1527,10 +1544,10 @@ func absDiff32(a, b uint32) uint32 {
 	return b - a
 }
 
-// checkListSlider scans the probe listbox for the select-blue extent:
-// with the 16px slider strip reserved, the selected row must stop well
-// short of the list's right edge (x=220). A highlight bleeding under a
-// removed slider would push past ~212.
+// checkListSlider は探り用の listbox を走査して選択青の範囲を調べる:
+// 16px のスライダー帯が予約されているため、選択行はリストの右端
+// （x=220）に大きく届かないところで止まらなければならない。削除された
+// スライダーの下に染み出たハイライトは約 212 を超えてしまう。
 func (g *renderGame) checkListSlider(screen *ebiten.Image) {
 	const lx, ly, lw, lh = 20, 360, 200, 100
 	pr, pg, pb, _ := color.NRGBA{204, 228, 247, 0xFF}.RGBA()
@@ -1555,9 +1572,10 @@ func (g *renderGame) checkListSlider(screen *ebiten.Image) {
 	}
 }
 
-// hashRow hashes a 20px text band starting at pixel y0 (every 4th x,
-// every 2nd y) via FNV-1a. y0 is clamped into the screen so a cursor far
-// down the canvas (or off it) cannot read out of bounds.
+// hashRow はピクセル y0 から始まる20pxのテキスト帯（4個おきのx、
+// 2個おきのy）を FNV-1a でハッシュする。y0 は画面内に切り詰められる
+// ため、キャンバスの大きく下（または外）にあるカーソルでも範囲外を
+// 読めない。
 func hashRow(screen *ebiten.Image, y0 int) uint64 {
 	const basis, prime = uint64(14695981039346656037), uint64(1099511628211)
 	h := basis
@@ -1581,7 +1599,7 @@ func hashRow(screen *ebiten.Image, y0 int) uint64 {
 	return h
 }
 
-// makeWidgets exercises widget creation like a script would.
+// makeWidgets はスクリプトがするようにウィジェットの生成を実行する。
 func (g *renderGame) makeWidgets() {
 	defer close(g.wPhase1)
 	if err := g.b.AddButton(11, "T", 10, 420, 100, 36, 0); err != nil {
@@ -1609,8 +1627,9 @@ func (g *renderGame) makeWidgets() {
 	}
 }
 
-// checkSaved decodes the pngsave snapshot (game thread; pure Go decode)
-// and verifies buffer 0 round-tripped: size plus the stage-7 shapes.
+// checkSaved は pngsave のスナップショット（ゲームスレッド、純粋な Go の
+// デコード）を復号し、バッファ 0 が往復した（サイズおよび段階7の図形）
+// を検証する。
 func (g *renderGame) checkSaved() {
 	if g.saveErr != nil {
 		g.wFail = "pngsave: " + g.saveErr.Error()
@@ -1642,9 +1661,10 @@ func (g *renderGame) checkSaved() {
 	}
 }
 
-// checkZoom draws a 20px red square on buffer 1, blits it 2x onto
-// buffer 0, redraws, and verifies scaled pixels (game thread).
-// Destination avoids widget rects (ui draws over the canvas).
+// checkZoom はバッファ 1 に20pxの赤い四角形を描き、それを2倍に
+// ブリットしてバッファ 0 に写し、再描画してスケールされたピクセルを
+// 検証する（ゲームスレッド）。変換先はウィジェットの矩形を避ける
+// （ui はキャンバスの上に描画する）。
 func (g *renderGame) checkZoom(screen *ebiten.Image) {
 	b := g.b
 	b.SelectTarget(1)
@@ -1661,15 +1681,16 @@ func (g *renderGame) checkZoom(screen *ebiten.Image) {
 		g.wFail = "gzoom pixel not scaled"
 		return
 	}
-	// Outside the target the canvas is transparent, so the white window
-	// shows through; anything darker leaked.
+	// 対象の外ではキャンバスは透明なので、白いウィンドウが透ける。
+	// それより暗いものは漏れた。
 	if r, gg, bl, _ := screen.At(455, 195).RGBA(); r < 0xFFFF || gg < 0xFFFF || bl < 0xFFFF {
 		g.wFail = "gzoom leaked outside the target rect"
 	}
 }
 
-// checkPaint fills a white square red and verifies fill plus no leak
-// (game thread). The square avoids widget rects (ui draws over canvas).
+// checkPaint は白い四角形を赤で塗り潰し、塗りと漏れがないことを検証
+// する（ゲームスレッド）。四角形はウィジェットの矩形を避ける
+// （ui はキャンバスの上に描画する）。
 func (g *renderGame) checkPaint(screen *ebiten.Image) {
 	b := g.b
 	b.FillRect(460, 360, 40, 40, [4]int{255, 255, 255, 255})
@@ -1684,13 +1705,13 @@ func (g *renderGame) checkPaint(screen *ebiten.Image) {
 		g.wFail = "paint fill missing"
 		return
 	}
-	// Outside the region the canvas is transparent (white window).
+	// 領域の外ではキャンバスは透明（白いウィンドウ）。
 	if r, gg, bl, _ := screen.At(455, 395).RGBA(); r < 0xFFFF || gg < 0xFFFF || bl < 0xFFFF {
 		g.wFail = "paint leaked outside the region"
 	}
 }
 
-// removeWidgets runs after phase-1 checks.
+// removeWidgets はフェーズ1の検査の後に実行される。
 func (g *renderGame) removeWidgets() {
 	defer close(g.wPhase2)
 	if err := g.b.RemoveWidget(11); err != nil {
@@ -1698,7 +1719,8 @@ func (g *renderGame) removeWidgets() {
 	}
 }
 
-// checkWidgetsPhase1 runs on the game thread (mutex-only calls safe here).
+// checkWidgetsPhase1 はゲームスレッドで実行される（ここではミューテックスの
+// みの呼出が安全）。
 func (g *renderGame) checkWidgetsPhase1() {
 	if len(g.wErrs) > 0 {
 		g.wFail = g.wErrs[0]
@@ -1760,7 +1782,7 @@ func (g *renderGame) checkWidgetsPhase1() {
 	}
 }
 
-// checkWidgetsPhase2 runs on the game thread after removal.
+// checkWidgetsPhase2 は削除後にゲームスレッドで実行される。
 func (g *renderGame) checkWidgetsPhase2() {
 	if len(g.wErrs) > 0 && g.wFail == "" {
 		g.wFail = g.wErrs[0]
@@ -1801,8 +1823,9 @@ func countLit(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 	return lit
 }
 
-// countDark counts near-black pixels: with a white window, backend ink
-// (default black text) shows as dark-on-light, the inverse of countLit.
+// countDark はほぼ黒のピクセルを数える: 白いウィンドウでは、バックエンド
+// のインク（既定の黒文字）は明るい背景に暗い色として現れ、countLit の
+// 逆である。
 func countDark(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 	dark := 0
 	for y := y0; y < y1; y++ {
@@ -1816,8 +1839,8 @@ func countDark(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 	return dark
 }
 
-// countWhite counts near-white (glyph) pixels in a rect, so a probe can
-// tell text drawn over a colored shape from the shape itself.
+// countWhite は矩形内のほぼ白の（グリフの）ピクセルを数えるため、探りが
+// 色付きの図形の上に描かれたテキストを図形自身と区別できる。
 func countWhite(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 	lit := 0
 	for y := y0; y < y1; y++ {
@@ -1831,18 +1854,18 @@ func countWhite(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 	return lit
 }
 
-// checkTextLayer verifies in-loop that mes()/print() pixels live in the
-// same canvas layer as boxf()/pset(): the call order decides which one
-// covers the other. The probe uses a screen area (440,100)-(480,120) free
-// of the shapes and widgets the other stages touch.
+// checkTextLayer はループ内で mes()/print() のピクセルが boxf()/pset() と
+// 同じキャンバス層にあることを検証する: 呼出順がどちらがどちらを覆うか
+// を決める。探りは他の段階が触れる図形やウィジェットから離れた画面領域
+// (440,100)-(480,120) を使う。
 func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	b := g.b
-	const x0, y0 = 440, 80 // probe area (away from shapes and widgets)
+	const x0, y0 = 440, 80 // 探りの領域（図形とウィジェットから離れて）
 	x1, y1 := x0+40, y0+20
-	// Explicit white ink: the probe tests layering (call order), not the
-	// default draw color, so it must not depend on the fg default.
+	// 明示的な白いインク: 探りは重なり（呼出順）をテストするため、
+	// 既定の描画色ではなく、fg の既定に依存してはならない。
 	b.SetColor(255, 255, 255, 255)
-	// boxf() clears the probe area, then mes() paints onto it.
+	// boxf() が探りの領域を消去し、それから mes() がその上に描く。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
 	b.mu.Lock()
 	b.curX, b.curY = float64(x0), float64(y0)
@@ -1851,12 +1874,12 @@ func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	b.drainQueue()
 	b.Draw(screen)
 	g.textAlone = countLit(screen, x0, y0, x1, y1)
-	// A later boxf() covers the text: one layer, call order wins.
+	// 後ろの boxf() がテキストを覆う: 1つの層、呼出順が勝つ。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
 	b.drainQueue()
 	b.Draw(screen)
 	g.textCovered = countLit(screen, x0, y0, x1, y1)
-	// Text after a shape draws on top of it (white glyphs over green).
+	// 図形の後のテキストはそれの上に描かれる（緑の上に白いグリフ）。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 128, 0, 255})
 	b.mu.Lock()
 	b.curX, b.curY = float64(x0), float64(y0)
@@ -1865,12 +1888,12 @@ func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	b.drainQueue()
 	b.Draw(screen)
 	g.textAlone = countLit(screen, x0, y0, x1, y1)
-	// A later boxf() covers the text: one layer, call order wins.
+	// 後ろの boxf() がテキストを覆う: 1つの層、呼出順が勝つ。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
 	b.drainQueue()
 	b.Draw(screen)
 	g.textCovered = countLit(screen, x0, y0, x1, y1)
-	// Text after a shape draws on top of it (white glyphs over green).
+	// 図形の後のテキストはそれの上に描かれる（緑の上に白いグリフ）。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 128, 0, 255})
 	b.mu.Lock()
 	b.curX, b.curY = float64(x0), float64(y0)
@@ -1881,10 +1904,10 @@ func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	g.textOn = countWhite(screen, x0, y0, x1, y1)
 }
 
-// checkBuffer exercises buffer(id, w, h) end to end inside the loop
-// (pixel readback needs the game running): create an off-screen buffer,
-// draw into it through gsel, then gcopy it back to the canvas and probe
-// the pixels.
+// checkBuffer はループ内で buffer(id, w, h) を端から端まで実行する
+// （ピクセルの読み戻しにはゲームの実行が必要）: オフスクリーンの
+// バッファを作成し、gsel を通じてそれに描画し、それからキャンバスに
+// gcopy で戻してピクセルを探る。
 func (g *renderGame) checkBuffer(screen *ebiten.Image) {
 	b := g.b
 	if err := b.NewBuffer(2, 100, 80); err != nil {
@@ -1909,20 +1932,19 @@ func (g *renderGame) checkBuffer(screen *ebiten.Image) {
 		g.wFail = "gcopy from the buffer() image is missing"
 		return
 	}
-	// Outside the blit the canvas stays as it was (transparent here,
-	// so the white window shows through).
+	// ブリットの外ではキャンバスはそのまま（ここでは透明なので、白い
+	// ウィンドウが透ける）。
 	if r, gg, bl, _ := screen.At(480, 140).RGBA(); r < 0xFFFF || gg < 0xFFFF || bl < 0xFFFF {
 		g.wFail = "gcopy from the buffer() image leaked"
 	}
 }
 
-// checkIMEComp locks the composition bar's height on the game thread
-// (pixel readback needs the loop): the box is one text line plus 2px, so
-// the frame still runs past the line and the row below it is empty,
-// keeping the 3px clause underline inside the frame.
+// checkIMEComp は合成バーの高さをゲームスレッドで固定する（ピクセルの
+// 読み戻しにはループが必要）: ボックスは1つのテキスト行 + 2px なので、
+// 枠は行とその下の行をなお通り、3px の句の下線が枠の内側に留まる。
 func (g *renderGame) checkIMEComp(screen *ebiten.Image) {
 	b := g.b
-	b.Clear() // clean canvas so the probe sees only the bar
+	b.Clear() // 探りがバーのみを見るようクリーンなキャンバスに
 	b.mu.Lock()
 	b.imeComposing = "あいう"
 	b.imeClause = "い"
@@ -1937,12 +1959,11 @@ func (g *renderGame) checkIMEComp(screen *ebiten.Image) {
 	b.imeClauseStart, b.imeClauseEnd = 0, 0
 	b.mu.Unlock()
 	// bh = lineH + 2. The composition text ("あいう", clause "い") is
-	// 3 full-width cells wide, so its right frame column sits just past
-	// the last glyph: the frame still runs at lineH, its bottom edge is
-	// at lineH+1 (it would sit at lineH-1 without the extra 2px, where
-	// the 3px clause underline overhangs the frame), and nothing is lit
-	// below that. White window: the frame is gray (darker than the
-	// background), and below the bar is plain background white.
+	// 3つの全角セルの幅なので、右の枠の列は最後のグリフのすぐ後ろに
+	// 来る: 枠は lineH のところを通り続け、その下端は lineH+1 にある
+	// （余分な 2px がなければ lineH-1 にあり、3px の句の下線が枠から
+	// はみ出す）。その下には何も点灯しない。白いウィンドウ: 枠は灰色
+	// （背景より暗い）で、バーの下はただの背景の白である。
 	tw, _ := text.Measure("あいう", b.face, 0)
 	probeX := int(tw+2*2) - 1
 	if r, _, _, _ := screen.At(probeX, int(lh)).RGBA(); r == 0xFFFF {
@@ -1958,10 +1979,10 @@ func (g *renderGame) checkIMEComp(screen *ebiten.Image) {
 	}
 }
 
-// checkResize locks the resizable() drawing-resolution contract inside
-// the loop (ReadPixels is only legal with a game running): a painted
-// probe survives the window-size Layout top-left aligned, the canvas
-// adopts the window size, and the newly exposed strip stays transparent.
+// checkResize はループ内で resizable() の描画解像度の契約を固定する
+// （ReadPixels はゲームの実行中にのみ合法）: 描かれた探りはウィンドウ
+// サイズの Layout に左上揃えで生き残り、キャンバスはウィンドウサイズを
+// 採用し、新たに現れた帯は透明なままである。
 func (g *renderGame) checkResize(screen *ebiten.Image) {
 	b := g.b
 	g.resized = true
@@ -2002,8 +2023,8 @@ func (g *renderGame) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return 640, 480
 }
 
-// pumpUntil drains the draw queue until done closes (headless stand-in
-// for the game loop's Update).
+// pumpUntil は done が閉じるまで描画キューを排出する（ゲームループの
+// Update に代わるヘッドレスの代替）。
 func pumpUntil(b *WindowBackend, done chan struct{}, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -2021,9 +2042,9 @@ func pumpUntil(b *WindowBackend, done chan struct{}, timeout time.Duration) bool
 	}
 }
 
-// TestInputTextNoStall: gettext must not block on queue drain. A blocking
-// read stalls cls/mes redraws mid-frame, which flickered the
-// mes("input="+gettext(id)) line in the widgets demo.
+// TestInputTextNoStall: gettext はキューの排出でブロックしてはならない。
+// ブロックする読み出しはフレーム途中で cls/mes の再描画を止め、
+// ウィジェットのデモの mes("input="+gettext(id)) の行がちらついた。
 func TestInputTextNoStall(t *testing.T) {
 	b := mustNew(t)
 	done := make(chan struct{})
@@ -2038,7 +2059,8 @@ func TestInputTextNoStall(t *testing.T) {
 	if addErr != nil {
 		t.Fatalf("AddInput: %v", addErr)
 	}
-	// No drain from here on: if InputText still enqueues, this times out.
+	// ここから先は排出しない: InputText がまだエンキューしていれば
+	// これはタイムアウトする。
 	type res struct {
 		s   string
 		err error
@@ -2061,8 +2083,8 @@ func TestInputTextNoStall(t *testing.T) {
 	}
 }
 
-// TestInputTextJapaneseRefresh: game-thread edits surface immediately
-// (the custom editor state is the source of truth; no mirror needed).
+// TestInputTextJapaneseRefresh: ゲームスレッドでの編集は即座に表面化
+// する（カスタムエディタの状態が真の情報源。ミラーは不要）。
 func TestInputTextJapaneseRefresh(t *testing.T) {
 	b := mustNew(t)
 	done := make(chan struct{})
@@ -2097,7 +2119,7 @@ func TestInputTextJapaneseRefresh(t *testing.T) {
 	}
 }
 
-// TestInputEditOps checks caret editing ops without a game loop.
+// TestInputEditOps はゲームループなしでキャレットの編集操作を確認する。
 func TestInputEditOps(t *testing.T) {
 	e := &inputState{text: []rune("abc"), caret: 3}
 	e.insert([]rune("で"))
@@ -2116,19 +2138,19 @@ func TestInputEditOps(t *testing.T) {
 	}
 	e.moveRight()
 	e.moveRight()
-	e.moveRight() // clamps at the end
+	e.moveRight() // 末尾で切り詰める
 	if e.caret != 2 {
 		t.Fatalf("caret = %d, want 2", e.caret)
 	}
 	e.backspace()
 	e.backspace()
-	e.backspace() // clamps at the start
+	e.backspace() // 先頭で切り詰める
 	if string(e.text) != "" || e.caret != 0 {
 		t.Fatalf("clear = %q/%d", string(e.text), e.caret)
 	}
 }
 
-// TestInputRepFire checks held-key repeat gating without a game loop.
+// TestInputRepFire はゲームループなしで押下キーの繰返し制御を確認する。
 func TestInputRepFire(t *testing.T) {
 	e := &inputState{}
 	if e.repFire(ebiten.KeyBackspace, false, false, 0) {
@@ -2154,7 +2176,8 @@ func TestInputRepFire(t *testing.T) {
 	}
 }
 
-// TestInputFocusModel checks click focus/blur without a game loop.
+// TestInputFocusModel はゲームループなしでクリックのフォーカス/ぼかしを
+// 確認する。
 func TestInputFocusModel(t *testing.T) {
 	b := mustNew(t)
 	done := make(chan struct{})
@@ -2187,11 +2210,11 @@ func TestInputFocusModel(t *testing.T) {
 	}
 }
 
-// repeat runs (go test -count=N) skip instead of panicking.
-// TestListEntryColorsComplete: every list state needs a background.
-// A nil Pressed/Hover background renders transparent, which hid the
-// highlight while the mouse button was held (selected() had flipped,
-// but blue only appeared on release).
+// 繰返しの実行（go test -count=N）は panic せずスキップする。
+// TestListEntryColorsComplete: すべてのリスト状態は背景を必要とする。
+// nil の Pressed/Hover 背景は透明として描画され、マウスボタンが押され
+// ている間ハイライトを隠していた（selected() は切り替わっていたが、
+// 青はリリース時にしか現れなかった）。
 func TestListEntryColorsComplete(t *testing.T) {
 	c := listEntryColors()
 	type named struct {
@@ -2222,11 +2245,12 @@ func TestListEntryColorsComplete(t *testing.T) {
 	}
 }
 
-// TestListEntryTextPos pins the shared entry alignment: left/top,
-// matching the hand-drawn outline in the Golash editor. Centering adds
-// a second int() rounding on top of the scroll offset's (glyph origin
-// = int((rectH - lineH) / 2)), which can leave row baselines a pixel
-// apart while a list scrolls (it reads as jitter).
+// TestListEntryTextPos は共有の項目配置を固定する: 左上寄せで、
+// Golash エディタの手描きアウトラインに一致する。中央寄せにすると、
+// スクロールオフセットの int() 丸め（グリフ原点 =
+// int((rectH - lineH) / 2)）に加えて2回目の丸めが乗り、リストの
+// スクロール中に行のベースラインが1ピクセルずれて見える
+// （ちらつきとして現れる）。
 func TestListEntryTextPos(t *testing.T) {
 	h, v := listEntryTextPos()
 	if h != widget.TextPositionStart {
@@ -2237,13 +2261,13 @@ func TestListEntryTextPos(t *testing.T) {
 	}
 }
 
-// TestWidgetFocusPressColors pins the focus/pressed theme mapping:
-// selecting/selected list entries use the pressed blue, the focused
-// (unselected) entry the focus pale blue, and the custom editor face
-// follows the same pairs (disabled wins over focus). Pure values, so
-// headless-safe (button/checkbox art shares these vars by
-// construction; their faces are ebiten images, not pixel-testable
-// without a loop).
+// TestWidgetFocusPressColors はフォーカス/押下のテーマの対応を固定する:
+// 選択中/選択済みのリスト項目は押下時の青を使い、フォーカス中
+// （未選択）の項目はフォーカスの淡青を使い、カスタムエディタの面は
+// 同じ組に従う（無効がフォーカスに勝つ）。純粋な値であるため
+// ヘッドレス安全（ボタン/チェックボックスの見た目は構築上これらの変数を
+// 共有する。それらの面は ebiten 画像であり、ループなしではピクセル
+// テストできない）。
 func TestWidgetFocusPressColors(t *testing.T) {
 	c := listEntryColors()
 	for _, tc := range []struct {
@@ -2280,8 +2304,8 @@ func TestWidgetFocusPressColors(t *testing.T) {
 	}
 }
 
-// TestSavePNGErrors covers pngsave validation without a game loop
-// (all paths return before touching the loop).
+// TestSavePNGErrors はゲームループなしで pngsave の検証を扱う
+// （すべての経路はループに触れる前に戻る）。
 func TestSavePNGErrors(t *testing.T) {
 	b := mustNew(t)
 	for _, tc := range []struct {
@@ -2291,7 +2315,7 @@ func TestSavePNGErrors(t *testing.T) {
 		{"x.png", -1},
 		{"x.png", 99},
 		{"", 0},
-		{"x.png", 3}, // never allocated
+		{"x.png", 3}, // 決して確保されない
 	} {
 		if err := b.SavePNG(tc.path, tc.id); err == nil {
 			t.Fatalf("SavePNG(%q, %d) should error", tc.path, tc.id)
@@ -2299,15 +2323,15 @@ func TestSavePNGErrors(t *testing.T) {
 	}
 }
 
-// TestBlitScaledErrors covers gzoom validation without a game loop
-// (all paths return before enqueueing).
+// TestBlitScaledErrors はゲームループなしで gzoom の検証を扱う
+// （すべての経路はエンキュー前に戻る）。
 func TestBlitScaledErrors(t *testing.T) {
 	b := mustNew(t)
 	for _, tc := range []struct {
 		src, w, h int
 		zx, zy    float64
 	}{
-		{99, 10, 10, 1, 1}, // unknown buffer
+		{99, 10, 10, 1, 1}, // 未知のバッファ
 		{0, 0, 10, 1, 1},
 		{0, 10, -1, 1, 1},
 		{0, 10, 10, 0, 1},
@@ -2319,7 +2343,7 @@ func TestBlitScaledErrors(t *testing.T) {
 	}
 }
 
-// TestFlood fills a square without leaking through the background.
+// TestFlood は背景を通り抜けて漏れないよう四角形を塗り潰す。
 func TestFlood(t *testing.T) {
 	w, h := 8, 8
 	px := make([]byte, 4*w*h)
@@ -2356,7 +2380,7 @@ func TestFlood(t *testing.T) {
 	}
 }
 
-// TestFloodEnclosed keeps the fill inside a 1px border.
+// TestFloodEnclosed は塗りを 1px の枠の内側に保つ。
 func TestFloodEnclosed(t *testing.T) {
 	w, h := 8, 8
 	px := make([]byte, 4*w*h)
@@ -2398,7 +2422,7 @@ func TestFloodEnclosed(t *testing.T) {
 	}
 }
 
-// TestFloodFillBounds covers paint seed validation without a game loop.
+// TestFloodFillBounds はゲームループなしで paint のシード検証を扱う。
 func TestFloodFillBounds(t *testing.T) {
 	b := mustNew(t)
 	if err := b.FloodFill(-1, 0, [4]int{255, 0, 0, 255}); err == nil {
@@ -2407,21 +2431,22 @@ func TestFloodFillBounds(t *testing.T) {
 	if err := b.FloodFill(0, 480, [4]int{255, 0, 0, 255}); err == nil {
 		t.Fatal("out-of-range seed should error")
 	}
-	// A valid seed only enqueues (applied by Update), so no loop needed.
+	// 有効なシードはエンキューのみ（Update が適用する）。したがって
+	// ループは不要。
 	if err := b.FloodFill(10, 10, [4]int{255, 0, 0, 255}); err != nil {
 		t.Fatalf("valid seed: %v", err)
 	}
 }
 
-// TestResizableFollowsWindow locks the resizable() size contract without
-// a game loop: with resizing forbidden Layout pins the screen() logical
-// size, with resizing allowed Layout reports the window size and the main
-// buffer is swapped to it, and forbidding it again freezes the current
-// resolution. (Pixel preservation across the swap needs a running loop,
-// so it is covered by the resize stage in TestGuiRender.)
+// TestResizableFollowsWindow はゲームループなしで resizable() のサイズの
+// 契約を固定する: リサイズが禁止されていると Layout は screen() の論理
+// サイズを固定し、許可されていると Layout はウィンドウサイズを報告し
+// メインバッファがそれに入れ替わり、再び禁止すると現在の解像度が
+// 凍結される。（入れ替えをまたいだピクセルの保持には実行中のループが
+// 必要なので、TestGuiRender のリサイズ段階で扱われる。）
 func TestResizableFollowsWindow(t *testing.T) {
 	b := mustNew(t)
-	// Pinned: Layout ignores the window size and keeps the screen() size.
+	// 固定: Layout はウィンドウサイズを無視し screen() のサイズを保つ。
 	if w, h := b.Layout(320, 240); w != 640 || h != 480 {
 		t.Fatalf("Layout = %dx%d, want 640x480 (screen() size)", w, h)
 	}
@@ -2441,17 +2466,18 @@ func TestResizableFollowsWindow(t *testing.T) {
 		}
 	})
 	b.drainQueue()
-	// Forbidden again: the current resolution freezes.
+	// 再び禁止: 現在の解像度が凍結される。
 	b.SetResizable(false)
 	if w, h := b.Layout(1024, 768); w != 800 || h != 600 {
 		t.Fatalf("Layout = %dx%d, want 800x600 frozen", w, h)
 	}
 }
 
-// TestTabFocusDisabled pins ensureUI: Tab/Shift+Tab must not move widget
-// focus (ebitenui's default traversal), so Tab stays a key input (keypush
-// 9, the custom editor's tab insert). Click focus and programmatic
-// Focus() are unaffected — only the default Tab handling is gated.
+// TestTabFocusDisabled は ensureUI を固定する: Tab/Shift+Tab は
+// ウィジェットのフォーカスを動かしてはならない（ebitenui の既定の
+// 巡回操作）。これにより Tab はキー入力のままである（keypush 9、
+// カスタムエディタのタブ挿入）。クリックのフォーカスとプログラム的な
+// Focus() は影響を受けない — ゲートされるのは既定の Tab の処理のみ。
 func TestTabFocusDisabled(t *testing.T) {
 	b := mustNew(t)
 	b.ensureUI()
@@ -2463,10 +2489,10 @@ func TestTabFocusDisabled(t *testing.T) {
 	}
 }
 
-// TestWhiteWindowDefaults pins the light-theme defaults without a game
-// loop: the initial draw color is opaque black (white window), and
-// color() (ResetColor) returns to black, not white. CUI is unaffected
-// (ANSI reset there).
+// TestWhiteWindowDefaults はゲームループなしで明るいテーマの既定を
+// 固定する: 初期の描画色は不透明な黒（白いウィンドウ）であり、
+// color()（ResetColor）は白ではなく黒に戻る。CUI は影響を受けない
+// （そこでは ANSI リセット）。
 func TestWhiteWindowDefaults(t *testing.T) {
 	b := mustNew(t)
 	black := color.NRGBA{0x00, 0x00, 0x00, 0xFF}
@@ -2486,9 +2512,9 @@ func TestWhiteWindowDefaults(t *testing.T) {
 	}
 }
 
-// TestNewBuffer covers buffer(id, w, h) without a game loop: the id is
-// marked allocated, the image lands on the game thread at exactly that
-// size, and a bad id or size fails without touching the pool.
+// TestNewBuffer はゲームループなしで buffer(id, w, h) を扱う: id は
+// 確保済みと記録され、画像はゲームスレッドでちょうどそのサイズに
+// 着地し、不正な id やサイズはプールに触れずに失敗する。
 func TestNewBuffer(t *testing.T) {
 	b := mustNew(t)
 	if err := b.NewBuffer(1, 320, 240); err != nil {
@@ -2510,8 +2536,8 @@ func TestNewBuffer(t *testing.T) {
 	if size != [2]int{320, 240} {
 		t.Fatalf("buffer 1 size = %v, want [320 240]", size)
 	}
-	// Replacing is allowed (draw loops re-create a scratch buffer): the
-	// new size wins.
+	// 置き換えは許可される（描画ループはスクラッチバッファを作り直す）:
+	// 新しいサイズが勝つ。
 	if err := b.NewBuffer(1, 64, 48); err != nil {
 		t.Fatalf("NewBuffer(1, 64, 48): %v", err)
 	}
@@ -2526,8 +2552,8 @@ func TestNewBuffer(t *testing.T) {
 	if size != [2]int{64, 48} {
 		t.Fatalf("replaced buffer size = %v, want [64 48]", size)
 	}
-	// Errors: the visible canvas, a bad id, a non-positive size, and one
-	// side over the cap. None of them may allocate.
+	// エラー: 可視キャンバス、不正な id、正でないサイズ、上限を超える
+	// 片辺。どれも確保してはならない。
 	if err := b.NewBuffer(0, 8, 8); err == nil {
 		t.Fatal("buffer(0, ...) should error (the canvas belongs to screen())")
 	}
@@ -2551,8 +2577,8 @@ func TestNewBuffer(t *testing.T) {
 	}
 }
 
-// TestGetPixelBounds covers pget coordinate validation without a game
-// loop (bounds are checked before any game-thread readback).
+// TestGetPixelBounds はゲームループなしで pget の座標検証を扱う
+// （ゲームスレッドの読み戻しより前に境界を確認する）。
 func TestGetPixelBounds(t *testing.T) {
 	b := mustNew(t)
 	for _, p := range [][2]int{{-1, 0}, {0, -1}, {640, 0}, {0, 480}, {1000000, 1000000}} {
@@ -2562,12 +2588,12 @@ func TestGetPixelBounds(t *testing.T) {
 	}
 }
 
-// NOTE: GetPixel round-trip needs a running game loop (ebiten forbids
-// readback before it starts), so it is covered by the pget stage in
-// TestGuiRender below instead of a headless test.
+// 注意: GetPixel の往復には実行中のゲームループが必要（ebiten は
+// 開始前の読み戻しを禁じる）。したがってヘッドレステストではなく
+// 下記の TestGuiRender の pget 段階で扱われる。
 
-// TestSetFontSize covers font() state without a game loop
-// (face reload is pure Go; no images involved).
+// TestSetFontSize はゲームループなしで font() の状態を扱う
+// （フェイスの再読み込みは純粋な Go。画像は関与しない）。
 func TestSetFontSize(t *testing.T) {
 	b := mustNew(t)
 	if b.lineH != 16 || b.fontSize != 16 {
@@ -2582,7 +2608,7 @@ func TestSetFontSize(t *testing.T) {
 	if b.uiFace() == nil {
 		t.Fatal("uiFace should follow the resized face")
 	}
-	// pos() is the pixel origin itself: no cell rounding.
+	// pos() はピクセル原点自体である: セルへの丸めはしない。
 	b.MoveTo(10, 5)
 	b.mu.Lock()
 	gx, gy := b.gx, b.gy
@@ -2601,9 +2627,9 @@ func TestSetFontSize(t *testing.T) {
 	}
 }
 
-// TestFontDrawSmoke rasterizes resized text headless through the real
-// canvas path (no readback: ReadPixels panics outside the loop, plain
-// drawing does not).
+// TestFontDrawSmoke は実際のキャンバス経路を通じてリサイズされた
+// テキストをヘッドレスでラスタライズする（読み戻しはしない:
+// ReadPixels はループ外で panic するが、単なる描画はしない）。
 func TestFontDrawSmoke(t *testing.T) {
 	b := mustNew(t)
 	if err := b.SetFontSize(32); err != nil {
@@ -2617,8 +2643,8 @@ func TestFontDrawSmoke(t *testing.T) {
 	b.Draw(ebiten.NewImage(640, 480))
 }
 
-// TestFormWidgetsHeadless drives chkbox/combox/mesbox with a manual pump
-// (no game loop): creation mirrors plus Update-time refreshes.
+// TestFormWidgetsHeadless は手動の汲み上げ（ゲームループなし）で
+// chkbox/combox/mesbox を駆動する: 作成時のミラーと Update 時の更新。
 func TestFormWidgetsHeadless(t *testing.T) {
 	b := mustNew(t)
 	done := make(chan struct{})
@@ -2644,7 +2670,7 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	if addErr != nil {
 		t.Fatalf("add: %v", addErr)
 	}
-	// Creation-time mirrors.
+	// 作成時のミラー。
 	if p, err := b.Checked(21); err != nil || p {
 		t.Fatalf("Checked(21) = %v, %v; want false", p, err)
 	}
@@ -2654,7 +2680,7 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	if s, err := b.AreaText(23); err != nil || s != "l1\nl2" {
 		t.Fatalf("AreaText(23) = %q, %v", s, err)
 	}
-	// Mutate like the game thread would, then refresh mirrors.
+	// ゲームスレッドがするように変更し、それからミラーを更新する。
 	set := make(chan struct{})
 	b.enqueue(func() {
 		b.mu.Lock()
@@ -2668,7 +2694,7 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	if !pumpUntil(b, set, 10*time.Second) {
 		t.Fatal("mutation never applied")
 	}
-	b.syncWidgetCache() // what Update does every tick
+	b.syncWidgetCache() // Update が毎ティック行うこと
 	if p, _ := b.Checked(21); !p {
 		t.Fatal("Checked(21) should be true after SetState")
 	}
@@ -2678,8 +2704,9 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	if s, _ := b.AreaText(23); s != "changed" {
 		t.Fatalf("AreaText(23) = %q, want changed", s)
 	}
-	// Non-positive w/h auto-sizes from the font and label (pumped:
-	// successful adds block on runOnLoop like every other widget).
+	// 正でない w/h はフォントとラベルから自動でサイズ決めされる（汲み上げ
+	// られる: 成功した追加は他のすべてのウィジェットと同じく runOnLoop で
+	// ブロックする）。
 	auto := make(chan struct{})
 	var autoErr error
 	go func() {
@@ -2692,15 +2719,15 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	if autoErr != nil {
 		t.Fatalf("auto-size chkbox: %v", autoErr)
 	}
-	// placeChild records the rect synchronously (SetLocation itself
-	// runs on the next real-loop layout).
+	// placeChild は矩形を同期的に記録する（SetLocation 自体は次の
+	// 実際のループのレイアウトで実行される）。
 	b.mu.Lock()
 	r, ok := b.fixLayout.rects[b.widgets[24].child]
 	b.mu.Unlock()
 	if !ok || r.Dx() <= 0 || r.Dy() <= 0 {
 		t.Fatalf("auto-size chkbox rect = %v, want positive size", r)
 	}
-	// Validation (all return before touching the loop).
+	// 検証（すべてループに触れる前に戻る）。
 	if err := b.AddCombo(24, 0, 0, 100, 30, []string{"a"}, 5); err == nil {
 		t.Fatal("combox out-of-range sel should error")
 	}
@@ -2719,7 +2746,7 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	if err := b.SetEnabled(99, true); err == nil {
 		t.Fatal("objprm unknown should error")
 	}
-	// objprm applies on the loop (pumped here manually).
+	// objprm はループで適用される（ここでは手動で汲み上げられる）。
 	en := make(chan struct{})
 	var enErr error
 	go func() {
@@ -2740,9 +2767,10 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	}
 }
 
-// TestCheckImageSized guards the checkbox-label regression: solid-color
-// nine slices report MinSize 0, and ebitenui draws the labeled box at
-// checkboxPreferredSize, so the box rendered 0x0 (label text only).
+// TestCheckImageSized はチェックボックスのラベルの回帰を防ぐ: 単色の
+// ナインスライスは MinSize 0 を報告し、ebitenui はラベル付きボックスを
+// checkboxPreferredSize で描画するため、ボックスは 0x0 で描画されて
+// いた（ラベル文字のみ）。
 func TestCheckImageSized(t *testing.T) {
 	b := mustNew(t)
 	img := b.checkImage()
@@ -2762,7 +2790,7 @@ func TestCheckImageSized(t *testing.T) {
 			t.Fatalf("%s MinSize = %dx%d, want >= 12 (invisible box)", name, w, h)
 		}
 	}
-	// Art content: white body, gray ring, black glyph.
+	// 見た目の中身: 白い本体、灰色のリング、黒いグリフ。
 	body := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
 	fr := color.NRGBA{0x80, 0x80, 0x80, 0xFF}
 	mark := color.NRGBA{0x00, 0x00, 0x00, 0xFF}
@@ -2777,8 +2805,9 @@ func TestCheckImageSized(t *testing.T) {
 	if got := ticked.NRGBAAt(9, 14); got != mark {
 		t.Fatalf("checked glyph joint = %v, want mark %v", got, mark)
 	}
-	// Headless render smoke: labeled checkbox Draw must not panic
-	// (plain Draw works without a game loop; readback does not).
+	// ヘッドレスの描画スモーク: ラベル付きチェックボックスの Draw は
+	// panic してはならない（単なる Draw はゲームループなしで動く。
+	// 読み戻しは動かない）。
 	done := make(chan struct{})
 	go func() {
 		_ = b.AddCheck(21, "Agree", 10, 300, 200, 32, false)
@@ -2790,9 +2819,9 @@ func TestCheckImageSized(t *testing.T) {
 	b.Draw(ebiten.NewImage(640, 480))
 }
 
-// TestComboClickRepro drives the click-time combo path headless:
-// open the dropdown, Update, Draw, select an entry, Update again.
-// This reproduces the combox click panic without a window.
+// TestComboClickRepro はクリック時のコンボの経路をヘッドレスで駆動する:
+// ドロップダウンを開き、Update、Draw、項目を選択し、再び Update。
+// これはウィンドウなしで combox クリックの panic を再現する。
 func TestComboClickRepro(t *testing.T) {
 	b := mustNew(t)
 	done := make(chan struct{})
@@ -2836,7 +2865,8 @@ func TestComboClickRepro(t *testing.T) {
 	if idx, err := b.SelectedIndex(22); err != nil || idx != 1 {
 		t.Fatalf("SelectedIndex(22) = %d, %v; want 1", idx, err)
 	}
-	// Edge paths: empty and duplicate items must survive open+select too.
+	// 端の経路: 空の項目と重複した項目も開く+選択で生き残らなければ
+	// ならない。
 	for _, tc := range []struct {
 		id    int
 		items []string
@@ -2890,22 +2920,22 @@ func TestComboClickRepro(t *testing.T) {
 	}
 }
 
-// TestAwaitTick drives the frame counter without a game loop:
-// advanceTick is what Update calls, so awaiting it headless matches
-// the in-loop behavior.
+// TestAwaitTick はゲームループなしでフレームカウンタを駆動する:
+// advanceTick は Update が呼ぶものなので、それをヘッドレスで待つことは
+// ループ内の挙動と一致する。
 func TestAwaitTick(t *testing.T) {
 	b := mustNew(t)
 	if b.Tick() != 0 {
 		t.Fatalf("initial tick = %d, want 0", b.Tick())
 	}
 	b.Await(0)
-	b.Await(-5) // no-ops, must return immediately
+	b.Await(-5) // 何もせず、直ちに戻らなければならない
 	done := make(chan struct{})
 	go func() {
 		b.Await(2)
 		close(done)
 	}()
-	// Generous gaps: wakeups re-register within microseconds.
+	// 寛大な間隔: 待機側はマイクロ秒で起床を再登録する。
 	for i := 0; i < 3; i++ {
 		time.Sleep(20 * time.Millisecond)
 		b.advanceTick()
@@ -2918,13 +2948,13 @@ func TestAwaitTick(t *testing.T) {
 	if b.Tick() != 3 {
 		t.Fatalf("tick = %d, want 3", b.Tick())
 	}
-	// Late waiter with ticks already past returns at once.
+	// 既にティックが過ぎている遅れてきた待機側は直ちに戻る。
 	later := make(chan struct{})
 	go func() {
 		b.Await(1)
 		close(later)
 	}()
-	time.Sleep(50 * time.Millisecond) // let the waiter register
+	time.Sleep(50 * time.Millisecond) // 待機側に登録させる
 	b.advanceTick()
 	select {
 	case <-later:
@@ -2933,8 +2963,8 @@ func TestAwaitTick(t *testing.T) {
 	}
 }
 
-// TestRotateTransform checks grotate geometry without a game loop:
-// the region center lands on the cursor at any angle.
+// TestRotateTransform はゲームループなしで grotate の幾何を確認する:
+// 領域の中心はどんな角度でもカーソルに着地する。
 func TestRotateTransform(t *testing.T) {
 	m := rotateTransform(20, 10, 1, 1, 0, 100, 50)
 	if x, y := m.Apply(10, 5); x != 100 || y != 50 {
@@ -2943,12 +2973,12 @@ func TestRotateTransform(t *testing.T) {
 	if x, y := m.Apply(0, 0); x != 90 || y != 45 {
 		t.Fatalf("corner = (%v,%v), want (90,45)", x, y)
 	}
-	// 90 degrees: right-middle (20,5) rotates to bottom-middle.
+	// 90度: 右端の中点 (20,5) が下端の中点に回転する。
 	m = rotateTransform(20, 10, 1, 1, 90, 100, 50)
 	if x, y := m.Apply(20, 5); diff(x, 100) || diff(y, 60) {
 		t.Fatalf("rotated = (%v,%v), want (100,60)", x, y)
 	}
-	// Zoom composes: center still lands on the cursor.
+	// 拡大が合成される: 中心は依然カーソルに着地する。
 	m = rotateTransform(20, 10, 2, 3, 45, 7, 9)
 	if x, y := m.Apply(10, 5); diff(x, 7) || diff(y, 9) {
 		t.Fatalf("scaled center = (%v,%v), want (7,9)", x, y)
@@ -2960,14 +2990,14 @@ func diff(a, b float64) bool {
 	return d > 1e-9 || d < -1e-9
 }
 
-// TestBlitRotateErrors covers grotate validation without a game loop.
+// TestBlitRotateErrors はゲームループなしで grotate の検証を扱う。
 func TestBlitRotateErrors(t *testing.T) {
 	b := mustNew(t)
 	for _, tc := range []struct {
 		src, w, h int
 		zx, zy    float64
 	}{
-		{99, 10, 10, 1, 1}, // unknown buffer
+		{99, 10, 10, 1, 1}, // 未知のバッファ
 		{0, 0, 10, 1, 1},
 		{0, 10, -1, 1, 1},
 		{0, 10, 10, 0, 1},
@@ -2979,7 +3009,7 @@ func TestBlitRotateErrors(t *testing.T) {
 	}
 }
 
-// TestAlphaState covers galpha without a game loop.
+// TestAlphaState はゲームループなしで galpha を扱う。
 func TestAlphaState(t *testing.T) {
 	b := mustNew(t)
 	if b.alphaScale() != 1 {
@@ -3001,8 +3031,8 @@ func TestAlphaState(t *testing.T) {
 	}
 }
 
-// TestMouseWheelConsume checks the wheel latch: whole detents are
-// reported once, fractions carry over to the next call.
+// TestMouseWheelConsume はホイールのラッチを確認する: デテントの全体が
+// 一度報告され、端数は次の呼出に持ち越される。
 func TestMouseWheelConsume(t *testing.T) {
 	b := mustNew(t)
 	if got := b.MouseWheel(); got != 0 {
@@ -3031,12 +3061,14 @@ func TestMouseWheelConsume(t *testing.T) {
 	}
 }
 
-// TestWidgetThemeFixed locks the Windows-standard widget theme: every
-// widget kind builds headless without a color override API, and the
-// checkbox art carries a gray ring on a white box with a black glyph.
-// NOTE: defined before TestGuiRender: Ebiten allows a single RunGame per
-// process, after which NewImage panics, so image-creating tests must run
-// first (like the other widget tests above).
+// TestWidgetThemeFixed は Windows 標準のウィジェットテーマを固定する:
+// すべてのウィジェット種別は色の上書き API なしにヘッドレスで構築でき、
+// チェックボックスの見た目は白いボックスに灰色のリング、黒いグリフを
+// 運ぶ。
+// 注意: TestGuiRender より前に定義される。Ebiten は1プロセスにつき
+// 1つの RunGame しか許さず、その後は NewImage が panic するため、
+// 画像を生成するテストは最初に実行されなければならない
+// （上の他のウィジェットテストと同じ）。
 func TestWidgetThemeFixed(t *testing.T) {
 	b := mustNew(t)
 	white := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
@@ -3056,7 +3088,7 @@ func TestWidgetThemeFixed(t *testing.T) {
 	if got := ticked.NRGBAAt(0, 0); got != fr {
 		t.Fatalf("checked corner = %v, want frame %v", got, fr)
 	}
-	// Every widget kind builds with the fixed theme (no color args).
+	// すべてのウィジェット種別が固定のテーマで構築される（色の引数なし）。
 	for _, add := range []func() error{
 		func() error { return b.AddButton(1, "OK", 10, 10, 120, 40) },
 		func() error { return b.AddInput(2, 10, 60, 160, 36, "hi") },
@@ -3069,8 +3101,7 @@ func TestWidgetThemeFixed(t *testing.T) {
 			t.Fatalf("add widget: %v", err)
 		}
 	}
-	// List entry colors stay complete (non-nil backgrounds) in the
-	// light theme too.
+	// リストの項目の色は明るいテーマでも完全（背景が非 nil）なまま。
 	c := listEntryColors()
 	if c.Unselected != themeInk || c.Selected != themeInk {
 		t.Fatalf("entry text = %v/%v, want black", c.Unselected, c.Selected)
@@ -3080,9 +3111,10 @@ func TestWidgetThemeFixed(t *testing.T) {
 	}
 }
 
-// TestClearKeepsWidgets: cls() wipes canvas/text only; widgets survive
-// until clrobj() (regression: cls used to drop them, breaking every
-// draw loop that combined widgets with per-frame cls()).
+// TestClearKeepsWidgets: cls() はキャンバス/テキストのみを消去する。
+// ウィジェットは clrobj() まで生き残る（回帰: cls はそれらを落とし、
+// ウィジェットと毎フレームの cls() を組み合わせたすべての描画ループを
+// 壊していた）。
 func TestClearKeepsWidgets(t *testing.T) {
 	b := mustNew(t)
 	if err := runWidgetOp(t, b, func() error { return b.AddInput(2, 10, 60, 160, 36, "hi") }); err != nil {
@@ -3097,17 +3129,19 @@ func TestClearKeepsWidgets(t *testing.T) {
 	}
 }
 
-// loopRan guards the one-loop-per-process Ebiten limit:
-// repeat runs (go test -count=N) skip instead of panicking.
+// loopRan は1プロセスにつき1ループという Ebiten の制限を守る:
+// 繰返しの実行（go test -count=N）は panic せずスキップする。
 var loopRan = false
 
-// TestListboxVerticalSlider guards the visible scrollbar path: an
-// empty list and a tall one must both survive Update/Draw with the
-// slider built (its page math divides by the content height), and the
-// slider images must be wired (an imageless handle panics on draw,
-// like the dropdown's). Pixel proof that the slider reserves its
-// strip lives in the renderGame slider stage below.
-// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+// TestListboxVerticalSlider は可視のスクロールバーの経路を守る: 空の
+// リストと背の高いリストはどちらもスライダーを構築した状態で Update/Draw
+// を生き残らなければならない（そのページ計算は内容の高さで除算する）。
+// またスライダーの画像は配線されていなければならない（画像なしの
+// ハンドルは描画時に panic する。ドロップダウンと同じ）。スライダーが
+// その帯を予約するというピクセルによる証明は下記の renderGame の
+// スライダー段階にある。
+// 注意: TestGuiRender より前 — Ebiten は1プロセスにつき1つのゲーム
+// ループしか許さない。
 func TestListboxVerticalSlider(t *testing.T) {
 	b := mustNew(t)
 	if err := runWidgetOp(t, b, func() error {
@@ -3115,7 +3149,7 @@ func TestListboxVerticalSlider(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddList: %v", err)
 	}
-	// Slider images must be fully wired (no nil faces).
+	// スライダーの画像は完全に配線されていなければならない（nil の面なし）。
 	sp := b.comboSliderParams()
 	if sp.TrackImage == nil || sp.TrackImage.Idle == nil {
 		t.Fatal("slider track image missing")
@@ -3123,7 +3157,7 @@ func TestListboxVerticalSlider(t *testing.T) {
 	if sp.HandleImage == nil {
 		t.Fatal("slider handle image missing")
 	}
-	// Empty list + visible slider must not blow up on Update/Draw.
+	// 空のリスト + 可視のスライダーは Update/Draw で爆発してはならない。
 	if err := runWidgetOp(t, b, func() error {
 		return b.AddList(62, 0, 0, 120, 60, nil)
 	}); err != nil {
@@ -3133,7 +3167,8 @@ func TestListboxVerticalSlider(t *testing.T) {
 		t.Fatalf("Update with empty list: %v", err)
 	}
 	b.Draw(ebiten.NewImage(640, 480))
-	// Many items: slider math over a tall content must also survive.
+	// 多くの項目: 背の高い内容に対するスライダーの計算も生き残らなければ
+	// ならない。
 	many := make([]string, 0, 200)
 	for i := 0; i < 200; i++ {
 		many = append(many, "item number "+strings.Repeat("x", i%37))
@@ -3149,11 +3184,72 @@ func TestListboxVerticalSlider(t *testing.T) {
 	b.Draw(ebiten.NewImage(640, 480))
 }
 
-// TestAreaVerticalScrollbar guards the console log viewer: a plain,
-// empty, and tall content must all survive Update/Draw with the
-// scrollbar built, and repeated SetText (the append path) must keep
-// working. Auto-stick to the bottom is ebitenui-internal (ScrollEnd).
-// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+// TestListboxAddListKeepsWidget は2つの listbox のフォーカス修正を守る:
+// 同じ id/矩形/項目での繰返しの listbox() 呼出はウィジェットを再利用
+// しなければならない（それによりそのスクロールオフセットと ebitenui の
+// フォーカスが生き残る）。そして異なる項目での同じ矩形の呼出は
+// 作り直さず（毎フレームスクロールをリセットしていた）listbox_set の
+// ように項目をその場で入れ替えなければならない。
+func TestListboxAddListKeepsWidget(t *testing.T) {
+	b := mustNew(t)
+	items := []string{"a", "b", "c"}
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddList(63, 0, 0, 120, 60, items)
+	}); err != nil {
+		t.Fatalf("AddList: %v", err)
+	}
+	b.mu.Lock()
+	first := b.widgets[63].list
+	b.mu.Unlock()
+	if first == nil {
+		t.Fatal("list widget missing")
+	}
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddList(63, 0, 0, 120, 60, items)
+	}); err != nil {
+		t.Fatalf("AddList repeat: %v", err)
+	}
+	b.mu.Lock()
+	kept := b.widgets[63].list == first
+	b.mu.Unlock()
+	if !kept {
+		t.Fatal("same listbox() call recreated the widget (scroll/focus lost)")
+	}
+	other := []string{"a", "b", "d"}
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddList(63, 0, 0, 120, 60, other)
+	}); err != nil {
+		t.Fatalf("AddList changed items: %v", err)
+	}
+	b.mu.Lock()
+	kept = b.widgets[63].list == first
+	b.mu.Unlock()
+	if !kept {
+		t.Fatal("same-rect listbox() call rebuilt the widget (scroll/focus lost)")
+	}
+	// 2つ目の listbox は独自のウィジェットを保つ: それをフォーカスして
+	// 最初のリストのスクロールを動かしてはならない（各 List は自身の
+	// ScrollContainer を所有する）。
+	if err := runWidgetOp(t, b, func() error {
+		return b.AddList(64, 200, 0, 120, 60, items)
+	}); err != nil {
+		t.Fatalf("AddList second: %v", err)
+	}
+	b.mu.Lock()
+	second := b.widgets[64].list
+	b.mu.Unlock()
+	if second == nil || second == first {
+		t.Fatal("second listbox must own a distinct widget")
+	}
+}
+
+// TestAreaVerticalScrollbar はコンソールのログビューアを守る: 通常、
+// 空、背の高い内容はどれもスクロールバーを構築した状態で Update/Draw を
+// 生き残らなければならず、繰返しの SetText（追記の経路）は動き続け
+// なければならない。下端への自動の張り付きは ebitenui 内部
+// （ScrollEnd）である。
+// 注意: TestGuiRender より前 — Ebiten は1プロセスにつき1つのゲーム
+// ループしか許さない。
 func TestAreaVerticalScrollbar(t *testing.T) {
 	b := mustNew(t)
 	if err := runWidgetOp(t, b, func() error {
@@ -3178,7 +3274,7 @@ func TestAreaVerticalScrollbar(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddArea many: %v", err)
 	}
-	// Churn like the editor console (append = read + rewrite).
+	// エディタのコンソールのように頻繁に更新（追記 = 読み出し + 書き換え）。
 	for i := 0; i < 5; i++ {
 		if err := runWidgetOp(t, b, func() error {
 			s, err := b.AreaText(73)
@@ -3205,12 +3301,13 @@ func TestAreaVerticalScrollbar(t *testing.T) {
 	b.Draw(ebiten.NewImage(640, 480))
 }
 
-// TestListboxItemsFitAndStayUnique drives the backend the way the
-// listbox/listbox_set builtins do and asserts the stored entries (what
-// a selection resolves against) are fitted to the list width and stay
-// distinct, so clicking the second of two similarly-named definitions
-// still jumps to the right one.
-// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+// TestListboxItemsFitAndStayUnique は listbox/listbox_set の組込みが
+// するようにバックエンドを駆動し、格納された項目（選択がそれを参照して
+// 解決する）がリストの幅に収められ、かつ重複しないことを確認する。
+// これにより、似た名前の2つの定義の2つ目をクリックしても正しいものに
+// 飛べる。
+// 注意: TestGuiRender より前 — Ebiten は1プロセスにつき1つのゲーム
+// ループしか許さない。
 func TestListboxItemsFitAndStayUnique(t *testing.T) {
 	b := mustNew(t)
 	w := 104
@@ -3238,7 +3335,7 @@ func TestListboxItemsFitAndStayUnique(t *testing.T) {
 			}
 		}
 	}
-	// listbox_set re-fits to the recorded width.
+	// listbox_set は記録された幅に再び収める。
 	if err := runWidgetOp(t, b, func() error { return b.UpdateList(41, items) }); err != nil {
 		t.Fatalf("UpdateList: %v", err)
 	}
@@ -3255,10 +3352,11 @@ func TestListboxItemsFitAndStayUnique(t *testing.T) {
 	}
 }
 
-// TestButtonLabelFits checks a label wider than its button is shortened
-// before ebitenui draws it: ebitenui does not clip button text, so the
-// raw label would spill past the frame.
-// NOTE: before TestGuiRender — Ebiten allows one game loop per process.
+// TestButtonLabelFits はボタンより広いラベルが ebitenui が描画する前に
+// 短縮されることを確認する: ebitenui はボタンのテキストをクリップしない
+// ため、生のラベルは枠からあふれてしまう。
+// 注意: TestGuiRender より前 — Ebiten は1プロセスにつき1つのゲーム
+// ループしか許さない。
 func TestButtonLabelFits(t *testing.T) {
 	b := mustNew(t)
 	w := 60
@@ -3286,8 +3384,8 @@ func TestButtonLabelFits(t *testing.T) {
 	}
 }
 
-// TestGuiRender verifies end-to-end pixel output: environment readback,
-// direct text, and the backend path (catches "black screen" regressions).
+// TestGuiRender は端から端のピクセル出力を検証する: 環境の読み戻し、
+// 直接のテキスト、バックエンドの経路（"黒い画面"の回帰を捕らえる）。
 func TestGuiRender(t *testing.T) {
 	if loopRan {
 		t.Skip("ebiten allows a single game loop per process")
@@ -3298,8 +3396,9 @@ func TestGuiRender(t *testing.T) {
 	ebiten.SetWindowSize(640, 480)
 	ebiten.SetWindowTitle("Golash test")
 	g := &renderGame{b: b, face: b.face, savePath: filepath.Join(t.TempDir(), "snap.png")}
-	// NOTE: window teardown on some machines reports
-	// "glfw: DestroyWindow failed"; sampling results are what matter.
+	// 注意: 一部のマシンではウィンドウの解体時に
+	// "glfw: DestroyWindow failed" が報告される。重要なのは
+	// サンプリングの結果である。
 	_ = ebiten.RunGame(g)
 	t.Logf("frames=%d filled=%v texted=%v backed=%v", g.frames, g.filled, g.texted, g.backed)
 	if !g.filled || g.fillLit == 0 {
@@ -3324,9 +3423,9 @@ func TestGuiRender(t *testing.T) {
 	if g.circleLit == 0 {
 		t.Fatal("Circle pixel not visible")
 	}
-	// Text shares the canvas layer with the shapes: mes() pixels show up
-	// in the buffer, a later boxf() covers them, and mes() after boxf()
-	// draws on top of the shape.
+	// テキストは図形とキャンバス層を共有する: mes() のピクセルは
+	// バッファに現れ、後ろの boxf() がそれらを覆い、boxf() の後の
+	// mes() は図形の上に描かれる。
 	t.Logf("text layer: alone=%d covered=%d over-shape=%d", g.textAlone, g.textCovered, g.textOn)
 	if g.textAlone == 0 {
 		t.Fatal("mes() pixels missing from the canvas layer")
@@ -3360,8 +3459,9 @@ func TestGuiRender(t *testing.T) {
 	if g.clickedVal {
 		t.Fatal("idle clicked = true, want false")
 	}
-	// NOTE: the real cursor can sit anywhere on the desktop, even outside
-	// the window, so mouse position is logged but not range-checked.
+	// 注意: 実際のカーソルはデスクトップのどこにでもありうるため、
+	// ウィンドウの外にもありうる。マウス位置は記録されるが範囲は
+	// 確認されない。
 	if g.wFail != "" {
 		t.Fatalf("widget stage: %s", g.wFail)
 	}
@@ -3381,7 +3481,8 @@ func TestGuiRender(t *testing.T) {
 	}
 }
 
-// runWidgetOp pumps runOnLoop-bound widget ops headless.
+// runWidgetOp は runOnLoop に束縛されたウィジェット操作をヘッドレスで
+// 汲み上げる。
 func runWidgetOp(t *testing.T, b *WindowBackend, op func() error) error {
 	t.Helper()
 	ch := make(chan struct{})

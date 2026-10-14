@@ -1,13 +1,13 @@
-// P4 builtins: console input/output.
+// P4 組み込み: コンソールの入出力。
 package main
 
 import "strings"
 
 func init() {
-	// print(args...): mes without the trailing newline. Trailing
-	// style keywords ("bold", "italic", "bolditalic", "underline")
-	// are consumed as decoration instead of printed. Void arguments
-	// are skipped silently.
+	// print(args...): 末尾の改行なしで表示する。末尾の
+	// スタイル指定 ("bold", "italic", "bolditalic", "underline")
+	// は装飾として消費され表示されない。Void 引数
+	// は黙って無視される。
 	register("print", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		rest, st := splitStyleArgs(args)
 		parts := make([]string, 0, len(rest))
@@ -35,11 +35,11 @@ func init() {
 		return Null(), nil
 	})
 
-	// color(r, g, b [, a]): set text/draw color (0-255 each).
-	// a is the alpha (0 transparent .. 255 opaque, default 255).
-	// Terminals cannot render text alpha, so CUI ignores it.
-	// color(rgb): set color with a 0xRRGGBB integer (pget()形式).
-	// color() resets the color.
+	// color(r, g, b [, a]): 文字・描画色を設定する (各 0-255)。
+	// a は不透明度 (0 が透明 .. 255 が不透明、既定値 255)。
+	// 端末は文字の不透明度を描画できないため、CUI では無視される。
+	// color(rgb): 0xRRGGBB 形式の整数で色を設定する (pget()形式)。
+	// color() で色をリセットする。
 	register("color", 0, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if len(args) == 0 {
 			in.be.ResetColor()
@@ -74,9 +74,9 @@ func init() {
 		return Null(), nil
 	})
 
-	// title(s): ask the terminal to change its title (best effort).
-	// NUL would panic the GUI windowing layer, so it is rejected here
-	// for both backends.
+	// title(s): 端末のタイトル変更を要求する (ベストエフォート)。
+	// NUL は GUI のウィンドウ層を異常終了させるため、ここで拒否する
+	// (両バックエンド共通)。
 	register("title", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("title", args, 0, at)
 		if err != nil {
@@ -103,17 +103,18 @@ func init() {
 		return Null(), nil
 	})
 
-	// input([prompt]): read one line, returned as a string.
-	// EOF yields "" (indistinguishable from an empty line by design).
+	// input([prompt]): 1 行読み込み、文字列として返す。
+	// EOF は "" になる (仕様上、空行と区別しない)。
 	//
-	// GUI is immediate mode instead of line mode: input() returns
-	// characters typed since the previous call (IME-committed text
-	// included, OS key-repeat for text plus synthesized repeat for
-	// control keys, "" when none) and never blocks,
-	// so a polling loop builds its own line editor (break on "\r",
-	// asc() for codes). A focused inputbox owns the stream (input()
-	// reports "" then). GUI takes no arguments: a prompt would spam
-	// every poll, so print it with mes() instead.
+	// GUI は行モードではなく即時モード: input() は
+	// 前回呼び出し以降に入力された文字を返す (IME 確定済みテキスト
+	// を含む、テキストの OS キーリピートに加え制御キー向けの
+	// 合成リピートあり、入力なしは "")。決して待たないため、
+	// ポーリングループで独自の行編集器を組む ("\r" で確定、
+	// コードは asc() で取得)。フォーカスされた inputbox が
+	// ストリームを占有する (その間 input() は "" を返す)。
+	// GUI では引数を取らない: プロンプトは毎回繰り返し表示されるため、
+	// 代わりに mes() で表示すること。
 	register("input", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if ir, ok := in.be.(immediateReader); ok {
 			if len(args) != 0 {

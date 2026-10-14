@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-// TestGuiBuiltinsRegistered asserts the GUI words exist in gui builds.
+// TestGuiBuiltinsRegisteredはGUI語がguiビルドに存在することを検証する。
 func TestGuiBuiltinsRegistered(t *testing.T) {
 	for _, n := range guiBuiltinNames {
 		if !isBuiltin(n) {

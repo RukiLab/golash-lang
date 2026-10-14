@@ -1,4 +1,4 @@
-// P3 builtins: time, waiting, program control.
+// P3 組み込み関数：時刻・待機・プログラム制御。
 package main
 
 import (
@@ -12,14 +12,13 @@ import (
 	"time"
 )
 
-// endSignal unwinds to Run, which then reports the requested exit code.
+// endSignal は Run まで巻き戻し、要求された終了コードを報告させる。
 type endSignal struct{}
 
-// syncWriter serializes writes into one in-process writer. exec()
-// streams the child's output through the interpreter's own writer and
-// os/exec copies it from a separate goroutine, so an unsynchronized
-// target (the test/capture bytes.Buffer) loses or garbles writes under
-// that race (TestExec flaked about 10% before this guard).
+// syncWriter はプロセス内の一つの書き込み先への書き込みを直列化する。exec()
+// は子の出力をインタプリタ自身の writer 経由で流し、os/exec は別 goroutine
+// からコピーするため、同期しない受け側（テスト／取り込み用の bytes.Buffer）は
+// その競合で書き込みを取りこぼし・化けさせる（この guard 以前は TestExec が約10%で不安定化）。
 type syncWriter struct {
 	mu sync.Mutex
 	w  io.Writer
@@ -31,11 +30,10 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
-// childOut wraps an interpreter-side writer for a child process. A
-// real *os.File passes through untouched: the child inherits the
-// handle directly and no goroutine in this process writes through it.
-// Everything else gets the mutex, because os/exec then copies the
-// child's output in-process while the interpreter keeps writing.
+// childOut は子プロセス用にインタプリタ側の writer を包む。本物の
+// *os.File はそのまま通す：子がハンドルを直接継承し、このプロセス内の
+// goroutine から書き込まれることはない。それ以外は mutex で守る。os/exec が
+// 子の出力をプロセス内でコピーする一方、インタプリタも書き続けるため。
 func childOut(w io.Writer) io.Writer {
 	if _, ok := w.(*os.File); ok {
 		return w
@@ -43,12 +41,12 @@ func childOut(w io.Writer) io.Writer {
 	return &syncWriter{w: w}
 }
 
-// procStart anchors nanotime() to the monotonic clock.
+// procStart は nanotime() を単調時計に固定する起点。
 var procStart = time.Now()
 
 func init() {
-	// gettime(t): 0 year, 1 month (1-12), 2 weekday (0=Sunday..6=Saturday),
-	// 3 day, 4 hour, 5 minute, 6 second, 7 millisecond.
+	// gettime(t)：0 年、1 月（1-12）、2 曜日（0=日曜..6=土曜）、
+	// 3 日、4 時、5 分、6 秒、7 ミリ秒。
 	register("gettime", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		t, err := needInt("gettime", args, 0, at)
 		if err != nil {
@@ -76,14 +74,14 @@ func init() {
 		return Null(), argErr("gettime", 0, at, "type は 0 から 7 の範囲で指定してください。%d が指定されました", t)
 	})
 
-	// nanotime(): monotonic nanoseconds since process start (for
-	// benchmarking; wall-clock milliseconds come from gettime(7)).
-	// time.Since uses the monotonic clock, so this never goes backward.
+	// nanotime()：プロセス開始からの単調な経過ナノ秒（計測用。
+	// 壁時計のミリ秒は gettime(7) を使う）。
+	// time.Since は単調時計を使うため、逆戻りしない。
 	register("nanotime", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		return Int(time.Since(procStart).Nanoseconds()), nil
 	})
 
-	// sleep(ms): pause for milliseconds (replaces HSP's centisecond wait).
+	// sleep(ms)：ミリ秒だけ休止する（HSP のセンチ秒 wait の置き換え）。
 	register("sleep", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		ms, err := needInt("sleep", args, 0, at)
 		if err != nil {
@@ -101,8 +99,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// await([n]): wait for n frames (default 1). GUI waits for Update
-	// ticks (vsync); CUI waits ~16ms per frame.
+	// await([n])：n フレーム待つ（既定は 1）。GUI は Update の
+	// 刻み（vsync）を待ち、CUI は1フレーム約16ms 待つ。
 	register("await", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		n := int64(1)
 		if len(args) == 1 {
@@ -114,8 +112,8 @@ func init() {
 			if n < 0 {
 				return Null(), argErr("await", 0, at, "0 以上である必要があります。%d が指定されました", n)
 			}
-			// tick+n must stay representable: a wrapped target reads as
-			// already passed and used to return immediately.
+			// tick+n は表現可能な範囲に収める：桁あふれした目標値は
+			// 通過済みに見えて即時復帰してしまっていた。
 			if n > math.MaxInt64-in.be.Tick() {
 				return Null(), argErr("await", 0, at, "待機tick数が大きすぎます。%d が指定されました", n)
 			}
@@ -124,12 +122,12 @@ func init() {
 		return Null(), nil
 	})
 
-	// tick(): frame counter (GUI: Update count; CUI: wall clock / 16ms).
+	// tick()：フレーム計数（GUI は Update 回数、CUI は壁時計／16ms）。
 	register("tick", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		return Int(in.be.Tick()), nil
 	})
 
-	// end([code]): stop the program with an exit code (default 0).
+	// end([code])：終了コード付きでプログラムを止める（既定は 0）。
 	register("end", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		code := int64(0)
 		if len(args) == 1 {
@@ -141,14 +139,15 @@ func init() {
 		}
 		c := int(code)
 		in.exitCode.Store(&c)
-		// A GUI backend closes its window on end(); console just unwinds.
+		// GUI バックエンドは end() でウィンドウを閉じる。コンソールは
+		// 単に巻き戻るだけ。
 		if closer, ok := in.be.(interface{ RequestClose() }); ok {
 			closer.RequestClose()
 		}
 		panic(endSignal{})
 	})
 
-	// assert(cond [, msg]): abort with an error when cond is false.
+	// assert(cond [, msg]): cond が偽のときエラーで中断する。
 	register("assert", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if args[0].K != KBool {
 			return Null(), argErr("assert", 0, at, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(args[0]))
@@ -167,8 +166,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// logmes(args...): mes-style output to the error stream (debugging).
-	// Void arguments are skipped silently, like mes()/print().
+	// logmes(args...): mes 形式の出力をエラーストリームに出す（デバッグ用）。
+	// void 引数は mes()/print() と同じく無音でスキップされる。
 	register("logmes", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		parts := make([]string, 0, len(args))
 		for _, a := range args {
@@ -181,8 +180,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// args(): command-line arguments after the script file (and `--`)
-	// as an array of strings. Empty when none were given.
+	// args(): スクリプトファイル（と `--`）より後のコマンドライン引数を
+	// 文字列配列で返す。指定がなければ空。
 	register("args", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		elems := make([]Value, len(in.cliArgs))
 		for i, s := range in.cliArgs {
@@ -191,14 +190,13 @@ func init() {
 		return ArrayOf(elems), nil
 	})
 
-	// exec(name, args...): launch an external command asynchronously,
-	// return 0 once started (it keeps running after exec returns).
-	// Stdout/stderr pass through. Failure to start is an error.
-	// pipeexec() is the synchronous twin: it waits for completion
-	// and captures stdout.
-	// The child shares the parent console (Windows): closing that
-	// console window kills every attached process. A GUI child that
-	// must survive on its own needs execgui() instead.
+	// exec(name, args...): 外部コマンドを非同期に起動し、起動すると 0 を
+	// 返す（exec が返った後も動き続ける）。標準出力・標準エラーは
+	// そのまま通過する。起動失敗はエラー。pipeexec() は同期待ちの双子で、
+	// 完了を待って標準出力を取り込む。
+	// 子プロセスは親のコンソールを共有する（Windows）: そのコンソール
+	// ウィンドウを閉じると接続された全プロセスが終了する。単独で生き残る
+	// 必要のある GUI 子プロセスは代わりに execgui() を使う。
 	register("exec", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("exec", args, 0, at)
 		if err != nil {
@@ -219,19 +217,19 @@ func init() {
 		if err := cmd.Start(); err != nil {
 			return Null(), rtErrf(at, "exec：%s", err.Error())
 		}
-		// Reap in the background; output already streams through.
+		// バックグラウンドで刈り取る。出力は既に流れている。
 		go func() { _ = cmd.Wait() }()
 		return Int(0), nil
 	})
 
-	// execgui(name, args...): like exec() (asynchronous, 0 once
-	// started, start failure is an error), but the child gets no
-	// console window (Windows DETACHED_PROCESS; no-op elsewhere).
-	// For GUI children started from a GUI program: without this, the
-	// child shares the parent console, and closing that console
-	// window kills both processes together. Stdout/stderr are still
-	// inherited (and discarded when the parent has no console), but
-	// nothing is captured: use piperun() when output is needed.
+	// execgui(name, args...): exec() と同じ（非同期・起動すると 0 を返す・
+	// 起動失敗はエラー）だが、子プロセスにコンソールウィンドウを与えない
+	// （Windows の DETACHED_PROCESS。他プラットフォームでは何もしない）。
+	// GUI プログラムから起動される GUI 子プロセス用: これがないと子は親の
+	// コンソールを共有し、そのコンソールウィンドウを閉じると両プロセスが
+	// 一緒に終了してしまう。標準出力・標準エラーは依然継承される（親に
+	// コンソールがなければ破棄される）が、何も取り込まれない。出力が必要
+	// なら piperun() を使う。
 	register("execgui", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("execgui", args, 0, at)
 		if err != nil {
@@ -253,20 +251,20 @@ func init() {
 		if err := cmd.Start(); err != nil {
 			return Null(), rtErrf(at, "execgui：%s", err.Error())
 		}
-		// Reap in the background; output already streams through.
+		// バックグラウンドで刈り取る。出力は既に流れている。
 		go func() { _ = cmd.Wait() }()
 		return Int(0), nil
 	})
 
-	// piperun(name, args...): run an external command and capture it,
-	// returning [exit code, stdout, stderr]. Unlike pipeexec(), a
-	// non-zero exit is a value (not an error) and stderr is captured
-	// instead of passing through, so editors can show failures
-	// in-window without dying (there is no try/catch to contain a
-	// pipeexec error). Only a failure to START the command is folded
-	// into the value as [-1, "", message]. Stdin is detached (null)
-	// like pipeexec; completion is waited for (blocking, no timeout).
-	// The child gets no console window (Windows; capture uses pipes).
+	// piperun(name, args...): 外部コマンドを実行して取り込み、
+	// [終了コード, 標準出力, 標準エラー] を返す。pipeexec() と違い、
+	// 非ゼロ終了は値（エラーではない）で、標準エラーは通過させず
+	// 取り込むため、エディタは失敗を（try/catch で包めない
+	// pipeexec のエラーに死ぬことなく）ウィンドウ内で示せる。
+	// コマンドの起動失敗だけが値に [-1, "", message] として畳まれる。
+	// 標準入力は pipeexec と同じく切り離される（null）。完了は待たれる
+	// （ブロッキング、タイムアウトなし）。子プロセスにはコンソール
+	// ウィンドウが与えられない（Windows。取り込みはパイプを使う）。
 	register("piperun", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("piperun", args, 0, at)
 		if err != nil {
@@ -294,13 +292,13 @@ func init() {
 		return ArrayOf([]Value{Int(0), Str(stdout.String()), Str(stderr.String())}), nil
 	})
 
-	// pipeexec(name, args...): run an external command, return its
-	// stdout as a string. Stdin is detached (null device) so the
-	// child can never steal script input; stderr passes through.
-	// Failure to start, or a non-zero exit, is an error (the plain
-	// exec() twin returns codes instead of capturing output).
-	// Error output as a value is piperun() instead.
-	// The child gets no console window (Windows; capture uses a pipe).
+	// pipeexec(name, args...): 外部コマンドを実行し、その標準出力を
+	// 文字列で返す。標準入力は（null デバイスで）切り離されるため、
+	// 子プロセスがスクリプトの入力を横取りすることはない。標準エラーは
+	// 通過する。起動失敗、または非ゼロ終了はエラー（単純な exec() の
+	// 双子は出力を取り込まずコードを返す）。エラー出力を値として得るには
+	// 代わりに piperun() を使う。子プロセスにはコンソールウィンドウが
+	// 与えられない（Windows。取り込みはパイプを使う）。
 	register("pipeexec", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("pipeexec", args, 0, at)
 		if err != nil {

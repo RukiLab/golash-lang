@@ -1,4 +1,4 @@
-// P1 builtins: conversions, math, random.
+// P1 組み込み: 変換、数学、乱数。
 package main
 
 import (
@@ -10,9 +10,9 @@ import (
 )
 
 func init() {
-	// int(v): float truncates toward zero (finite, in int64 range);
-	// strings must be base-10 integers; bool maps to 1/0.
-	// Anything else is an error.
+	// int(v): 浮動小数は 0 方向へ切り捨て (有限かつ int64 範囲内);
+	// 文字列は 10 進整数であること; 真偽値は 1/0 に対応。
+	// それ以外はエラー。
 	register("int", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		switch args[0].K {
 		case KInt:
@@ -38,8 +38,8 @@ func init() {
 		return Null(), argErr("int", 0, at, "%s を整数に変換できません", typeNameOf(args[0]))
 	})
 
-	// float(v): int widens; numeric strings parse (finite only);
-	// bool maps to 1.0/0.0.
+	// float(v): 整数は拡大変換; 数値文字列を解釈 (有限のみ);
+	// 真偽値は 1.0/0.0 に対応。
 	register("float", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		switch args[0].K {
 		case KFloat:
@@ -64,20 +64,20 @@ func init() {
 		return Null(), argErr("float", 0, at, "%s を浮動小数に変換できません", typeNameOf(args[0]))
 	})
 
-	// str(v): renders any value the way mes() prints it.
+	// str(v): mes() の表示と同じ形式で任意の値を描画する。
 	register("str", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		return Str(Stringify(args[0])), nil
 	})
 
-	// vartype(v): type name ("int", "float", "string", "bool", "array",
-	// "map", "function", "null").
+	// vartype(v): 型名 ("int", "float", "string", "bool", "array",
+	// "map", "function", "null")。
 	register("vartype", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		return Str(typeNameOf(args[0])), nil
 	})
 
-	// abs(v): absolute value, preserving int/float.
-	// abs(MinInt64) is an error: the negation wraps and has no
-	// representable absolute value.
+	// abs(v): 絶対値、int/float を保持する。
+	// abs(MinInt64) はエラー: 否定すると折り返し、表現可能な
+	// 絶対値が存在しないため。
 	register("abs", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		switch args[0].K {
 		case KInt:
@@ -94,7 +94,7 @@ func init() {
 		return Null(), argErr("abs", 0, at, "数値である必要があります。%s が指定されました", typeNameOf(args[0]))
 	})
 
-	// sqrt(v): square root as float; negatives are an error.
+	// sqrt(v): 平方根を float で返す; 負数はエラー。
 	register("sqrt", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		f, err := needFloat("sqrt", args, 0, at)
 		if err != nil {
@@ -106,14 +106,14 @@ func init() {
 		return Float(math.Sqrt(f)), nil
 	})
 
-	// Trig (radians, as in HSP).
+	// 三角関数 (HSP 同様ラジアン)。
 	for name, fn := range map[string]func(float64) float64{
 		"sin": math.Sin, "cos": math.Cos, "tan": math.Tan,
 	} {
 		register(name, 1, 1, trigFn(name, fn))
 	}
 
-	// atan(y) or atan(y, x): arctangent, or atan2 with two arguments.
+	// atan(y) または atan(y, x): 逆正接、引数 2 個では atan2。
 	register("atan", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		y, err := needFloat("atan", args, 0, at)
 		if err != nil {
@@ -129,7 +129,7 @@ func init() {
 		return Float(math.Atan(y)), nil
 	})
 
-	// exp(v): e^v. log(v): natural logarithm (v must be positive).
+	// exp(v): e の v 乗。log(v): 自然対数 (v は正であること)。
 	register("exp", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		f, err := needFloat("exp", args, 0, at)
 		if err != nil {
@@ -148,7 +148,7 @@ func init() {
 		return Float(math.Log(f)), nil
 	})
 
-	// pow(base, exp): power as float.
+	// pow(base, exp): べき乗を float で返す。
 	register("pow", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		b, err := needFloat("pow", args, 0, at)
 		if err != nil {
@@ -161,8 +161,8 @@ func init() {
 		return finiteMath("pow", math.Pow(b, e), at)
 	})
 
-	// limit(v, lo, hi): clamp into range. All-int inputs clamp in
-	// int64 and yield int; otherwise float64.
+	// limit(v, lo, hi): 範囲内に収める。全引数が int の場合は
+	// int64 で収めて int を返す; それ以外は float64。
 	register("limit", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		intPath := true
 		for _, a := range args {
@@ -205,8 +205,8 @@ func init() {
 		return Float(c), nil
 	})
 
-	// min(a, b, ...) / max(a, b, ...): least/greatest argument.
-	// All-int inputs yield int; otherwise float64.
+	// min(a, b, ...) / max(a, b, ...): 最小・最大の引数。
+	// 全引数が int の場合は int を返す; それ以外は float64。
 	for name, wantMin := range map[string]bool{"min": true, "max": false} {
 		register(name, 2, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 			intPath := true
@@ -251,7 +251,7 @@ func init() {
 		})
 	}
 
-	// length(a): number of top-level elements. Nested levels via length(a[i]).
+	// length(a): 最上位の要素数。入れ子は length(a[i]) で取得。
 	register("length", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("length", args, 0, at)
 		if err != nil {
@@ -260,7 +260,7 @@ func init() {
 		return Int(int64(len(arr.Elems))), nil
 	})
 
-	// rnd(n): integer in 0..n-1.
+	// rnd(n): 0..n-1 の整数。
 	register("rnd", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		n, err := needInt("rnd", args, 0, at)
 		if err != nil {
@@ -272,8 +272,8 @@ func init() {
 		return Int(int64(scriptRand.IntN(int(n)))), nil
 	})
 
-	// randomize([seed]): without args seeds from the clock; with an
-	// integer seed the sequence becomes reproducible.
+	// randomize([seed]): 引数なしでは時計から種を設定; 整数の
+	// 種を指定すると系列が再現可能になる。
 	register("randomize", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if len(args) == 0 {
 			scriptRand = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
@@ -298,8 +298,8 @@ func trigFn(name string, fn func(float64) float64) builtinFn {
 	}
 }
 
-// finiteMath rejects non-finite float results: NaN and ±Inf can never
-// appear in a value, so producing one is always an error.
+// finiteMath は有限でない浮動小数結果を拒否する: NaN と ±Inf は
+// 値として現れ得ないため、生成は常にエラーになる。
 func finiteMath(name string, f float64, at Pos) (Value, error) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return Null(), argErr(name, 0, at, "計算結果が有限の浮動小数ではありません")
@@ -307,5 +307,5 @@ func finiteMath(name string, f float64, at Pos) (Value, error) {
 	return Float(f), nil
 }
 
-// scriptRand is the script-visible random source (reseeded by randomize).
+// scriptRand はスクリプト可視の乱数源 (randomize で種を再設定)。
 var scriptRand = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))

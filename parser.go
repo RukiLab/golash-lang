@@ -1,4 +1,4 @@
-// Recursive-descent parser for HSP successor language.
+// HSP後継言語のための再帰下降パーサ。
 package main
 
 import (
@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// ParseError is a syntactic error with position.
+// ParseError は位置情報付きの構文エラー。
 type ParseError struct {
 	File   string
 	Line   int
@@ -21,7 +21,7 @@ func (e *ParseError) Error() string {
 	return fmt.Sprintf("%d:%d: %s", e.Line, e.Column, e.Msg)
 }
 
-// Parse tokenizes and parses src into a Program.
+// Parse は src をトークン化して Program に構文解析する。
 func Parse(src string) (*Program, error) {
 	toks, err := Lex(src)
 	if err != nil {
@@ -30,21 +30,21 @@ func Parse(src string) (*Program, error) {
 	return ParseTokens(toks)
 }
 
-// ParseTokens parses an explicit token stream (used by ParseFile after
-// #include splicing).
+// ParseTokens は明示的なトークン列を構文解析する（ParseFile 後の
+// #include 展開済みトークン用）。
 func ParseTokens(toks []Token) (*Program, error) {
 	p := &parser{toks: toks}
 	return p.parseProgram()
 }
 
-// ParseFile reads a script file, splices its #include tree, and parses it.
+// ParseFile はスクリプトファイルを読み込み、#include ツリーを展開して構文解析する。
 func ParseFile(path string) (*Program, error) {
 	prog, _, err := ParseFileMode(path)
 	return prog, err
 }
 
-// ParseFileMode is ParseFile plus the run mode: the last active
-// `#mode cli|gui` in the tree, or "gui" when absent.
+// ParseFileMode は ParseFile に実行モードを加えたもの：ツリー内の最後に有効な
+// `#mode cli|gui`、存在しなければ "gui"。
 func ParseFileMode(path string) (*Program, string, error) {
 	toks, mode, err := CombineFileMode(path)
 	if err != nil {
@@ -60,14 +60,14 @@ func ParseFileMode(path string) (*Program, string, error) {
 type parser struct {
 	toks []Token
 	pos  int
-	// Nesting depth of blocks and expressions (bounded by
-	// maxParseDepth so pathological input cannot overflow the host
-	// stack in the parser or the tree-walk interpreter).
+	// ブロックと式のネスト深さ（maxParseDepth で上限を設け、
+	// 異常な入力でパーサやツリーウォーク型インタプリタのホスト
+	// スタックが溢れないようにする）。
 	depth int
 }
 
-// maxParseDepth caps `{...}` block nesting and expression nesting
-// (parentheses, array/call nesting, unary chains).
+// maxParseDepth は `{...}` ブロックのネストと式のネスト
+//（括弧・配列/呼び出しのネスト・単項演算子の連鎖）の上限。
 const maxParseDepth = 1000
 
 func (p *parser) enter() error {
@@ -114,7 +114,7 @@ func (p *parser) expect(tt TokenType) (Token, error) {
 	return p.next(), nil
 }
 
-// skipNewlines consumes NEWLINE tokens and returns true if any were found.
+// skipNewlines は NEWLINE トークンを消費し、1つでも見つかれば true を返す。
 func (p *parser) skipNewlines() bool {
 	found := false
 	for p.peek().Type == TokNewline {
@@ -235,7 +235,7 @@ func tokName(t TokenType) string {
 	return fmt.Sprintf("%q", string(t))
 }
 
-// opDisplay renders operator tokens as their source symbols.
+// opDisplay は演算子トークンをソース上の記号として描画する。
 func opDisplay(t TokenType) (string, bool) {
 	switch t {
 	case TokPlusAssign:
@@ -262,7 +262,7 @@ func opDisplay(t TokenType) (string, bool) {
 	return "", false
 }
 
-// ---------- program ----------
+// ---------- プログラム ----------
 
 func (p *parser) parseProgram() (*Program, error) {
 	prog := &Program{At: Pos{Line: 1, Column: 1}}
@@ -277,14 +277,14 @@ func (p *parser) parseProgram() (*Program, error) {
 			return nil, err
 		}
 		prog.Stmts = append(prog.Stmts, s)
-		// Statement terminator.
+		// 文の終端。
 		t := p.peek()
 		switch t.Type {
 		case TokNewline:
 			p.skipNewlines()
 		case TokEOF:
 		case TokRBrace:
-			// Let the enclosing block consume it (also tolerates missing newline before '}').
+			// 外側のブロックに消費させる（'}' 前の改行欠落も許容される）。
 		case TokSemicolon:
 			return nil, p.errAt(t, "セミコロンは使用できません。文は改行で区切ってください")
 		default:
@@ -294,15 +294,15 @@ func (p *parser) parseProgram() (*Program, error) {
 	return prog, nil
 }
 
-// ---------- statements ----------
+// ---------- 文 ----------
 
 func (p *parser) parseStmt(top bool) (Stmt, error) {
 	t := p.peek()
 	switch t.Type {
 	case TokDef:
-		// Nested functions are abolished: def lives only at the top
-		// level (function bodies, like all blocks, go through
-		// parseBlock with top=false).
+		// 入れ子関数は廃止された: def はトップレベルにのみ存在する
+		// （関数本体は他のすべてのブロックと同様、top=false の
+		// parseBlock を通る）。
 		if !top {
 			return nil, p.errAt(t, "def はトップレベルにのみ記述できます")
 		}
@@ -328,11 +328,11 @@ func (p *parser) parseStmt(top bool) (Stmt, error) {
 	case TokStar:
 		return nil, p.errAt(t, "予期しない '*' です")
 	case TokIdent:
-		// `enum` is an ordinary identifier (the enum statement is
-		// abolished; sequential constants use valueless #define).
+		// `enum` は通常の識別子である（enum 文は廃止された。連番定数は
+		// 値なしの #define を使う）。
 		return p.parseAssignOrExpr()
 	default:
-		// Expression statements may start with literals, '(', '[', '-', '!', true/false.
+		// 式文はリテラル、'('、'['、'-'、'!'、true/false で始まりうる。
 		return p.parseAssignOrExpr()
 	}
 }
@@ -366,7 +366,7 @@ func (p *parser) parseBlock() (*BlockStmt, error) {
 		case TokNewline:
 			p.skipNewlines()
 		case TokRBrace:
-			// Tolerate missing newline before '}'.
+			// '}' 前の改行欠落を許容する。
 		case TokEOF:
 			return nil, p.errAt(t, "ブロックが閉じられていません。'}' が必要です")
 		case TokSemicolon:
@@ -436,8 +436,8 @@ func (p *parser) parseIf() (Stmt, error) {
 		return nil, err
 	}
 	stmt := &IfStmt{Cond: cond, Then: then, At: posOf(kw)}
-	// Allow `} else {` on one line or across newlines? The samples put
-	// `} else {` on one line. Tolerate newlines before else as well.
+	// `} else {` を1行で、または改行を挟んで書けるようにするか？ サンプルは
+	// `} else {` を1行に置いている。else の前の改行も許容する。
 	save := p.pos
 	p.skipNewlines()
 	if p.peek().Type != TokElse {
@@ -480,7 +480,7 @@ func (p *parser) parseRepeat() (Stmt, error) {
 		}
 		stmt.Var = v.Lit
 		stmt.HasVar = true
-		// `repeat arr as i, item`: index + element (arrays only).
+		// `repeat arr as i, item`: インデックス＋要素（配列のみ）。
 		if p.peek().Type == TokComma {
 			p.next()
 			w, err := p.expect(TokIdent)
@@ -587,10 +587,10 @@ func (p *parser) parseReturn() (Stmt, error) {
 	return &ReturnStmt{Value: v, At: posOf(kw)}, nil
 }
 
-// parseAssignOrExpr parses either `target = value` or a bare expression.
-// Plain `=` declares when nothing visible exists (top-level: global,
-// function: local slot); `let` was abolished, so there is no shadowing
-// declaration anymore.
+// parseAssignOrExpr は `target = value` または裸の式のいずれかを解析する。
+// 単純な `=` は可視のものがないときに宣言となる（トップレベル: グローバル、
+// 関数内: ローカルスロット）。`let` は廃止されたため、シャドーイング宣言は
+// もう存在しない。
 func (p *parser) parseAssignOrExpr() (Stmt, error) {
 	x, err := p.parseOr(true)
 	if err != nil {
@@ -607,8 +607,8 @@ func (p *parser) parseAssignOrExpr() (Stmt, error) {
 		}
 		return &AssignStmt{Target: x, Value: v, At: x.Pos()}, nil
 	}
-	// Compound assignment keeps its target: `x op= v` evaluates the
-	// target address exactly once (see assignCompound).
+	// 複合代入はその対象を保つ: `x op= v` は対象のアドレスをちょうど一度
+	// だけ評価する（assignCompound を参照）。
 	if binOp, ok := compoundOp(p.peek().Type); ok {
 		op := p.next()
 		if !assignable(x) {
@@ -628,7 +628,7 @@ func (p *parser) parseAssignOrExpr() (Stmt, error) {
 	return &ExprStmt{X: x, At: x.Pos()}, nil
 }
 
-// compoundOp maps `op=` tokens to their binary operator.
+// compoundOp は `op=` トークンを対応する二項演算子に写像する。
 func compoundOp(t TokenType) (TokenType, bool) {
 	switch t {
 	case TokPlusAssign:
@@ -665,11 +665,11 @@ func assignable(x Expr) bool {
 	return false
 }
 
-// ---------- expressions (precedence climbing) ----------
-// litOK marks value positions: a bare `Name{...}` there is an error,
-// while conditions (`if` cond, `repeat` count) pass false so `if x {`
-// reads as condition + block. Bracketed contexts (calls, indexes,
-// groups, array literals) always reset to true.
+// ---------- 式（優先度クライミング） ----------
+// litOK は値の位置をマークする: そこで裸の `Name{...}` はエラーだが、
+// 条件（`if` の条件、`repeat` の回数）では false を渡すため `if x {` は
+// 条件＋ブロックとして読まれる。括弧で囲まれた文脈（呼出、添字、
+// グループ、配列リテラル）は常に true にリセットされる。
 
 func (p *parser) parseOr(litOK bool) (Expr, error) {
 	if err := p.enter(); err != nil {
@@ -707,9 +707,9 @@ func (p *parser) parseAnd(litOK bool) (Expr, error) {
 	return l, nil
 }
 
-// Bitwise levels follow the modernized (Python/Rust-style) order: & | ^
-// all bind tighter than ==, so `a & b == c` reads as `(a & b) == c`.
-// Within bitwise, | binds loosest, then ^, then &.
+// ビット単位レベルは近代化された（Python/Rust 風の）順序に従う: & | ^ は
+// すべて == より強く結合するため `a & b == c` は `(a & b) == c` として
+// 読まれる。ビット単位内では | が最も緩く、次に ^、そして &。
 func (p *parser) parseBitOr(litOK bool) (Expr, error) {
 	l, err := p.parseBitXor(litOK)
 	if err != nil {
@@ -865,9 +865,9 @@ func (p *parser) parseUnary(litOK bool) (Expr, error) {
 		}
 		defer p.leave()
 		op := p.next()
-		// Fold -9223372036854775808 to MinInt64: the positive half
-		// overflows int64, so parse it as unsigned here. The bare
-		// positive literal stays an error (see parsePrimary).
+		// -9223372036854775808 を MinInt64 に畳む: 正の半分は int64 を
+		// 桁あふれするため、ここでは符号なしとして解析する。裸の正の
+		// リテラルはエラーのまま（parsePrimary を参照）。
 		if op.Type == TokMinus && p.peek().Type == TokInt {
 			if u, uerr := strconv.ParseUint(p.peek().Lit, 10, 64); uerr == nil && u == 1<<63 {
 				p.next()
@@ -898,14 +898,14 @@ func (p *parser) parsePostfix(litOK bool) (Expr, error) {
 				for {
 					p.skipNewlines()
 					if p.peek().Type == TokComma {
-						// Elided argument (,,): null placeholder,
-						// so f(a, , b) passes null in the middle.
+						// 省略された引数 (,,): null プレースホルダ。
+						// これにより f(a, , b) は途中に null を渡す。
 						c := p.next()
 						args = append(args, &NullLit{At: posOf(c)})
 						continue
 					}
 					if p.peek().Type == TokRParen {
-						break // trailing comma: f(a,) is f(a)
+						break // 末尾カンマ: f(a,) は f(a)
 					}
 					a, err := p.parseOr(true)
 					if err != nil {
@@ -974,8 +974,8 @@ func (p *parser) parsePrimary(litOK bool) (Expr, error) {
 	case TokIdent:
 		p.next()
 		if p.peek().Type == TokLBrace {
-			// `Name{...}` is not a literal; in value position this is
-			// an error, in condition position (`if x {`) a block follows.
+			// `Name{...}` はリテラルではない。値の位置ではこれはエラー、
+			// 条件の位置（`if x {`）ではブロックが続く。
 			if litOK {
 				return nil, p.errAt(p.peek(), "%q の後に予期しない '{' があります", t.Lit)
 			}
@@ -1005,8 +1005,8 @@ func (p *parser) parsePrimary(litOK bool) (Expr, error) {
 		}
 		return x, nil
 	case TokLBrace:
-		// Map literals are abolished: `{...}` in expression position
-		// is an error (blocks belong to if/while/def/... statements).
+		// マップリテラルは廃止された: 式の位置の `{...}` はエラー
+		// （ブロックは if/while/def/... 文に属する）。
 		return nil, p.errAt(t, "mapリテラルは廃止されました。'{' はブロックにのみ使用できます")
 	default:
 		return nil, p.errAt(t, "予期しない %s です。式が必要です", describeToken(t))

@@ -1,11 +1,11 @@
-// P5 builtins: files and memo-pad (note) operations.
+// P5 組み込み: ファイルとメモ帳 (note) 操作。
 //
-// Differences from HSP (documented, modernized):
-//   - exist returns bool (HSP reports the size via strsize).
-//   - dirlist returns an array of names (HSP writes to an out-param).
-//   - note functions are pure: they take the text and return the result
-//     instead of using notesel-selected global buffers.
-//   - Line endings normalize to \n; noteload converts \r\n on the way in.
+// HSP との違い (文書化済み、現代化):
+//   - exist は真偽値を返す (HSP は strsize 経由でサイズを報告)。
+//   - dirlist は名前の配列を返す (HSP は出力引数に書き込む)。
+//   - note 系関数は純粋: notesel 選択の全体バッファではなく、
+//     テキストを受け取り結果を返す。
+//   - 改行は \n に正規化; noteload は読み込み時に \r\n を変換する。
 package main
 
 import (
@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	// getcwd(): current working directory.
+	// getcwd(): 現在の作業ディレクトリ。
 	register("getcwd", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -25,7 +25,7 @@ func init() {
 		return Str(cwd), nil
 	})
 
-	// direxe(): directory holding the running executable.
+	// direxe(): 実行中ファイルのあるディレクトリ。
 	register("direxe", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		exe, err := os.Executable()
 		if err != nil {
@@ -34,7 +34,7 @@ func init() {
 		return Str(filepath.Dir(exe)), nil
 	})
 
-	// homedir(): current user's home directory.
+	// homedir(): 現在のユーザーのホームディレクトリ。
 	register("homedir", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -43,12 +43,12 @@ func init() {
 		return Str(home), nil
 	})
 
-	// tmpdir(): system temporary directory.
+	// tmpdir(): システムの一時ディレクトリ。
 	register("tmpdir", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		return Str(os.TempDir()), nil
 	})
 
-	// exist(path): whether the file exists.
+	// exist(path): ファイルが存在するかどうか。
 	register("exist", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("exist", args, 0, at)
 		if err != nil {
@@ -64,11 +64,11 @@ func init() {
 		return Null(), rtErrf(at, "exist：%s", err.Error())
 	})
 
-	// filetime(path): the file's modification time as Unix
-	// milliseconds (0 when the file does not exist). Rounding to whole
-	// milliseconds keeps the value comparable across platforms, so a
-	// script can poll it to notice an external edit (an editor that
-	// reloads a changed file, for instance).
+	// filetime(path): ファイルの更新時刻を Unix
+	// ミリ秒で表す (存在しない場合は 0)。ミリ秒単位に丸めることで
+	// プラットフォーム間で比較可能にし、スクリプトが外部編集に
+	// 気づくためのポーリングに使える (例: 変更されたファイルを
+	// 読み直すエディタ)。
 	register("filetime", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("filetime", args, 0, at)
 		if err != nil {
@@ -84,14 +84,13 @@ func init() {
 		return Int(fi.ModTime().UnixMilli()), nil
 	})
 
-	// fileinfo(path): file metadata in one stat call, as
-	// [size, mtime_ms, isdir]. Size is bytes, mtime is Unix
-	// milliseconds like filetime(), isdir tells directories apart.
-	// A missing path reports [-1, 0, false] instead of an error
-	// (same philosophy as filetime: editors poll without try/catch,
-	// which the language does not have). Directory sizes are
-	// OS-dependent; combine the three fields instead of calling
-	// exist()/filetime() separately.
+	// fileinfo(path): ファイルの情報を 1 回の stat 呼び出しで取得し、
+	// [size, mtime_ms, isdir] として返す。size はバイト数、mtime は
+	// filetime() と同じ Unix ミリ秒、isdir はディレクトリ判別用。
+	// 存在しない場合はエラーの代わりに [-1, 0, false] を返す
+	// (filetime と同じ考え方: 言語に try/catch がないため、
+	// エディタは例外なしでポーリングする)。ディレクトリのサイズは
+	// OS 依存; exist()/filetime() を別々に呼ばず 3 項目を組み合わせること。
 	register("fileinfo", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("fileinfo", args, 0, at)
 		if err != nil {
@@ -107,9 +106,9 @@ func init() {
 		return ArrayOf([]Value{Int(fi.Size()), Int(fi.ModTime().UnixMilli()), Bool(fi.IsDir())}), nil
 	})
 
-	// dirlist([mask]): names in the script directory (or the working
-	// directory in the REPL), sorted. A mask with a directory part is
-	// resolved with the usual script-first rule.
+	// dirlist([mask]): スクリプト用ディレクトリ内の名前一覧 (REPL では作業
+	// ディレクトリ内)、ソート済み。ディレクトリ部分を含むマスクは
+	// 通常のスクリプト優先規則で解決される。
 	register("dirlist", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		mask := "*"
 		if len(args) == 1 {
@@ -157,7 +156,7 @@ func init() {
 		return ArrayOf(elems), nil
 	})
 
-	// delete(path): remove a file.
+	// delete(path): ファイルを削除する。
 	register("delete", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("delete", args, 0, at)
 		if err != nil {
@@ -169,7 +168,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// mkdir(path): create one directory level.
+	// mkdir(path): ディレクトリを 1 階層作成する。
 	register("mkdir", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("mkdir", args, 0, at)
 		if err != nil {
@@ -181,7 +180,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// chdir(path): change the working directory.
+	// chdir(path): 作業ディレクトリを変更する。
 	register("chdir", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("chdir", args, 0, at)
 		if err != nil {
@@ -193,7 +192,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// bcopy(src, dst): copy a file.
+	// bcopy(src, dst): ファイルをコピーする。
 	register("bcopy", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		src, err := needString("bcopy", args, 0, at)
 		if err != nil {
@@ -213,7 +212,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// bload(path): file bytes as an array of ints (0-255).
+	// bload(path): ファイルのバイト列を整数 (0-255) の配列として読み込む。
 	register("bload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("bload", args, 0, at)
 		if err != nil {
@@ -230,7 +229,7 @@ func init() {
 		return ArrayOf(elems), nil
 	})
 
-	// bsave(path, arr [, size]): write ints (0-255) as bytes.
+	// bsave(path, arr [, size]): 整数 (0-255) をバイト列として書き込む。
 	register("bsave", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("bsave", args, 0, at)
 		if err != nil {
@@ -252,8 +251,8 @@ func init() {
 			if err != nil {
 				return Null(), err
 			}
-			// Compare in int64: int(size) can wrap on huge size and
-			// skip the check, panicking the slice below.
+			// int64 で比較する: 巨大な size では int(size) が折り返して
+			// 検査をすり抜け、下のスライスで異常終了するため。
 			if size < 0 || size > int64(len(data)) {
 				return Null(), argErr("bsave", 2, at, "サイズが範囲外です（配列の長さ %d）", len(data))
 			}
@@ -265,7 +264,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// notemax(s): line count ("" has 0 lines).
+	// notemax(s): 行数 ("" は 0 行)。
 	register("notemax", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("notemax", args, 0, at)
 		if err != nil {
@@ -274,7 +273,7 @@ func init() {
 		return Int(int64(len(noteLines(s)))), nil
 	})
 
-	// noteget(s, i): the i-th line (0-based).
+	// noteget(s, i): i 番目の行 (0 始まり)。
 	register("noteget", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("noteget", args, 0, at)
 		if err != nil {
@@ -291,7 +290,7 @@ func init() {
 		return Str(lines[i]), nil
 	})
 
-	// noteadd(s, i, line): replace line i, or append when i == line count.
+	// noteadd(s, i, line): i 行目を置換、i が行数と等しい場合は追加。
 	register("noteadd", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("noteadd", args, 0, at)
 		if err != nil {
@@ -317,7 +316,7 @@ func init() {
 		return Str(strings.Join(lines, "\n")), nil
 	})
 
-	// notedel(s, i): text without line i.
+	// notedel(s, i): i 行目を除いたテキスト。
 	register("notedel", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("notedel", args, 0, at)
 		if err != nil {
@@ -335,7 +334,7 @@ func init() {
 		return Str(strings.Join(lines, "\n")), nil
 	})
 
-	// noteload(path): whole file as text.
+	// noteload(path): ファイル全体をテキストとして読み込む。
 	register("noteload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("noteload", args, 0, at)
 		if err != nil {
@@ -348,7 +347,7 @@ func init() {
 		return Str(strings.ReplaceAll(string(data), "\r\n", "\n")), nil
 	})
 
-	// notesave(path, s): write text to a file.
+	// notesave(path, s): テキストをファイルに書き込む。
 	register("notesave", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("notesave", args, 0, at)
 		if err != nil {
@@ -365,7 +364,7 @@ func init() {
 	})
 }
 
-// noteLines splits text into lines; "" yields no lines.
+// noteLines はテキストを行に分割する; "" は行なしになる。
 func noteLines(s string) []string {
 	if s == "" {
 		return nil

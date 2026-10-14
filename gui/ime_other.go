@@ -2,17 +2,16 @@
 
 package gui
 
-// osIMECompositionLen reports the OS-side unconfirmed string length.
-// Non-Windows backends notify empty compositions through ebiten's
-// channel, so no OS ground truth is needed: unknown keeps the
-// ebiten-side value.
+// osIMECompositionLen は OS 側の未確定文字列長を返す。
+// Windows 以外では空の変換が ebiten のチャネル経由で通知されるため
+// OS 側の正解値は不要: 不明の場合は ebiten 側の値を維持する。
 func osIMECompositionLen() (n int, ok bool) {
 	return 0, false
 }
 
-// ourWindowHwnds returns this process's visible top-level windows.
-// Only the Windows build enumerates real windows; elsewhere there is
-// nothing to discover (test hook for the OS-query smoke test).
+// ourWindowHwnds はこのプロセスの可視トップレベルウィンドウを返す。
+// Windows ビルドでのみ実際のウィンドウを列挙する; それ以外では
+// 検出対象がない (OS 照会スモークテスト用のテストフック)。
 func ourWindowHwnds() []uintptr {
 	return nil
 }

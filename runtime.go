@@ -1,4 +1,4 @@
-// Runtime context and shared value helpers for the register VM.
+// レジスタ VM の実行時コンテキストと共有の値ヘルパー。
 package main
 
 import (
@@ -11,30 +11,31 @@ import (
 	"sync/atomic"
 )
 
-// Decisions:
-//   - `/` on two ints is truncating integer division (Go-like); any float
-//     operand yields a float. `%` accepts ints only.
-//   - Conditions are strictly bool; `if 1` is an error.
-//   - `;` is rejected by the parser.
-//   - Array writes are bounds-checked: allocate with dim(), a literal,
-//     or push(); out-of-range and missing bases are errors, never
-//     auto-created.
-//   - `b = a` shares the array (reference semantics).
-//   - `+` with either side a string concatenates via stringify (void
-//     operands are an error, like everywhere else).
-//   - Int `+ - *`, unary `-`, and `<<` wrap on overflow (only
-//     abs(MinInt64) is an error); `-9223372036854775808` folds to MinInt64.
-//   - NaN and ±Inf never appear in values: overflowing float arithmetic,
-//     exp/pow overflow, float("nan"/"inf"), and out-of-range int()
-//     conversions are all errors.
-//   - Compound assignment evaluates its target address exactly once.
-//   - Assignment updates the visible scope holding the name, or declares
-//     it in the current scope when nothing visible exists (top-level:
-//     global; function: local slot). The VM resolves the store target
-//     at runtime.
-//   - Recursion is capped at maxCallDepth; source nesting at maxParseDepth.
+// 決定事項:
+//   - 2つの int の `/` は切り捨て整数除算（Go ライク）。どちらかの
+//     オペランドが float なら float になる。`%` は int のみ受け付ける。
+//   - 条件は厳密に bool である。`if 1` はエラー。
+//   - `;` はパーサに拒否される。
+//   - 配列への書き込みは境界検査される: 確保は dim()、リテラル、
+//     push() で行い、範囲外と基底の欠落はエラーで、自動生成は
+//     決してされない。
+//   - `b = a` は配列を共有する（参照意味論）。
+//   - どちらかの辺が文字列の `+` は stringify で連結する（void
+//     オペランドは他と同じくエラー）。
+//   - int の `+ - *`、単項 `-`、`<<` は桁あふれでラップする
+//     （abs(MinInt64) のみエラー）。`-9223372036854775808` は
+//     MinInt64 に畳まれる。
+//   - NaN と ±Inf は決して値に現れない: 桁あふれする浮動小数点数
+//     演算、exp/pow の桁あふれ、float("nan"/"inf")、範囲外の int()
+//     変換はすべてエラー。
+//   - 複合代入は対象のアドレスをちょうど一度評価する。
+//   - 代入はその名前を保持する可視スコープを更新し、可視のものが
+//     なければ現在のスコープに宣言する（トップレベル: グローバル。
+//     関数: ローカルスロット）。VM は格納先を実行時に解決する。
+//   - 再帰は maxCallDepth で上限を設け、ソースの入れ子は
+//     maxParseDepth で上限を設ける。
 
-// RuntimeError is an execution error with source position.
+// RuntimeError はソース位置を伴う実行時エラー。
 type RuntimeError struct {
 	File   string
 	Line   int
@@ -53,63 +54,64 @@ func rtErrf(at Pos, format string, args ...any) *RuntimeError {
 	return &RuntimeError{File: at.File, Line: at.Line, Column: at.Column, Msg: fmt.Sprintf(format, args...)}
 }
 
-// Interp holds global state shared across statements (and REPL inputs).
+// Interp は文（と REPL 入力）をまたいで共有されるグローバル状態を保持する。
 type Interp struct {
 	be     Backend
 	in     io.Reader
 	errOut io.Writer
-	// Written by end() on the script goroutine, read by the frontend
-	// after the run; atomic so a GUI window closed mid-script cannot race.
+	// スクリプトのゴルーチン上の end() が書き込み、フロントエンドが
+	// 実行後に読み取る。スクリプトの途中で閉じられた GUI ウィンドウが
+	// 競合しないようアトミックにする。
 	exitCode atomic.Pointer[int]
 	cliArgs  []string
-	// Directory of the running script file ("" in the REPL): base
-	// for relative paths in file builtins.
+	// 実行中のスクリプトファイルのディレクトリ（REPL では ""）:
+	// ファイル系組込での相対パスの基点。
 	scriptDir string
 }
 
-// maxCallDepth caps user-function recursion: exceeding it is a runtime
-// error instead of a host stack overflow.
+// maxCallDepth はユーザー定義関数の再帰を制限する: 超過はホストの
+// スタックオーバーフローではなく実行時エラーになる。
 const maxCallDepth = 10000
 
-// NewInterp creates an interpreter writing output to out and reading input
-// from os.Stdin.
+// NewInterp は os.Stdin から入力を読み、出力へ書き出すインタプリタを
+// 生成する。
 func NewInterp(out io.Writer) *Interp {
 	return NewInterpWithIO(out, os.Stdin)
 }
 
-// NewInterpWithIO creates an interpreter with explicit output/input streams
-// (used by tests).
+// NewInterpWithIO は明示的な出力/入力ストリームでインタプリタを生成する
+// （テストで使用）。
 func NewInterpWithIO(out io.Writer, in io.Reader) *Interp {
 	return &Interp{be: NewConsoleBackend(out, in), in: in, errOut: os.Stderr}
 }
 
-// NewInterpWithBackend creates an interpreter over an arbitrary Backend
-// (used by the GUI frontend).
+// NewInterpWithBackend は任意の Backend 上にインタプリタを生成する
+// （GUI フロントエンドで使用）。
 func NewInterpWithBackend(be Backend, in io.Reader) *Interp {
 	return &Interp{be: be, in: in, errOut: os.Stderr}
 }
 
-// SetArgs stores command-line arguments for args() (used by run).
+// SetArgs は args() 用のコマンドライン引数を格納する（run で使用）。
 func (in *Interp) SetArgs(args []string) {
 	in.cliArgs = args
 }
 
-// SetScriptDir records the directory of the running script file (used
-// by run; empty in the REPL). File builtins resolve relative paths
-// against it first, then the working directory.
+// SetScriptDir は実行中のスクリプトファイルのディレクトリを記録する
+// （run で使用。REPL では空）。ファイル系組込はまずこれに対して
+// 相対パスを解決し、次に作業ディレクトリに対して解決する。
 func (in *Interp) SetScriptDir(dir string) {
 	in.scriptDir = dir
 }
 
-// ScriptDir reports the directory recorded by SetScriptDir ("" when
-// unset, e.g. in the REPL).
+// ScriptDir は SetScriptDir が記録したディレクトリを報告する
+// （未設定なら ""。例: REPL 内）。
 func (in *Interp) ScriptDir() string {
 	return in.scriptDir
 }
 
-// lookupPath resolves p against the script directory, then the working
-// directory, returning the first existing match ("" when none, or for
-// empty input). Absolute paths check existence directly.
+// lookupPath は p をスクリプトディレクトリ、次に作業ディレクトリに対して
+// 解決し、最初に存在した一致を返す（無い場合、または入力が空の場合は
+// ""）。絶対パスは直接存在を検査する。
 func (in *Interp) lookupPath(p string) string {
 	if p == "" {
 		return ""
@@ -140,11 +142,11 @@ func (in *Interp) lookupPath(p string) string {
 	return ""
 }
 
-// resolvePath maps a builtin path argument: absolute paths pass
-// through; relative paths prefer the script directory, then the
-// working directory (same order as #include). Missing paths resolve
-// against the script directory so new files land beside the script
-// (in the REPL they stay as-given, i.e. working-directory relative).
+// resolvePath は組込みのパス引数をマップする: 絶対パスはそのまま通過し、
+// 相対パスはスクリプトディレクトリ、次に作業ディレクトリを優先する
+// （#include と同じ順序）。存在しないパスはスクリプトディレクトリ基準で
+// 解決されるため、新しいファイルはスクリプトの隣に作られる
+// （REPL 内では指定どおり、つまり作業ディレクトリ基準のまま）。
 func (in *Interp) resolvePath(p string) string {
 	if q := in.lookupPath(p); q != "" {
 		return q
@@ -155,7 +157,7 @@ func (in *Interp) resolvePath(p string) string {
 	return filepath.Join(in.scriptDir, p)
 }
 
-// ExitCode reports the code requested by end(), if any.
+// ExitCode は end() が要求した終了コードがあればそれを報告する。
 func (in *Interp) ExitCode() (int, bool) {
 	if p := in.exitCode.Load(); p != nil {
 		return *p, true
@@ -163,13 +165,13 @@ func (in *Interp) ExitCode() (int, bool) {
 	return 0, false
 }
 
-// Backend exposes the IO backend (used by gui-tag builtins).
+// Backend は IO バックエンドを公開する（gui タグ付き組込みで使用）。
 func (in *Interp) Backend() Backend {
 	return in.be
 }
 
-// setIndex stores within bounds; out-of-range is an error.
-// Grow arrays with dim() (up front) or push() (at the tail).
+// setIndex は境界内に格納する。範囲外はエラー。
+// 配列の拡大は（あらかじめ）dim() か（末尾に）push() で行う。
 func setIndex(arr *Array, idx int, v Value, at Pos) error {
 	if idx < 0 || idx >= len(arr.Elems) {
 		return rtErrf(at, "インデックス %d は範囲外です（長さ %d）", idx, len(arr.Elems))
@@ -185,9 +187,9 @@ func requireBool(v Value, at Pos) (bool, error) {
 	return v.B, nil
 }
 
-// requireValue rejects void: internal null must never surface to
-// scripts as a usable value (assign/args/operands fail here; mes()
-// and print() silently skip void instead).
+// requireValue は void を拒否する: 内部的な null がスクリプトに
+// 使える値として現れてはならない（代入/引数/オペランドはここで
+// 失敗する。mes() と print() は代わりに void を無音でスキップする）。
 func requireValue(v Value, at Pos) error {
 	if v.K == KNull {
 		return rtErrf(at, "void値を使用できません")
@@ -232,9 +234,10 @@ func compare(op TokenType, l, r Value, at Pos) (Value, error) {
 	return Null(), rtErrf(at, "内部エラー：不正な比較演算子です")
 }
 
-// finiteFloat rejects non-finite float results: NaN and ±Inf can never
-// appear in a value (literals, division, and math builtins all refuse
-// them), so producing one is always an error, never a value.
+// finiteFloat は有限でない浮動小数点数の結果を拒否する: NaN と ±Inf は
+// 決して値に現れてはならない（リテラル、除算、数学組込みすべてが
+// それを拒否する）ため、それを生成することは常にエラーであり、値では
+// 決してない。
 func finiteFloat(f float64, at Pos) (Value, error) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return Null(), rtErrf(at, "浮動小数の計算結果が有限ではありません（±Inf・NaN は使用できません）")
@@ -302,7 +305,7 @@ func arith(op TokenType, l, r Value, at Pos) (Value, error) {
 	return Null(), rtErrf(at, "内部エラー：不正な算術演算子です")
 }
 
-// bitwise implements & | ^ (integers only, like %).
+// bitwise は & | ^ を実装する（% と同じく整数のみ）。
 func bitwise(op TokenType, l, r Value, at Pos) (Value, error) {
 	if l.K != KInt || r.K != KInt {
 		return Null(), rtErrf(at, "演算子 %s は整数が必要です。%s と %s が指定されました", opSymbol(op), typeNameOf(l), typeNameOf(r))
@@ -318,7 +321,7 @@ func bitwise(op TokenType, l, r Value, at Pos) (Value, error) {
 	return Null(), rtErrf(at, "内部エラー：不正なビット演算子です")
 }
 
-// shift implements << >> (integers only; arithmetic right shift).
+// shift は << >> を実装する（整数のみ。算術右シフト）。
 func shift(op TokenType, l, r Value, at Pos) (Value, error) {
 	if l.K != KInt || r.K != KInt {
 		return Null(), rtErrf(at, "演算子 %s は整数が必要です。%s と %s が指定されました", opSymbol(op), typeNameOf(l), typeNameOf(r))

@@ -1,36 +1,36 @@
-// Preprocessor (#include, #define, conditionals) for Golash.
+// Golash 用プリプロセッサ（#include、#define、条件付き）。
 //
-// A directive is a whole line whose first non-space character is `#`.
-// Supported directives (minimal set):
+// ディレクティブは、行頭の空白を除いた最初の文字が `#` である行全体を指します。
+// 対応ディレクティブ（最小集合）：
 //
-//	#mode cli|gui  run mode for `gsh run` (last active one wins;
-//	omitted means gui)
+// #mode cli|gui  `gsh run` の実行モード（最後の有効な指定が優先；
+// 省略時は gui）
 //
-//	#include "path"   splice a file (once-semantics, circular = error)
-//	#define NAME [lit] constant: one int/float/string/bool literal
-//	                  (optional leading `-` for numbers); omitted lit
-//	                  auto-numbers from a counter (explicit ints
-//	                  reset it, other literals leave it alone)
-//	#ifdef NAME / #ifndef NAME / #else / #endif
-//	                  conditional lines (nestable)
-//	#error message    fail with message when reached
+// #include "path"   ファイルを埋め込みます（一度だけ、循環はエラー）
+// #define NAME [lit] 定数：int/float/string/bool リテラルを1つ
+// （数値は先頭の `-` 可）；リテラル省略時は
+// カウンタから連番を自動採番（明示した int で
+// リセット、それ以外のリテラルは据え置き）
+// #ifdef NAME / #ifndef NAME / #else / #endif
+// 条件付きの行（入れ子可）
+// #error message    到達したらメッセージ付きで失敗します
 //
-// Search order: the including file's directory, then the working
-// directory; absolute paths are used as-is. Tokens keep file-local
-// line numbers and carry the display path in Token.File. Directive and
-// inactive lines are blanked (never deleted) so every line number stays
-// intact. #define applies textually in stream order (include-expansion
-// order): a use sees defines from earlier stream positions only —
-// earlier lines of the same file, defines from before the #include
-// (which libraries also see), and names a library defined (visible to
-// lines after its #include in the parent and to later siblings).
-// A define after the #include never reaches the already-expanded
-// library. Redefinition across the tree is still an error. Valueless
-// #define auto-numbers are assigned in stream order, sharing one
-// counter per run.
+// 探索順：取り込み元ファイルのあるディレクトリ、次に作業
+// ディレクトリ；絶対パスはそのまま使います。トークンはファイル内での
+// 行番号を保ち、表示用パスを Token.File に持ちます。ディレクティブ行と
+// 非有効行は（削除せず）空白化するため、行番号はすべて
+// 保たれます。#define はストリーム順（include 展開順）でテキスト的に
+// 適用されます：使用箇所から見えるのはストリーム上でそれより前の定義だけです —
+// 同一ファイルのそれより前の行、#include より前の定義
+// （ライブラリ側からも見えます）、ライブラリが定義した名前（親側では
+// その #include より後の行や、後の兄弟から見えます）。
+// #include より後の定義が、展開済みのライブラリに届くことはありません。
+// ツリーをまたぐ再定義は依然エラーです。値なし
+// #define の自動採番はストリーム順に行われ、1回の実行で1つの
+// カウンタを共有します。
 //
-// NOTE: directives are recognized before comments, so a `#` at a line
-// start inside a block comment still counts as a directive.
+// 注意：ディレクティブはコメントより先に認識されるため、ブロックコメント内の
+// 行頭にある `#` もディレクティブとして扱われます。
 package main
 
 import (
@@ -42,15 +42,15 @@ import (
 	"strings"
 )
 
-// CombineFile reads entry and splices its #include tree into one token
-// stream (ending with EOF). Display paths stay relative when possible.
+// CombineFile は entry を読み込み、#include ツリーを1つのトークン
+// 列に埋め込みます（末尾は EOF）。表示用パスは可能な限り相対のままです。
 func CombineFile(entry string) ([]Token, error) {
 	toks, _, err := CombineFileMode(entry)
 	return toks, err
 }
 
-// CombineFileMode is CombineFile plus the run mode: the last active
-// `#mode cli|gui` in the tree, or "gui" when absent.
+// CombineFileMode は CombineFile に実行モードを加えたものです：ツリー内の
+// 最後の有効な `#mode cli|gui`、存在しない場合は "gui" です。
 func CombineFileMode(entry string) ([]Token, string, error) {
 	st := newIncluder()
 	toks, err := st.combineFile(entry, "")
@@ -60,33 +60,33 @@ func CombineFileMode(entry string) ([]Token, string, error) {
 	return toks, st.runMode(), nil
 }
 
-// CombineSource splices directives found in src (a REPL input or test
-// snippet). display names the pseudo-file in errors ("" keeps the legacy
-// position format); parentDir anchors relative targets. NOTE: each call
-// starts with fresh preprocessor state, so REPL #defines live for one
-// input only.
+// CombineSource は src 内のディレクティブを埋め込みます（REPL 入力やテスト
+// 片向け）。display はエラー表示用の疑似ファイル名（"" で従来の
+// 位置形式のまま）；parentDir は相対先の基準です。注意：呼び出しごとに
+// 新しいプリプロセッサ状態で始めるため、REPL の #define は1入力
+// 限り有効です。
 func CombineSource(display, src, parentDir string) ([]Token, error) {
 	st := newIncluder()
 	return st.combineSource(display, src, parentDir)
 }
 
 type includer struct {
-	done  map[string]bool // absolute paths already spliced (once)
-	stack []string        // absolute paths on the current chain (cycles)
-	// Preprocessor state, shared across the whole include tree in
-	// stream order: defines flow into included files (a library sees
-	// defines from before its #include) and back out to later lines
-	// (a use after the #include sees library defines); see
-	// combineSource for the exact visibility rules.
+	done  map[string]bool // 埋め込み済みの絶対パス（一度だけ）
+	stack []string        // 現在の連鎖上の絶対パス（循環検出用）
+	// プリプロセッサの状態。include ツリー全体でストリーム順に共有します：
+	// 定義は取り込み先へ流れ込み（ライブラリはその #include より前の
+	// 定義を見ます）、後の行へ流れ出します
+	// （#include より後の使用箇所はライブラリの定義を見ます）。正確な
+	// 可視規則は combineSource を参照。
 	defines map[string]ppDefine
-	// Auto-number counter for valueless #define (starts at 0 per run).
+	// 値なし #define 用の自動採番カウンタ（1回の実行で 0 から開始）。
 	seq   int64
 	conds []ppFrame
-	// Run mode: last active `#mode` argument ("cli"/"gui", "" unset).
+	// 実行モード：最後の有効な `#mode` 引数（"cli"/"gui"、"" は未設定）。
 	mode string
 }
 
-// runMode reports the effective mode ("gui" when unset).
+// runMode は実効モードを返します（未設定時は "gui"）。
 func (st *includer) runMode() string {
 	if st.mode == "cli" {
 		return "cli"
@@ -94,17 +94,17 @@ func (st *includer) runMode() string {
 	return "gui"
 }
 
-// ppDefine is a #define constant: one literal token.
+// ppDefine は #define 定数: リテラルトークン1つ。
 type ppDefine struct {
 	typ TokenType // TokInt, TokFloat, TokString, TokTrue, TokFalse
 	lit string
 }
 
-// ppFrame is one open #ifdef/#ifndef level.
+// ppFrame は開いている #ifdef/#ifndef の1レベル。
 type ppFrame struct {
 	parentActive bool
-	active       bool // this branch active (parentActive && taken-branch)
-	taken        bool // the #if branch was taken (drives #else)
+	active       bool // この分岐が有効（parentActive && 採用された分岐）
+	taken        bool // #if 分岐が採用された（#else を決める）
 	elseSeen     bool
 }
 
@@ -112,7 +112,7 @@ func newIncluder() *includer {
 	return &includer{done: map[string]bool{}, defines: map[string]ppDefine{}}
 }
 
-// curActive reports whether the current line is in live code.
+// curActive は現在の行が有効なコード中にあるかを返す。
 func (st *includer) curActive() bool {
 	if len(st.conds) == 0 {
 		return true
@@ -139,7 +139,7 @@ func (st *includer) combineFile(path, parentDir string) ([]Token, error) {
 		}
 	}
 	if st.done[abs] {
-		return nil, nil // once-semantics: shared libraries splice once
+		return nil, nil // 一度限りの意味論: 共有ライブラリは一度だけ差し込まれる
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
@@ -155,35 +155,34 @@ func (st *includer) combineFile(path, parentDir string) ([]Token, error) {
 	return toks, nil
 }
 
-// ownDef is a validated #define with its 1-based line, applied to the
-// shared table in stream order (see combineSource).
+// ownDef は検証済みの #define とその 1 始まりの行番号。ストリーム順で
+// 共有テーブルに適用される（combineSource を参照）。
 type ownDef struct {
 	line int
 	name string
 	def  ppDefine
 }
 
-// childEv is one library contribution: defines a child file added,
-// taking effect at the #include line (upward sharing).
+// childEv はライブラリからの1貢献: 追加された子ファイルの define で、
+// #include 行で効力を発現する（上方共有）。
 type childEv struct {
 	line int
 	adds map[string]ppDefine
 }
 
-// combineSource runs the preprocessor line pass (conditionals, #define
-// collection, #error), lexes the live lines, substitutes #define uses,
-// and splices each #include's child tokens at its line, separated by a
-// newline so statements never merge across files.
+// combineSource はプリプロセッサの行パス（条件分岐、#define 収集、
+// #error）を実行し、有効行を字句解析し、#define の使用箇所を置換し、
+// 各 #include の子トークンをその行に差し込む。ファイル境界を越えて
+// 文が連結しないよう改行で区切る。
 func (st *includer) combineSource(display, src, parentDir string) ([]Token, error) {
 	lines := strings.Split(src, "\n")
-	condDepth := len(st.conds) // our frames; a file must not pop its parent's
+	condDepth := len(st.conds) // 我々のフレーム。ファイルは親のものを pop してはならない
 	dirs := make([]*directive, len(lines))
 	active := make([]bool, len(lines))
 	blanked := make([]string, len(lines))
-	// base is the define set inherited at file entry (for own-token
-	// substitution). live tracks base plus this file's defines and
-	// child contributions in stream order (for #ifdef checks and
-	// redefinition detection).
+	// base はファイル入場時に継承された define 集合（自身のトークン置換用）。
+	// live は base にこのファイルの define と子の貢献をストリーム順で
+	// 加えたもの（#ifdef 判定と再定義検出用）。
 	base := make(map[string]ppDefine, len(st.defines))
 	for k, v := range st.defines {
 		base[k] = v
@@ -193,10 +192,10 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		live[k] = v
 	}
 	var own []ownDef
-	// pubIdx counts own entries already published to the shared table.
-	// Phase 1 publishes early ones before recursing into includes so
-	// children see exactly the earlier defines; phase 3 publishes the
-	// rest in the same sweep order.
+	// pubIdx は共有テーブルに既に公開された自身のエントリ数を数える。
+	// フェーズ1は include へ再帰する前に初期のものを公開し、子が
+	// 正確に先行する define を見られるようにする。フェーズ3は残りを
+	// 同じスイープ順で公開する。
 	pubIdx := 0
 	publishUntil := func(line int) error {
 		for pubIdx < len(own) && own[pubIdx].line < line {
@@ -209,13 +208,13 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		}
 		return nil
 	}
-	// chevs records library contributions in sweep order; incToks
-	// caches each active include's splice tokens so phase 3 does not
-	// reprocess files.
+	// chevs はライブラリの貢献をスイープ順に記録する。incToks は
+	// 各有効な include の差込トークンをキャッシュし、フェーズ3が
+	// ファイルを再処理しないようにする。
 	var chevs []childEv
 	incToks := map[int][]Token{}
 
-	// Phase 1: directive pass in line order.
+	// フェーズ1: 行順でのディレクティブパス。
 	for i, ln := range lines {
 		d, err := parseDirective(ln)
 		if err != nil {
@@ -231,17 +230,17 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 			}
 			continue
 		}
-		blanked[i] = "" // directive lines never reach the lexer
+		blanked[i] = "" // ディレクティブ行は決して字句解析器に届かない
 		active[i] = st.curActive()
 		switch d.kind {
 		case dirInclude:
 			if !active[i] {
 				continue
 			}
-			// Stream order: publish this file's earlier defines so
-			// the child sees them, then process the child inline.
-			// The child's defines merge into live, becoming visible
-			// to later lines of this file (upward sharing).
+			// ストリーム順: このファイルの先行する define を公開して
+			// 子が見られるようにし、それから子をその場で処理する。
+			// 子の define は live に統合され、このファイルの後続行から
+			// 見えるようになる（上方共有）。
 			if err := publishUntil(i + 1); err != nil {
 				return nil, err
 			}
@@ -285,9 +284,9 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 			own = append(own, ownDef{line: i + 1, name: d.arg, def: def})
 		case dirIfdef, dirIfndef:
 			parent := st.curActive()
-			// live holds base plus this file's defines and child
-			// contributions from earlier stream positions only, so
-			// stream order is honored.
+			// live は base に加えてこのファイルの define と、先行する
+			// ストリーム位置からの子の貢献のみを保持するため、ストリーム
+			// 順が尊重される。
 			_, defined := live[d.arg]
 			met := defined == (d.kind == dirIfdef)
 			st.conds = append(st.conds, ppFrame{parentActive: parent, active: parent && met, taken: met})
@@ -317,7 +316,7 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 				return nil, &LexError{File: display, Line: i + 1, Column: 1, Msg: msg}
 			}
 		case dirMode:
-			// Last active one wins (includes count: the tree shares st).
+			// 最後に有効だったものが勝つ（include も数に入る: 木は st を共有する）。
 			if active[i] {
 				st.mode = d.arg
 			}
@@ -327,9 +326,9 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		return nil, &LexError{File: display, Line: len(lines), Column: 1, Msg: "閉じられていない #ifdef があります"}
 	}
 
-	// Phase 2: lex live lines, substituting #define uses. A use sees
-	// defines from earlier stream positions only (base + own up to its
-	// line + child contributions from earlier includes).
+	// フェーズ2: 有効行を字句解析し、#define の使用を置換する。ある使用が
+	// 見るのは先行するストリーム位置の define のみ（base + その行までの
+	// 自身の define + 先行する include からの子の貢献）。
 	toks, err := Lex(strings.Join(blanked, "\n"))
 	if err != nil {
 		if le, ok := err.(*LexError); ok {
@@ -342,9 +341,9 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 	for k, v := range base {
 		eff[k] = v
 	}
-	// Timeline walk in line order: own defines and child contributions
-	// (both collected in sweep order) apply to tokens at their position
-	// or later.
+	// 行順でのタイムライン探索: 自身の define と子の貢献（どちらも
+	// スイープ順に収集）は、それぞれの位置またはそれ以降のトークンに
+	// 適用される。
 	oi, ci := 0, 0
 	for i := range toks {
 		for oi < len(own) && own[oi].line <= toks[i].Line {
@@ -377,9 +376,9 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 		byLine[toks[i].Line] = append(byLine[toks[i].Line], toks[i])
 	}
 
-	// Phase 3: sweep lines in order; publish the remaining own defines
-	// and splice the cached child tokens (processed inline in phase 1
-	// in stream order).
+	// フェーズ3: 行を順に走査し、残りの自身の define を公開して子の
+	// キャッシュ済みトークンを差し込む（フェーズ1でストリーム順に
+	// その場で処理済み）。
 	var out []Token
 	for ln := 1; ln <= len(lines)+1; ln++ {
 		if err := publishUntil(ln); err != nil {
@@ -397,7 +396,7 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 	return out, nil
 }
 
-// dirKind classifies a preprocessor directive line.
+// dirKind はプリプロセッサディレクティブ行を分類する。
 type dirKind int
 
 const (
@@ -411,19 +410,20 @@ const (
 	dirMode
 )
 
-// directive is one parsed `#...` line: arg holds the include path,
-// define/ifdef name, or #error message; rest holds the #define value.
+// directive は解析された `#...` 行1つ: arg は include パス、
+// define/ifdef 名、または #error メッセージを保持し、rest は
+// #define の値を保持する。
 type directive struct {
 	kind dirKind
 	arg  string
 	rest string
 }
 
-// parseDirective recognizes a whole-line directive. It returns nil when
-// the line holds normal code. Malformed directives are an error
-// (reported at the directive line).
+// parseDirective は行全体のディレクティブを認識する。行が通常のコードを
+// 含む場合は nil を返す。不正な形式のディレクティブはエラー
+// （ディレクティブ行で報告される）。
 func parseDirective(line string) (*directive, error) {
-	// Tolerate CRLF sources: lines arrive split on "\n" with "\r" kept.
+	// CRLF ソースを許容する: 行は "\n" で分割され、"\r" が残ったまま届く。
 	line = strings.TrimSuffix(line, "\r")
 	trimmed := strings.TrimLeft(line, " \t")
 	if !strings.HasPrefix(trimmed, "#") {
@@ -435,7 +435,7 @@ func parseDirective(line string) (*directive, error) {
 		i++
 	}
 	word, tail := rest[:i], strings.TrimLeft(rest[i:], " \t")
-	// A sharp alone (`#`) or `# 123`: no directive word.
+	// シャープ単独（`#`）または `# 123`: ディレクティブ語がない。
 	// `# 123` は `#` だけでなく `123` も落とさず報告する。
 	unknown := func() (*directive, error) {
 		got := "#" + word
@@ -469,12 +469,13 @@ func parseDirective(line string) (*directive, error) {
 		if !isDefineName(name) {
 			return nil, fmt.Errorf("不正な #define ディレクティブです（#define NAME [値] が必要です）")
 		}
-		// Keyword/builtin names would define dead macros (keywords never
-		// match TokIdent) or hijack builtin calls: reject them outright.
+		// キーワードや組込み名を define すると死んだマクロ（キーワードは
+		// 決して TokIdent と一致しない）を定義したり、組込み呼出を
+		// 乗っ取ったりするため、それらは完全に拒否する。
 		if _, isKw := keywords[name]; isKw || isBuiltin(name) {
 			return nil, fmt.Errorf("#define %q は使用できません：キーワード・真偽値・組み込み関数と同名です", name)
 		}
-		// An empty value auto-numbers (resolved at collection).
+		// 空の値は自動採番される（収集時に解決）。
 		return &directive{kind: dirDefine, arg: name, rest: value}, nil
 	case "ifdef", "ifndef":
 		name, extra := splitDirectiveArg(tail)
@@ -509,7 +510,7 @@ func isDirectiveLetter(c byte) bool {
 	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z'
 }
 
-// splitDirectiveArg splits "NAME rest..." at the first blank.
+// splitDirectiveArg は "NAME rest..." を最初の空白で分割する。
 func splitDirectiveArg(s string) (name, rest string) {
 	if i := strings.IndexAny(s, " \t"); i >= 0 {
 		return s[:i], s[i+1:]
@@ -517,7 +518,7 @@ func splitDirectiveArg(s string) (name, rest string) {
 	return s, ""
 }
 
-// isDefineName reports whether s is a valid preprocessor name.
+// isDefineName は s が有効なプリプロセッサ名かを返す。
 func isDefineName(s string) bool {
 	if s == "" {
 		return false
@@ -532,9 +533,9 @@ func isDefineName(s string) bool {
 	return true
 }
 
-// defineValue resolves a #define value: empty means the next sequential
-// number (auto-numbering); an explicit int resets the counter to
-// value+1; other literals leave the counter alone.
+// defineValue は #define の値を解決する: 空なら次の連番（自動採番）。
+// 明示的な int ならカウンタを value+1 にリセットする。他のリテラルは
+// カウンタをそのままにする。
 func (st *includer) defineValue(rest string) (ppDefine, error) {
 	if strings.TrimSpace(rest) == "" {
 		if st.seq == math.MaxInt64 {
@@ -561,8 +562,8 @@ func (st *includer) defineValue(rest string) (ppDefine, error) {
 	return def, nil
 }
 
-// parseDefineValue lexes a #define value: exactly one int/float/string/
-// bool literal, with an optional leading `-` for numbers.
+// parseDefineValue は #define の値を字句解析する: int/float/string/bool
+// リテラルをちょうど1つ、数値には先頭に `-` を付けられる。
 func parseDefineValue(value string) (ppDefine, error) {
 	bad := func() (ppDefine, error) {
 		return ppDefine{}, fmt.Errorf("不正な #define 値です（整数・小数・文字列・真偽値のリテラルを 1 つ指定してください）")
@@ -596,7 +597,8 @@ func parseDefineValue(value string) (ppDefine, error) {
 	return bad()
 }
 
-// resolveInclude finds path against parentDir, then the working directory.
+// resolveInclude は path を parentDir、次に作業ディレクトリに対して
+// 検索する。
 func resolveInclude(path, parentDir string) (string, error) {
 	if filepath.IsAbs(path) {
 		if _, err := os.Stat(path); err != nil {
@@ -623,7 +625,7 @@ func resolveInclude(path, parentDir string) (string, error) {
 	return "", fmt.Errorf("#include %q を開けません：ファイルが見つかりません", path)
 }
 
-// displayPath shortens absolute paths against the working directory.
+// displayPath は絶対パスを作業ディレクトリ基準で短縮する。
 func displayPath(abs string) string {
 	if cwd, err := os.Getwd(); err == nil {
 		if rel, err := filepath.Rel(cwd, abs); err == nil && rel != "" && !strings.HasPrefix(rel, "..") {

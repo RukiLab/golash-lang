@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-// gquad builtin validation (headless: every failure returns before
-// anything reaches the GPU, and a valid call only stages a command).
+// gquad組み込みの検証（ヘッドレス：失敗はGPUに届く前に返り、有効な呼び出しはコマンドをためるだけ）。
 func TestGquadValidation(t *testing.T) {
-	// Face layout: xs/ys are the four destination corners in order,
-	// us/vs the four source pixels, lights one 0xRRGGBB per corner.
+	// 面の並び：xs/ysは宛先の4隅を順番に並べたもの、
+	// us/vsは転送元の4画素、lightsは隅ごとに1つの0xRRGGBB。
 	const four = "0,16,16,0"
 	if _, err := guiEval(t, "gquad(99, ["+four+"], ["+four+"], [0,8,8,0], [0,0,8,8], [16777215,16777215,16777215,16777215])"); err == nil {
 		t.Fatal("gquad unknown buffer should error")
@@ -17,27 +16,27 @@ func TestGquadValidation(t *testing.T) {
 	if _, err := guiEval(t, "gquad(1, "+four+", ["+four+"], [0,8,8,0], [0,0,8,8], [16777215,16777215,16777215,16777215])"); err == nil {
 		t.Fatal("gquad with a bare number should error")
 	}
-	// 3 of 4: not a multiple of four.
+	// 3/4: 4の倍数ではない。
 	if _, err := guiEval(t, "gquad(0, [0,16,16], [0,0,16], [0,8,8], [0,0,8], [0,0,0])"); err == nil ||
 		!strings.Contains(err.Error(), "4 の倍数") {
 		t.Fatalf("gquad length 3: got %v", err)
 	}
-	// Empty arrays are a no-op (a loop that culled every face draws
-	// nothing): not even the buffer is looked at.
+	// 空配列は何もしない（すべての面を間引いたループは何も描かない）。
+	// バッファすら参照されない。
 	if _, err := guiEval(t, "gquad(99, [], [], [], [], [])"); err != nil {
 		t.Fatalf("gquad empty batch: got %v", err)
 	}
-	// Mismatched lengths (lights one face short).
+	// 長さの不一致（1つ足りない面だけ照光される）。
 	if _, err := guiEval(t, "gquad(0, ["+four+"], ["+four+"], ["+four+"], ["+four+"], [16777215,16777215])"); err == nil ||
 		!strings.Contains(err.Error(), "4 の倍数") {
 		t.Fatalf("gquad mismatched lengths: got %v", err)
 	}
-	// Non-numeric coordinate element.
+	// 数値でない座標要素。
 	if _, err := guiEval(t, "gquad(0, [0,16,\"x\",0], ["+four+"], [0,8,8,0], [0,0,8,8], [16777215,16777215,16777215,16777215])"); err == nil ||
 		!strings.Contains(err.Error(), "要素 2 は数値") {
 		t.Fatalf("gquad string element: got %v", err)
 	}
-	// A color out of the 0xRRGGBB range.
+	// 0xRRGGBB の範囲外の色。
 	if _, err := guiEval(t, "gquad(0, ["+four+"], ["+four+"], [0,8,8,0], [0,0,8,8], [16777216,0,0,0])"); err == nil ||
 		!strings.Contains(err.Error(), "要素 0") {
 		t.Fatalf("gquad out-of-range light: got %v", err)
@@ -45,16 +44,17 @@ func TestGquadValidation(t *testing.T) {
 	if _, err := guiEval(t, "gquad(0, ["+four+"], ["+four+"], [0,8,8,0], [0,0,8,8], [-1,0,0,0])"); err == nil {
 		t.Fatal("gquad negative light should error")
 	}
-	// A light that is not an int (a string, a float).
+	// int でないライト（文字列、浮動小数点数）。
 	if _, err := guiEval(t, "gquad(0, ["+four+"], ["+four+"], [0,8,8,0], [0,0,8,8], [\"x\",0,0,0])"); err == nil {
 		t.Fatal("gquad string light should error")
 	}
-	// Arity is exact: 6 arguments.
+	// 引数の数は厳密: 6個。
 	if _, err := guiEval(t, "gquad(0, [0,16], [0,0], [0,8])"); err == nil {
 		t.Fatal("gquad with 4 args should error")
 	}
-	// A batch of three faces in one command. guiEval's backend has no
-	// allocated buffers, so a shape-valid call ends at the buffer check:
+	// 1コマンドで3面のまとまり。guiEval のバックエンドには確保済み
+	// バッファがないため、形状として有効な呼出はバッファ検査で
+	// 終わる:
 	// reaching "不明なバッファ" proves every length/color rule passed.
 	batch := "gquad(1, [0,16,16,0, 32,48,48,32, 64,80,80,64], " +
 		"[0,0,16,16, 0,0,16,16, 0,0,16,16], " +
@@ -68,8 +68,8 @@ func TestGquadValidation(t *testing.T) {
 		!strings.Contains(err.Error(), "不明なバッファ") {
 		t.Fatalf("gquad single: got %v", err)
 	}
-	// Over the per-command face cap (checked before the buffer lookup).
-	// dim(4*n) is the flat form: 65537 faces = 262148 elements.
+	// 1コマンドあたりの面上限を超過（バッファ検索より前に検査される）。
+	// dim(4*n) は平坦形式: 65537面 = 262148要素。
 	if _, err := guiEval(t, "gquad(1, dim(65537*4), dim(65537*4), dim(65537*4), dim(65537*4), dim(65537*4))"); err == nil ||
 		!strings.Contains(err.Error(), "65536") {
 		t.Fatalf("gquad over the cap: got %v", err)

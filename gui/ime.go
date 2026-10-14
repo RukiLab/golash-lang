@@ -5,16 +5,18 @@ import (
 	"unicode/utf8"
 )
 
-// IME via ebiten/exp/textinput (Windows/macOS/Web; other platforms get
-// committed text only through AppendInputChars as before).
+// ebiten/exp/textinput 経由の IME（Windows/macOS/Web。他のプラット
+// フォームはこれまでどおり AppendInputChars 経由で確定テキストのみを
+// 得る）。
 //
-// One backend-wide Field: ime(1) focuses it, ime(0) blurs it. While
-// focused, Update pumps it every tick; committed text flows into the
-// input() line editor, and the in-conversion string is mirrored for
-// the fixed top-left bar. Bar/draw code reads the mu-guarded mirrors
-// because the Field itself is only safe on the game thread.
+// バックエンド全体で1つの Field: ime(1) がそれをフォーカスし、ime(0)
+// がぼかす。フォーカス中は Update が毎ティックそれを汲み上げる。確定
+// テキストは input() の行エディタへ流れ、変換中の文字列は固定の左上の
+// バー用に映される。バー/描画のコードは Field 自体がゲームスレッドで
+// しか安全でないため、mu で保護されたミラーを読む。
 
-// IMEState reports 1 when the IME field is focused, else 0.
+// IMEState は IME フィールドがフォーカスされていれば 1、なければ 0 を
+// 報告する。
 func (b *WindowBackend) IMEState() int {
 	if b.imeField.IsFocused() {
 		return 1
@@ -22,7 +24,8 @@ func (b *WindowBackend) IMEState() int {
 	return 0
 }
 
-// IMESet focuses (on != 0) or blurs the IME field, returning the state.
+// IMESet は IME フィールドをフォーカス（on != 0）またはぼかし、状態を
+// 返す。
 func (b *WindowBackend) IMESet(on bool) int {
 	if on {
 		b.mu.Lock()
@@ -31,14 +34,15 @@ func (b *WindowBackend) IMESet(on bool) int {
 		b.imeField.Focus()
 	} else {
 		b.imeField.Blur()
-		// Blur drops the in-conversion text: clear the mirror at once
-		// so the bar blanks immediately instead of showing a stale
-		// composition until the next pumpIME tick (which early-returns
-		// while unfocused and would never clear it).
-		// NOTE: Focus/Blur stay outside mu on purpose. Blur ends the
-		// OS session with a synchronous dispatch to the main thread,
-		// which must never block on mu behind us (Draw snapshots
-		// under mu): holding mu here deadlocks the whole window.
+		// ぼかしは変換中のテキストを破棄する: バーが次の pumpIME ティック
+		// まで古い合成を表示しないよう、すぐにミラーをクリアする
+		// （非フォーカス時に早期リターンする pumpIME はそれを決して
+		// クリアしない）。
+		// 注意: Focus/Blur は意図的に mu の外に置いている。Blur は
+		// メインスレッドへの同期ディスパッチで OS のセッションを終了する
+		// ため、背後で mu に関してブロックしてはならない（Draw は mu の
+		// 下でスナップショットを取る）。ここで mu を保持するとウィンドウ
+		// 全体がデッドロックする。
 		b.mu.Lock()
 		b.imeOff = true
 		b.imeComposing = ""
@@ -49,7 +53,7 @@ func (b *WindowBackend) IMESet(on bool) int {
 	return b.IMEState()
 }
 
-// IMEComposition returns the in-conversion (uncommitted) text.
+// IMEComposition は変換中（未確定）のテキストを返す。
 func (b *WindowBackend) IMEComposition() string {
 	if !b.imeField.IsFocused() {
 		return ""
@@ -60,11 +64,12 @@ func (b *WindowBackend) IMEComposition() string {
 }
 
 // IMEClause returns the target conversion clause (文節) inside the
-// in-conversion text with its rune offsets into the composition
-// string: (text, runeStart, runeEnd), all zeros when unfocused, idle,
-// or the platform reports no clause range. One call is one tick's
-// snapshot, so the offsets always match the text (two separate calls
-// could straddle a tick). Script-thread safe.
+// 変換中のテキストを、合成文字列内でのルーンオフセットとともに返す:
+// (text, runeStart, runeEnd)。非フォーカス、待機中、または
+// プラットフォームが句の範囲を報告しない場合はすべてゼロ。1回の呼出は
+// 1ティックのスナップショットであるため、オフセットは常にテキストと
+// 一致する（2回に分けて呼ぶとティックをまたぎうる）。
+// スクリプトスレッド安全。
 func (b *WindowBackend) IMEClause() (string, int, int) {
 	if !b.imeField.IsFocused() {
 		return "", 0, 0
@@ -77,12 +82,12 @@ func (b *WindowBackend) IMEClause() (string, int, int) {
 	return b.imeClause, b.imeClauseStart, b.imeClauseEnd
 }
 
-// imeClauseOf cuts the target clause out of the composition text:
-// cs/ce are ebiten's CompositionSelection byte offsets relative to
-// the composition start (ok reports a live range). It returns the
-// clause with its rune offsets into comp, so repeated words stay
-// distinguishable. Out-of-range or non-UTF-8 cuts (and a dead range)
-// yield ("", 0, 0). Pure logic, unit-testable.
+// imeClauseOf は合成テキストから対象の句を切り出す: cs/ce は合成の
+// 先頭からの ebiten の CompositionSelection のバイトオフセット
+// （ok は有効な範囲を報告する）。句を comp 内でのルーンオフセットと
+// ともに返すため、繰返される語も区別できる。範囲外または非 UTF-8 の
+// 切り出し（および死んだ範囲）は ("", 0, 0) を返す。純粋な論理で、
+// ユニットテスト可能。
 func imeClauseOf(comp string, cs, ce int, ok bool) (string, int, int) {
 	if !ok || comp == "" {
 		return "", 0, 0
@@ -98,23 +103,24 @@ func imeClauseOf(comp string, cs, ce int, ok bool) (string, int, int) {
 	return out, rs, rs + len([]rune(out))
 }
 
-// imeCandidateBounds fixes the candidate window below the composition
-// bar: the OS opens the list below the given rect, so the rect spans
-// the bar height (Max.Y = line height) and the list top lands right
-// under the bar. lh is the line height in pixels (same value the bar
-// uses for its height). Pure logic, unit-testable.
+// imeCandidateBounds は候補ウィンドウを合成バーの直下に固定する: OS は
+// 与えられた矩形の下に一覧を開くため、矩形はバーの高さ
+// （Max.Y = 行の高さ）を張り、一覧の上端がバーの直下に来る。lh は
+// ピクセルでの行の高さ（バーが自身の高さに使うのと同じ値）。純粋な
+// 論理で、ユニットテスト可能。
 func imeCandidateBounds(lh float64) image.Rectangle {
 	h := int(lh + 0.5)
 	return image.Rect(0, 0, 1, h)
 }
 
-// pumpIME advances the IME field; game thread only (called from Update).
+// pumpIME は IME フィールドを進める。ゲームスレッドのみ（Update から
+// 呼ばれる）。
 func (b *WindowBackend) pumpIME() {
 	if !b.imeField.IsFocused() {
-		// Unfocused means no composition (UncommittedTextLengthInBytes
-		// is 0 by definition): drop any stale mirror so the bar blanks
-		// once the unconfirmed string becomes empty, including
-		// blur/cancel paths that never reach the update below.
+		// 非フォーカスは合成が無いことを意味する
+		// （UncommittedTextLengthInBytes は定義により 0）: 古いミラーを
+		// 破棄し、未確定文字列が空になったらバーを消す。下記の更新に
+		// 届かないぼかし/取り消し経路も含む。
 		b.mu.Lock()
 		if b.imeComposing != "" {
 			b.imeComposing = ""
@@ -126,15 +132,14 @@ func (b *WindowBackend) pumpIME() {
 		b.mu.Unlock()
 		return
 	}
-	// The candidate window sits below the composition bar (same
-	// height the bar uses, so the list top lands right under it).
+	// 候補ウィンドウは合成バーの直下に置く（バーが使うのと同じ高さ。
+	// これにより一覧の上端がその直下に来る）。
 	b.mu.Lock()
 	lh := b.lineH
 	b.mu.Unlock()
 	bounds := imeCandidateBounds(lh)
 	if _, err := b.imeField.HandleInputWithBounds(bounds); err != nil {
-		// On error the composition is unusable: never leave a stale
-		// mirror behind for the bar.
+		// エラー時は合成は使えない: バーに古いミラーを残してはならない。
 		b.mu.Lock()
 		if b.imeComposing != "" {
 			b.imeComposing = ""
@@ -160,21 +165,21 @@ func (b *WindowBackend) pumpIME() {
 			clause, cstart, cend = imeClauseOf(comp, cs, ce, cok)
 		}
 	}
-	// ebiten's Windows backend never reports an emptied composition
-	// (zero-length COMPSTR is dropped silently, cancel sends nothing),
-	// so comp can stay stale after the unconfirmed string becomes
-	// empty. The OS ground truth wins: empty means clear for the bar.
+	// ebiten の Windows バックエンドは空になった合成を決して報告しない
+	// （長さゼロの COMPSTR は無音で破棄され、取り消しは何も送らない）
+	// ため、未確定文字列が空になった後も comp は古いままになりうる。
+	// OS の真実が優先される: 空はバーにとってクリアを意味する。
 	comp = reconcileComposition(comp)
 	if comp == "" {
 		clause = ""
 		cstart, cend = 0, 0
 	}
 	b.mu.Lock()
-	// Mirror the field into the pending stream: typed text appends,
-	// in-field deletions (backspace etc.) truncate the stream tail.
-	// The tail covers the undrained pending first, then the line
-	// buffer or the focused editor, because a consumer drains every
-	// tick and already holds older text.
+	// フィールドを保留ストリームに映す: 入力されたテキストは追加され、
+	// フィールド内の削除（バックスペース等）はストリームの末尾を切り詰める。
+	// 末尾は未排出の保留を先に、次に行バッファまたはフォーカス中の
+	// エディタを覆う。消費者は毎ティック排出して既に古いテキストを保持
+	// しているためである。
 	if drop, add := imeDiff(b.imePrev, full); drop > 0 || add != "" {
 		if drop > 0 {
 			b.dropLastLocked(drop)
@@ -186,9 +191,9 @@ func (b *WindowBackend) pumpIME() {
 	b.imeClause = clause
 	b.imeClauseStart = cstart
 	b.imeClauseEnd = cend
-	// Drained and idle: reset the field so the next tick starts from
-	// a clean, append-only slate (invisible-field caret drifts cannot
-	// accumulate across ticks).
+	// 排出済みでアイドル: 次のティックがクリーンで追記のみの状態から
+	// 始まるようフィールドをリセットする（見えないフィールドのキャレット
+	// のずれがティックをまたいで蓄積しないように）。
 	if ulen == 0 && b.imePending == "" && b.imePrev != "" {
 		b.imeField.SetTextAndSelection("", 0, 0)
 		b.imePrev = ""
@@ -196,11 +201,11 @@ func (b *WindowBackend) pumpIME() {
 	b.mu.Unlock()
 }
 
-// reconcileComposition prefers the OS ground truth over ebiten's
-// mirror: when ebiten still reports a composition but the OS-side
-// unconfirmed string is empty (0 chars), the composition became empty
-// and the bar must blank. Unknown OS state keeps ebiten's value.
-// Pure logic, unit-testable (osLen is injected for tests).
+// reconcileComposition は ebiten のミラーより OS の真実を優先する:
+// ebiten がまだ合成を報告しているが OS 側の未確定文字列が空（0文字）の
+// 場合、合成は空になったのでバーを消さなければならない。未知の OS 状態
+// では ebiten の値を保つ。純粋な論理で、ユニットテスト可能
+// （osLen はテスト用に注入される）。
 func reconcileComposition(ebitenComp string) string {
 	if ebitenComp == "" {
 		return ""
@@ -209,9 +214,9 @@ func reconcileComposition(ebitenComp string) string {
 	return reconcileCompositionLen(ebitenComp, n, ok)
 }
 
-// reconcileCompositionLen is reconcileComposition with an injectable
-// OS length (n==0 with ok means the unconfirmed string is empty).
-// Pure logic, unit-testable.
+// reconcileCompositionLen は OS の長さを注入できる reconcileComposition
+// （n==0 かつ ok は未確定文字列が空であることを意味する）。純粋な論理で、
+// ユニットテスト可能。
 func reconcileCompositionLen(ebitenComp string, n int, ok bool) string {
 	if ebitenComp != "" && ok && n == 0 {
 		return ""
@@ -219,9 +224,10 @@ func reconcileCompositionLen(ebitenComp string, n int, ok bool) string {
 	return ebitenComp
 }
 
-// imeDiff splits new committed field text against the previous tick:
-// drop is the rune count to remove from the consumer tail (in-field
-// deletions), add is the newly typed text. Pure logic, unit-testable.
+// imeDiff は新たに確定したフィールドのテキストを直前のティックと
+// 突き合わせる: drop は消費側の末尾から取り除くルーン数（フィールド内の
+// 削除）、add は新たにタイプされたテキスト。純粋な論理で、
+// ユニットテスト可能。
 func imeDiff(prev, full string) (drop int, add string) {
 	or, nr := []rune(prev), []rune(full)
 	i := 0
@@ -231,9 +237,9 @@ func imeDiff(prev, full string) (drop int, add string) {
 	return len(or) - i, string(nr[i:])
 }
 
-// dropLastLocked removes n runes from the end of the IME consumer
-// stream: undrained pending first, then the focused editor. Caller
-// holds mu (game thread, from pumpIME).
+// dropLastLocked は IME の消費ストリームの末尾から n 個のルーンを
+// 取り除く: 未排出の保留を先に、次にフォーカス中のエディタ。呼出し側は
+// mu を保持する（ゲームスレッド。pumpIME から）。
 func (b *WindowBackend) dropLastLocked(n int) {
 	for n > 0 && b.imePending != "" {
 		pr := []rune(b.imePending)

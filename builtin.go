@@ -1,19 +1,18 @@
-// Builtin function registry and Backend abstraction (P0).
+// ビルトイン関数レジストリと Backend 抽象化（P0）。
 //
-// All HSP-derived functions live here (or in builtin_*.go) and are dispatched
-// from evalCall. Naming follows HSP (short); signatures are modernized:
-// out-params become return values, predicates return bool, failures are
-// runtime errors.
+// HSP 由来の関数はすべてここ（または builtin_*.go）にあり、evalCall から
+// ディスパッチされる。命名は HSP 流（短縮形）を踏襲し、シグネチャは近代化している：
+// out パラメータは戻り値になり、述語は bool を返し、失敗は実行時エラーになる。
 //
-// GUI words live in builtin_gui*.go (G1-G6):
+// GUI ワードは builtin_gui*.go（G1-G6）にある：
 // screen, gsel, pset, pget, line, boxf, circle, gcopy, gquad, gmode,
 // picload, pngsave, paint, font,
 // getkey, mousex, mousey, clicked,
 // mmload, mmplay, mmstop, mmvol, button, pressed, inputbox, gettext,
 // listbox, selected, clrobj, dialog,
-// chkbox, checked, combox, mesbox, getstr, objprm.
-// palette is intentionally unsupported (truecolor backend has no palette).
-// Still reserved for later: mplay.
+// chkbox, checked, combox, mesbox, getstr, objprm。
+// palette は意図的に未対応（truecolor バックエンドにパレットがないため）。
+// 将来用に予約：mplay。
 package main
 
 import (
@@ -27,8 +26,8 @@ import (
 	"gsh/gui"
 )
 
-// Backend abstracts input/output so a future GUI backend can be swapped in.
-// ConsoleBackend implements it with ANSI sequences + stdio.
+// Backend は入出力を抽象化し、将来 GUI バックエンドに差し替え可能にする。
+// ConsoleBackend は ANSI シーケンス＋標準入出力による実装。
 type Backend interface {
 	Print(s string, style gui.TextStyle)
 	Println(s string, style gui.TextStyle)
@@ -40,30 +39,30 @@ type Backend interface {
 	SetTitle(s string)
 	MoveTo(x, y int)
 	Sleep(ms int64)
-	// Await blocks for n frames (GUI: Update ticks; CUI: ~16ms each).
+	// Awaitはnフレーム分待機する（GUI：Update刻み、CUI：1回約16ms）。
 	Await(n int64)
-	// Tick is the frame counter (GUI: Update count; CUI: wall clock / 16ms).
+	// Tickはフレームカウンタ（GUI：Update回数、CUI：壁時計／16ms）。
 	Tick() int64
-	// TextWidth measures display width: pixels at the GUI face,
-	// rune count on CUI (for editor caret placement).
+	// TextWidthは表示幅を測る。GUI見出しではピクセル、
+	// CUIではルーン数（エディタのキャレット配置用）。
 	TextWidth(s string) int
 }
 
-// immediateReader is implemented by backends with immediate-mode
-// input (GUI): ReadImmediate returns typed characters since the
-// previous call (IME-committed text included) without blocking.
-// The input() builtin prefers it over the blocking ReadLine.
+// immediateReaderは即時入力モードを持つバックエンドが実装する
+// （GUI用）。ReadImmediateは前回呼び出し以降に入力された文字を
+// ブロックせずに返す（IME確定済みテキストを含む）。
+// input()ビルトインはブロッキング式のReadLineよりこちらを優先する。
 type immediateReader interface {
 	ReadImmediate() string
 }
 
-// ConsoleBackend is the CUI implementation of Backend.
+// ConsoleBackendはBackendのCUI実装。
 type ConsoleBackend struct {
 	out io.Writer
 	in  *bufio.Reader
 }
 
-// NewConsoleBackend wraps out/in for script IO.
+// NewConsoleBackendはスクリプト入出力用にout/inを包む。
 func NewConsoleBackend(out io.Writer, in io.Reader) *ConsoleBackend {
 	return &ConsoleBackend{out: out, in: bufio.NewReader(in)}
 }
@@ -75,10 +74,9 @@ func (b *ConsoleBackend) Println(s string, style gui.TextStyle) {
 	fmt.Fprint(b.out, styledCUI(s, style)+"\n")
 }
 
-// styledCUI wraps s in SGR style codes, switching the style back off
-// afterwards without touching the persistent text color (22/23/24
-// clear intensity/italic/underline only). Style 0 is byte-identical
-// to the old plain output.
+// styledCUIはsをSGR装飾コードで包み、後で装飾だけを解除する
+// （永続テキスト色には触れない。22/23/24は
+// 太字・斜体・下線の解除のみ）。style 0は従来の素出力とバイト同一。
 func styledCUI(s string, style gui.TextStyle) string {
 	if style == 0 {
 		return s
@@ -96,11 +94,11 @@ func styledCUI(s string, style gui.TextStyle) string {
 	return codes + s + "\x1b[22;23;24m"
 }
 
-// Out exposes the raw output stream (for exec passthrough).
+// Outは生の出力ストリームを公開する（exec受渡し用）。
 func (b *ConsoleBackend) Out() io.Writer { return b.out }
 
-// ReadLine prints prompt, reads one line, strips trailing \r\n.
-// ok is false on EOF with no data.
+// ReadLineはプロンプトを表示し、1行読んで末尾の\r\nを除去する。
+// データなしのEOFではokが偽になる。
 func (b *ConsoleBackend) ReadLine(prompt string) (string, bool) {
 	if prompt != "" {
 		fmt.Fprint(b.out, prompt)
@@ -117,29 +115,29 @@ func (b *ConsoleBackend) ReadLine(prompt string) (string, bool) {
 	return line, true
 }
 
-// Clear wipes the screen and homes the cursor.
+// Clearは画面を消去してカーソルを先頭に戻す。
 func (b *ConsoleBackend) Clear() { fmt.Fprint(b.out, "\x1b[2J\x1b[H") }
 
-// SetColor sets subsequent text color (0-255 per channel).
-// Terminals have no text alpha, so a is accepted and ignored.
+// SetColorは以降のテキスト色を設定する（チャンネル毎0-255）。
+// 端末にテキストの透明度はないため、aは受け取って無視する。
 func (b *ConsoleBackend) SetColor(r, g, b2, a int) {
 	_ = a
 	fmt.Fprintf(b.out, "\x1b[38;2;%d;%d;%dm", clamp8(r), clamp8(g), clamp8(b2))
 }
 
-// ResetColor restores the default text color.
+// ResetColorは既定のテキスト色に戻す。
 func (b *ConsoleBackend) ResetColor() { fmt.Fprint(b.out, "\x1b[0m") }
 
-// SetTitle asks the terminal to change its title (best effort).
+// SetTitleは端末にタイトル変更を依頼する（ベストエフォート）。
 func (b *ConsoleBackend) SetTitle(s string) { fmt.Fprintf(b.out, "\x1b]0;%s\x07", s) }
 
-// MoveTo places the cursor at 0-based (x, y).
+// MoveToはカーソルを0始まりの(x, y)に置く。
 func (b *ConsoleBackend) MoveTo(x, y int) { fmt.Fprintf(b.out, "\x1b[%d;%dH", y+1, x+1) }
 
-// Sleep pauses for ms milliseconds.
+// Sleepはmsミリ秒だけ停止する。
 func (b *ConsoleBackend) Sleep(ms int64) { time.Sleep(time.Duration(ms) * time.Millisecond) }
 
-// Await blocks until n frames pass (~16ms per frame on the wall clock).
+// Awaitはnフレーム経過まで阻む（壁時計で1フレーム約16ms）。
 func (b *ConsoleBackend) Await(n int64) {
 	if n <= 0 {
 		return
@@ -150,10 +148,10 @@ func (b *ConsoleBackend) Await(n int64) {
 	}
 }
 
-// Tick is the wall-clock frame counter (Unix milliseconds / 16).
+// Tickは壁時計ベースのフレームカウンタ（UNIXミリ秒／16）。
 func (b *ConsoleBackend) Tick() int64 { return time.Now().UnixMilli() / 16 }
 
-// TextWidth counts runes (CUI has no pixel metrics).
+// TextWidthはルーン数を数える（CUIにピクセル指標はない）。
 func (b *ConsoleBackend) TextWidth(s string) int { return len([]rune(s)) }
 
 func clamp8(v int) int {
@@ -166,32 +164,32 @@ func clamp8(v int) int {
 	return v
 }
 
-// ---------- registry ----------
+// ---------- レジストリ ----------
 
-// builtinFn implements one builtin. args are already evaluated.
+// builtinFnは1つのビルトインを実装する。argsは評価済み。
 type builtinFn func(in *Interp, args []Value, at Pos) (Value, error)
 
 type builtinDecl struct {
 	minArgs int
-	maxArgs int // -1 means variadic
+	maxArgs int // -1は可変長
 	fn      builtinFn
 }
 
-// builtins maps builtin names to their declarations.
+// builtinsはビルトイン名から宣言への対応表。
 var builtins = map[string]builtinDecl{}
 
-// register adds a builtin. Called from init() in builtin_*.go files.
+// registerはビルトインを追加する。builtin_*.go内のinit()から呼ばれる。
 func register(name string, minArgs, maxArgs int, fn builtinFn) {
 	builtins[name] = builtinDecl{minArgs: minArgs, maxArgs: maxArgs, fn: fn}
 }
 
-// isBuiltin reports whether name is reserved by a builtin.
+// isBuiltinはnameがビルトインで予約済みかを報告する。
 func isBuiltin(name string) bool {
 	_, ok := builtins[name]
 	return ok
 }
 
-// builtinNames returns all registered builtin names, sorted.
+// builtinNamesは登録済みビルトイン名をすべてソートして返す。
 func builtinNames() []string {
 	names := make([]string, 0, len(builtins))
 	for name := range builtins {
@@ -201,7 +199,7 @@ func builtinNames() []string {
 	return names
 }
 
-// callBuiltin checks arity, then invokes the builtin.
+// callBuiltinは引数個数を検査してからビルトインを呼び出す。
 func callBuiltin(name string, in *Interp, args []Value, at Pos) (Value, error) {
 	d := builtins[name]
 	if len(args) < d.minArgs || (d.maxArgs >= 0 && len(args) > d.maxArgs) {
@@ -216,7 +214,7 @@ func callBuiltin(name string, in *Interp, args []Value, at Pos) (Value, error) {
 	return d.fn(in, args, at)
 }
 
-// ---------- argument helpers (1-based positions in errors) ----------
+// ---------- 引数ヘルパー（エラー内位置は1始まり） ----------
 
 func argErr(name string, i int, at Pos, format string, args ...any) *RuntimeError {
 	return rtErrf(at, "%s：引数 %d %s", name, i+1, fmt.Sprintf(format, args...))
@@ -253,10 +251,10 @@ func needArray(name string, args []Value, i int, at Pos) (*Array, error) {
 	return args[i].Arr, nil
 }
 
-// splitStyleArgs consumes trailing mes()/print() style keywords
-// ("bold", "italic", "bolditalic", "underline"; exact match) and
-// returns the remaining args plus the combined style. Ordinary words
-// (including non-strings) always stay printable.
+// splitStyleArgs は末尾の mes()/print() スタイルキーワード
+// （"bold", "italic", "bolditalic", "underline"、完全一致）を消費し、
+// 残りの引数と合成したスタイルを返す。通常の語（文字列でないものも
+// 含む）は常に印字対象のまま扱われる。
 func splitStyleArgs(args []Value) ([]Value, gui.TextStyle) {
 	var st gui.TextStyle
 	n := len(args)
@@ -275,10 +273,10 @@ func splitStyleArgs(args []Value) ([]Value, gui.TextStyle) {
 	return args[:n], st
 }
 
-// mes is the basic output function (variadic, space-joined + newline).
-// Trailing style keywords ("bold", "italic", "bolditalic", "underline")
-// are consumed as decoration instead of printed. Void arguments are
-// skipped silently (they contribute nothing, not even a separator).
+// mes は基本出力関数（可変長・空白連結＋改行）。
+// 末尾のスタイルキーワード（"bold", "italic", "bolditalic",
+// "underline"）は印字されず装飾として消費される。void 引数は
+// 無音でスキップされる（何も寄与せず、区切りも生じない）。
 func init() {
 	register("mes", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		rest, st := splitStyleArgs(args)

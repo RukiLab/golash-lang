@@ -15,14 +15,14 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio/wav"
 )
 
-// Sound model (G2): files decode fully to PCM at load; players are created
-// per mmplay so sounds restart and overlap freely. Loop uses InfiniteLoop.
+// サウンドモデル（G2）：読み込み時にファイルをPCMへ完全にデコードし、プレイヤーはmmplayごとに生成する
+// ため、サウンドは再開や重ね掛けが自由にできる。ループにはInfiniteLoopを使う。
 
 const audioRate = 44100
 
 type sound struct {
 	pcm []byte
-	vol float64 // 0..1, applied to players at play time
+	vol float64 // 0..1、再生時にプレイヤーへ適用する
 }
 
 type audioState struct {
@@ -32,8 +32,8 @@ type audioState struct {
 	nextID  int
 }
 
-// sharedCtx is the single process-wide audio context: ebiten allows only
-// one (like the single game loop), and tests create multiple backends.
+// sharedCtxはプロセス全体で共有する単一のオーディオコンテキスト：ebitenでは1つだけしか許可されず
+// （単一のゲームループと同様）、テストでは複数のバックエンドが作られる。
 var sharedCtx struct {
 	sync.Mutex
 	ctx *audio.Context
@@ -57,7 +57,7 @@ func (b *WindowBackend) audioState() *audioState {
 	return b.audio
 }
 
-// MmLoad decodes wav/mp3/ogg into memory, returning a sound id.
+// MmLoadはwav/mp3/oggをメモリにデコードし、サウンドIDを返す。
 func (b *WindowBackend) MmLoad(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -89,7 +89,7 @@ func (b *WindowBackend) MmLoad(path string) (int, error) {
 	return st.nextID, nil
 }
 
-// MmPlay plays a sound (loop repeats forever). Restarts any current play.
+// MmPlayはサウンドを再生する（loop指定で無限に繰り返す）。再生中のものは再開する。
 func (b *WindowBackend) MmPlay(id int, loop bool) error {
 	st := b.audioState()
 	st.mu.Lock()
@@ -120,9 +120,8 @@ func (b *WindowBackend) MmPlay(id int, loop bool) error {
 	return nil
 }
 
-// MmVolume sets a sound's volume (0..100 percent). It applies to the
-// live player if any, and is stored for future plays. Player.SetVolume
-// is safe for concurrent use, so this never blocks the script.
+// MmVolumeはサウンドの音量を設定する（0..100パーセント）。再生中のプレイヤーがあれば適用し、
+// 次回以降の再生用に保存する。Player.SetVolumeは並行利用しても安全なため、スクリプトを止めることはない。
 func (b *WindowBackend) MmVolume(id, vol int) error {
 	if vol < 0 || vol > 100 {
 		return fmt.Errorf("mmvol：音量は 0 から 100 の範囲で指定してください。%d が指定されました", vol)
@@ -141,7 +140,7 @@ func (b *WindowBackend) MmVolume(id, vol int) error {
 	return nil
 }
 
-// MmStop stops one sound (nil = all). Unknown ids are a silent no-op.
+// MmStopは1つのサウンドを停止する（nilは全停止）。不明なIDは黙って何もしない。
 func (b *WindowBackend) MmStop(id *int) {
 	st := b.audioState()
 	st.mu.Lock()

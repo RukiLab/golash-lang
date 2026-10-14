@@ -1,7 +1,7 @@
 package main
 
-// guiBuiltinNames lists the GUI-related builtins (always registered).
-// Referenced by TestBuiltinRegistryComplete.
+// guiBuiltinNames は GUI 関連の組込（常に登録される）を列挙する。
+// TestBuiltinRegistryComplete から参照される。
 var guiBuiltinNames = []string{
 	"screen", "gsel", "buffer",
 	"pset", "pget", "line", "boxf", "circle",

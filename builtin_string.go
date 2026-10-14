@@ -1,11 +1,10 @@
-// P2 builtins: string operations.
+// P2 組み込み関数：文字列操作。
 //
-// Differences from HSP (documented, modernized):
-//   - Lengths and indexes count characters (runes), not bytes, so Japanese
-//     text behaves as one character per glyph.
-//   - instr returns the absolute index (HSP returns the index relative to
-//     the start position).
-//   - split/getpath/strf return values instead of writing to out-params.
+// HSP との違い（文書化・現代化済み）：
+//   - 長さとインデックスはバイトではなく文字（ルーン）単位で数えるため、日本語
+//     テキストは1グリフ＝1文字として扱われる。
+//   - instr は絶対インデックスを返す（HSP は開始位置からの相対インデックスを返す）。
+//   - split/getpath/strf は out 引数への書き込みではなく戻り値を返す。
 package main
 
 import (
@@ -16,7 +15,7 @@ import (
 )
 
 func init() {
-	// strlen(s): character count.
+	// strlen(s)：文字数を数える。
 	register("strlen", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("strlen", args, 0, at)
 		if err != nil {
@@ -25,8 +24,8 @@ func init() {
 		return Int(int64(len([]rune(s)))), nil
 	})
 
-	// strmid(s, start, count): substring by character index (0-based).
-	// Negative start counts from the end (as in HSP).
+	// strmid(s, start, count)：文字インデックス（0始まり）で部分文字列を取り出す。
+	// 負の start は末尾からの位置になる（HSP と同様）。
 	register("strmid", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("strmid", args, 0, at)
 		if err != nil {
@@ -51,16 +50,16 @@ func init() {
 			return Null(), argErr("strmid", 1, at, "start %d は範囲外です（長さ %d）", args[1].I, len(r))
 		}
 		end := start + count
-		// Over-length ends are an error, never a silent clamp
-		// (end < start means start+count wrapped on huge count).
+		// 長さを超えた終端はエラーにし、黙って切り詰めない
+		//（end < start は start+count が巨大な count で桁あふれしたことを意味する）。
 		if end > int64(len(r)) || end < start {
 			return Null(), argErr("strmid", 2, at, "start %d から count %d は長さ %d を超えています", args[1].I, count, len(r))
 		}
 		return Str(string(r[start:end])), nil
 	})
 
-	// instr(s, sub) / instr(s, start, sub): absolute index of sub at or
-	// after start, or -1 when absent.
+	// instr(s, sub)／instr(s, start, sub)：start 以降で最初に sub が現れる
+	// 絶対インデックスを返す。見つからない場合は -1。
 	register("instr", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("instr", args, 0, at)
 		if err != nil {
@@ -80,8 +79,8 @@ func init() {
 			return Null(), err
 		}
 		r := []rune(s)
-		// Out-of-range starts are an error, never a silent clamp
-		// (the 2-arg form defaults to 0, which is always valid).
+		// 範囲外の start はエラーにし、黙って切り詰めない
+		//（2引数形式は既定で 0 になるため常に有効）。
 		if start < 0 || start > int64(len(r)) {
 			return Null(), argErr("instr", 1, at, "start %d は範囲外です（長さ %d）", start, len(r))
 		}
@@ -92,8 +91,8 @@ func init() {
 		return Int(start + int64(len([]rune(string(r[start:])[:rel])))), nil
 	})
 
-	// strtrim(s [, chars] [, mode]): strip characters from both ends (mode
-	// 0), left only (1), or right only (2). Default chars: whitespace.
+	// strtrim(s [, chars] [, mode])：両端から文字を取り除く（mode が
+	// 0 の場合は両端、1 は左のみ、2 は右のみ）。chars 省略時は空白文字。
 	register("strtrim", 1, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("strtrim", args, 0, at)
 		if err != nil {
@@ -140,7 +139,7 @@ func init() {
 		return Str(trim(s)), nil
 	})
 
-	// replace(s, old, new): replace all occurrences of old with new.
+	// replace(s, old, new)：old の全出現を new に置換する。
 	register("replace", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("replace", args, 0, at)
 		if err != nil {
@@ -160,7 +159,7 @@ func init() {
 		return Str(strings.ReplaceAll(s, old, nw)), nil
 	})
 
-	// upper(s)/lower(s): ASCII case conversion (Japanese text unaffected).
+	// upper(s)／lower(s)：ASCII の大文字・小文字変換（日本語テキストには影響しない）。
 	register("upper", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("upper", args, 0, at)
 		if err != nil {
@@ -176,7 +175,7 @@ func init() {
 		return Str(strings.ToLower(s)), nil
 	})
 
-	// split(s, delim): split into an array of strings.
+	// split(s, delim)：文字列の配列に分割する。
 	register("split", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("split", args, 0, at)
 		if err != nil {
@@ -197,7 +196,7 @@ func init() {
 		return ArrayOf(elems), nil
 	})
 
-	// strf(format, args...): formatted string (C/Go-style %d %f %s %x %c %%).
+	// strf(format, args...)：書式付き文字列（C／Go 風の %d %f %s %x %c %%）。
 	// 対応指定子は MANUAL の6種のみ（%d %f %s %x %c %%。フラグ・幅・精度付き可）。
 	// それ以外の動詞（%v %T %p 等）・引数の過不足・型の不一致は、
 	// Go の "%!d(MISSING)" 等の素通しではなくスクリプトエラーにする。
@@ -245,18 +244,18 @@ func init() {
 		return Str(fmt.Sprintf(format, fargs...)), nil
 	})
 
-	// getpath(path, mode): path decomposition. Modes follow HSP and combine
-	// with addition: 0 copy, 1 strip extension, 2 extension only (with dot),
-	// 8 strip directory, 16 lowercase, 32 directory only.
+	// getpath(path, mode)：パス分解。モードは HSP に準拠し加算で組み合わせる：
+	// 0 はコピー、1 は拡張子除去、2 は拡張子のみ（ドット付き）、
+	// 8 はディレクトリ除去、16 は小文字化、32 はディレクトリのみ。
 	register("getpath", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("getpath", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		// Parts compose: "dir" + "base" is dir/base, "lower" lowercases
-		// whatever was selected. No parts selects the full path.
-		// ("file" already carries the extension, so "file" + "base"
-		// together is contradictory and rejected.)
+		// 部位は合成できる：「dir」＋「base」は dir/base になり、「lower」は
+		// 選択結果を小文字化する。部位指定なしはフルパスになる。
+		//（「file」は既に拡張子を含むため、「file」＋「base」
+		// の同時指定は矛盾として拒否される。）
 		var dirSel, fileSel, baseSel, extSel, lower bool
 		for i := range args[1:] {
 			s, err := needString("getpath", args, i+1, at)
@@ -281,7 +280,7 @@ func init() {
 		if fileSel && baseSel {
 			return Null(), argErr("getpath", 0, at, "file と base は同時に指定できません")
 		}
-		// Normalize separators for decomposition, then restore style.
+		// 分解用に区切り文字を正規化し、その後で元の形式に戻す。
 		win := strings.Contains(p, "\\")
 		slash := strings.ReplaceAll(p, "\\", "/")
 		dir, file := filepath.Split(slash)
@@ -311,9 +310,9 @@ func init() {
 		return Str(out), nil
 	})
 
-	// asc(s): code point of the first character (GUI input()
-	// control characters included: asc(input()) is 8 for backspace).
-	// Empty strings are an error.
+	// asc(s)：先頭文字のコードポイント（GUI の input()
+	// の制御文字を含む：Backspace の asc(input()) は 8）。
+	// 空文字列はエラー。
 	register("asc", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("asc", args, 0, at)
 		if err != nil {
@@ -326,8 +325,8 @@ func init() {
 		return Int(int64(r[0])), nil
 	})
 
-	// chr(code): single-character string for a Unicode code point.
-	// Surrogates and out-of-range values are an error.
+	// chr(code)：Unicode コードポイントに対応する1文字の文字列。
+	// サロゲートと範囲外の値はエラー。
 	register("chr", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		c, err := needInt("chr", args, 0, at)
 		if err != nil {

@@ -16,7 +16,8 @@ import (
 	"gsh/gui"
 )
 
-// runIO executes src with given stdin, capturing stdout and logmes output.
+// runIO は与えられた標準入力で src を実行し、標準出力と logmes の出力を
+// 捕まえる。
 func runIO(t *testing.T, src, stdin string) (string, string, *Interp, error) {
 	t.Helper()
 	prog, err := Parse(src)
@@ -73,7 +74,7 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 		"push", "pop", "join", "dim",
 		"sort", "reverse", "insert", "remove", "slice", "find",
 		"replace", "upper", "lower", "asc", "chr",
-		"lextokens", "strwidth", "parsetree", "checksrc", "pipeexec", "piperun",
+		"lextokens", "strwidth", "parsetree", "checksrc", "srcanalyze", "pipeexec", "piperun",
 	}
 	got := map[string]bool{}
 	for _, n := range builtinNames() {
@@ -85,7 +86,7 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 		}
 		delete(got, n)
 	}
-	// GUI words (builtin_gui*.go) are valid extras.
+	// GUI ワード（builtin_gui*.go）は有効な追加である。
 	for _, n := range guiBuiltinNames {
 		delete(got, n)
 	}
@@ -102,13 +103,13 @@ func TestBuiltinRedefineGuard(t *testing.T) {
 func TestConversions(t *testing.T) {
 	mustOutIO(t, "mes(int(3.9))\nmes(int(\" 12 \"))\nmes(int(true))\n", "", "3\n12\n1\n")
 	mustOutIO(t, "mes(float(3))\nmes(float(\"2.5\"))\nmes(float(false))\n", "", "3\n2.5\n0\n")
-	// int(string) is strict base-10 integers only: float spellings fail.
+	// int(string) は厳密に十進整数のみ: 浮動小数点数の表記は失敗する。
 	mustErrIO(t, "mes(int(\"3.7\"))\n", "変換できません")
 	mustErrIO(t, "mes(int(\"1e2\"))\n", "変換できません")
 	mustErrIO(t, "mes(int(\"0x10\"))\n", "変換できません")
-	// Out-of-range floats and NaN never convert to int.
+	// 範囲外の浮動小数点数と NaN は決して int に変換されない。
 	mustErrIO(t, "mes(int(1e300))\n", "変換できません")
-	// NaN/Inf never enter through float() either.
+	// NaN/Inf は float() からも決して入らない。
 	mustErrIO(t, "mes(float(\"nan\"))\n", "変換できません")
 	mustErrIO(t, "mes(float(\"inf\"))\n", "変換できません")
 	mustErrIO(t, "mes(float(\"Infinity\"))\n", "変換できません")
@@ -125,15 +126,15 @@ func TestMath(t *testing.T) {
 	mustOutIO(t, "mes(sqrt(16))\nmes(sin(0))\nmes(cos(0))\nmes(pow(2, 10))\nmes(exp(0))\nmes(log(1))\n", "", "4\n0\n1\n1024\n1\n0\n")
 	mustOutIO(t, "mes(limit(5, 0, 10))\nmes(limit(-3, 0, 10))\nmes(limit(99, 0, 10))\nmes(limit(5.5, 0, 10))\n", "", "5\n0\n10\n5.5\n")
 	mustOutIO(t, "mes(vartype(limit(5, 0, 10)))\nmes(vartype(limit(5.5, 0, 10)))\n", "", "int\nfloat\n")
-	// limit() takes exactly 3 arguments: shorter forms and elision fail.
+	// limit() はちょうど3つの引数を取る: 短い形式と省略は失敗する。
 	mustErrIO(t, "mes(limit(5))\n", "3 個必要")
 	mustErrIO(t, "mes(limit(5, 0))\n", "3 個必要")
 	mustErrIO(t, "mes(limit(1, 2, 3, 4))\n", "3 個必要")
 	mustErrIO(t, "mes(limit(5, , 10))\n", "void値")
 	mustErrIO(t, "mes(limit(, 0, 10))\n", "void値")
-	// Elision is still void; mes() skips it silently.
+	// 省略は依然 void。mes() はそれを無音でスキップする。
 	mustOutIO(t, "mes(,)\n", "", "\n")
-	// min/max: least/greatest of 2+ args; all-int yields int.
+	// min/max: 2個以上の引数の最小/最大。すべて int なら int になる。
 	mustOutIO(t, "mes(min(3, 1, 2))\nmes(max(3, 1, 2))\nmes(min(-5, -2))\nmes(max(-5, -2))\nmes(min(7, 7))\n", "", "1\n3\n-5\n-2\n7\n")
 	mustOutIO(t, "mes(min(1.5, 2))\nmes(max(1, 2.5))\nmes(min(3, 1.5, 2))\n", "", "1.5\n2.5\n1.5\n")
 	mustOutIO(t, "mes(vartype(min(1, 2)))\nmes(vartype(max(1.0, 2)))\n", "", "int\nfloat\n")
@@ -144,12 +145,12 @@ func TestMath(t *testing.T) {
 	mustErrIO(t, "mes(sqrt(-1))\n", "平方根")
 	mustErrIO(t, "mes(log(0))\n", "正の数")
 	mustErrIO(t, "mes(abs(\"x\"))\n", "数値である必要があります")
-	// Non-finite float results are an error, never ±Inf/NaN.
+	// 有限でない浮動小数点数の結果はエラーで、±Inf/NaN には決してならない。
 	mustErrIO(t, "mes(exp(1000))\n", "有限の浮動小数ではありません")
 	mustErrIO(t, "mes(pow(10, 309))\n", "有限の浮動小数ではありません")
 	mustErrIO(t, "mes(pow(-1, 0.5))\n", "有限の浮動小数ではありません")
-	// abs(MinInt64) has no representable negation; it is an error,
-	// not a wrapped negative.
+	// abs(MinInt64) は表現可能な否定を持たないため、ラップした負ではなく
+	// エラーになる。
 	mustErrIO(t, "mes(abs(-9223372036854775808))\n", "絶対値を取得できません")
 	mustOutIO(t, "mes(abs(-9223372036854775807))\n", "", "9223372036854775807\n")
 	mustErrIO(t, "mes(limit(1, 9, 2))\n", "下限")
@@ -171,12 +172,12 @@ func TestRandom(t *testing.T) {
 func TestBuiltinStrings(t *testing.T) {
 	mustOutIO(t, "mes(strlen(\"hello\"))\nmes(strlen(\"あいう\"))\nmes(strlen(\"\"))\n", "", "5\n3\n0\n")
 	mustOutIO(t, "mes(strmid(\"abcdef\", 1, 3))\nmes(strmid(\"あいうえお\", 1, 2))\nmes(strmid(\"abcdef\", -2, 2))\nmes(strmid(\"abc\", 1, 2))\n", "", "bcd\nいう\nef\nbc\n")
-	// Over-length ends are an error, never a silent clamp (huge counts
-	// wrap start+count, which is also an error).
+	// 過剰な長さの終端は無音の切り詰めではなくエラー（巨大な個数は
+	// start+count をラップさせ、これもエラーになる）。
 	mustErrIO(t, "mes(strmid(\"abc\", 1, 99))\n", "超えています")
 	mustErrIO(t, "mes(strmid(\"abc\", 1, 9223372036854775807))\n", "超えています")
 	mustOutIO(t, "mes(instr(\"hello\", \"ll\"))\nmes(instr(\"hello\", 3, \"l\"))\nmes(instr(\"hello\", \"z\"))\n", "", "2\n3\n-1\n")
-	// Out-of-range starts are an error, never a silent clamp or -1.
+	// 範囲外の開始は無音の切り詰めや -1 ではなくエラーである。
 	mustErrIO(t, "mes(instr(\"hello\", 99, \"h\"))\n", "範囲外")
 	mustErrIO(t, "mes(instr(\"hello\", -1, \"h\"))\n", "範囲外")
 	mustOutIO(t, "mes(\"[\" + strtrim(\"  hi  \") + \"]\")\nmes(strtrim(\"xxhiix\", \"x\"))\nmes(strtrim(\"xxhi\", \"x\", 1))\nmes(strtrim(\"hixx\", \"x\", 2))\n", "", "[hi]\nhii\nhi\nhi\n")
@@ -192,7 +193,7 @@ func TestGetpath(t *testing.T) {
 	mustOutIO(t, "p = \"C:\\\\a\\\\b.exe\"\nmes(getpath(p))\nmes(getpath(p, \"dir\", \"base\"))\nmes(getpath(p, \"ext\"))\nmes(getpath(p, \"file\"))\nmes(getpath(p, \"base\"))\nmes(getpath(p, \"dir\"))\nmes(getpath(p, \"lower\"))\n", "",
 		"C:\\a\\b.exe\nC:\\a\\b\n.exe\nb.exe\nb\nC:\\a\\\nc:\\a\\b.exe\n")
 	mustOutIO(t, "mes(getpath(\"/x/y.txt\", \"file\"))\nmes(getpath(\"/x/y.txt\", \"dir\"))\n", "", "y.txt\n/x/\n")
-	// Composition: dir+file, base+ext (= file), dir lowercased.
+	// 合成: dir+file、base+ext (= file)、dir を小文字化。
 	mustOutIO(t, "mes(getpath(\"/x/y.txt\", \"dir\", \"file\"))\nmes(getpath(\"/x/y.txt\", \"base\", \"ext\"))\nmes(getpath(\"/X/Y.TXT\", \"dir\", \"lower\"))\n", "", "/x/y.txt\ny.txt\n/x/\n")
 	mustErrIO(t, "mes(getpath(\"a\", \"bogus\"))\n", "dir/file/base/ext/lower")
 	mustErrIO(t, "mes(getpath(\"a\", \"file\", \"base\"))\n", "同時に指定できません")
@@ -215,8 +216,8 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 	mustErrIO(t, "sleep(-1)\n", "0 以上")
 	mustOutIO(t, "await(0)\nawait()\nmes(tick() >= 0)\n", "", "true\n")
 	mustErrIO(t, "await(-1)\n", "0 以上")
-	// A wait whose target tick is unrepresentable is an error, not an
-	// immediate return via wrap.
+	// 対象のティックが表現できない待機は、ラップによる即時リターンでは
+	// なくエラーである。
 	mustErrIO(t, "await(9223372036854775807)\n", "大きすぎます")
 	mustOutIO(t, "a = nanotime()\nmes(a > 0 && nanotime() >= a)\n", "", "true\n")
 	_, _, in, err := runIO(t, "mes(\"hi\")\nend(3)\nmes(\"bye\")\n", "")
@@ -226,9 +227,9 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 	if code, ok := in.ExitCode(); !ok || code != 3 {
 		t.Fatalf("exit code: %d, %v", code, ok)
 	}
-	// The GUI frontend reads ExitCode() after the loop while the script
-	// goroutine may still run; concurrent access must be race-free
-	// (meaningful under -race).
+	// GUI フロントエンドはループ後の ExitCode() を読むが、スクリプトの
+	// ゴルーチンはまだ動いているかもしれない。並行アクセスは競合がない
+	// 必要がある（-race の下で意味を持つ）。
 	prog, err := Parse("n = 0\nwhile n < 10000 {\nn = n + 1\n}\nend(3)\n")
 	if err != nil {
 		t.Fatal(err)
@@ -267,7 +268,7 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 	if code, ok := conc.ExitCode(); !ok || code != 3 {
 		t.Fatalf("concurrent exit code: %d, %v", code, ok)
 	}
-	// nanotime() is monotonic (process-start anchored, never backward).
+	// nanotime() は単調増加する（プロセス開始を基準とし、決して逆行しない）。
 	mustOutIO(t, "a = nanotime()\nb = nanotime()\nmes(b >= a)\nmes(a >= 0)\n", "", "true\ntrue\n")
 	mustOutIO(t, "assert(true)\nassert(1 < 2, \"math broke\")\nmes(\"ok\")\n", "", "ok\n")
 	mustErrIO(t, "assert(false)\n", "assertion failed")
@@ -280,7 +281,7 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 	if errout != "dbg 42\n" {
 		t.Fatalf("logmes got %q", errout)
 	}
-	// Void arguments are skipped, like mes()/print().
+	// void 引数は mes()/print() と同じくスキップされる。
 	_, errout, _, err = runIO(t, "def f() {\n}\nlogmes(\"a\", f(), \"b\")\n", "")
 	if err != nil {
 		t.Fatal(err)
@@ -291,9 +292,9 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 }
 
 func TestArgs(t *testing.T) {
-	// No arguments: empty array.
+	// 引数なし: 空の配列。
 	mustOutIO(t, "mes(args())\nmes(length(args()))\n", "", "[]\n0\n")
-	// With arguments passed through SetArgs (as run does).
+	// SetArgs 経由で渡された引数付き（run がそうするように）。
 	prog, err := Parse("mes(args())\nmes(args()[1])\n")
 	if err != nil {
 		t.Fatal(err)
@@ -313,13 +314,12 @@ func TestArgs(t *testing.T) {
 	}
 }
 
-// TestFileDialogBuilder locks the dlgopen/dlgsave configuration without
-// opening an OS window: the start folder, the optional filter and the
-// pre-filled save name.
+// TestFileDialogBuilder は OS のウィンドウを開かずに dlgopen/dlgsave の
+// 設定を固定する: 開始フォルダ、任意のフィルタ、事前入力された保存名。
 func TestFileDialogBuilder(t *testing.T) {
 	in := &Interp{}
-	// dlgStartDir falls back to the working directory when the script
-	// has no directory of its own.
+	// dlgStartDir はスクリプトが自身のディレクトリを持たないとき
+	// 作業ディレクトリにフォールバックする。
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
@@ -335,13 +335,13 @@ func TestFileDialogBuilder(t *testing.T) {
 	if b.StartFile != "" {
 		t.Fatalf("StartFile = %q, want empty for an open dialog", b.StartFile)
 	}
-	// The script directory wins over the working directory.
+	// スクリプトのディレクトリが作業ディレクトリより優先される。
 	scriptDir := t.TempDir()
 	in.SetScriptDir(scriptDir)
 	if got := dlgStartDir(in); got != scriptDir {
 		t.Fatalf("dlgStartDir = %q, want %q (script dir)", got, scriptDir)
 	}
-	// A script directory that no longer exists is skipped.
+	// もはや存在しないスクリプトのディレクトリは飛ばされる。
 	in.SetScriptDir(filepath.Join(scriptDir, "gone"))
 	if got := dlgStartDir(in); got != wd {
 		t.Fatalf("dlgStartDir = %q, want %q after a missing script dir", got, wd)
@@ -351,7 +351,7 @@ func TestFileDialogBuilder(t *testing.T) {
 	if b.StartDir != scriptDir || b.StartFile != "out.png" {
 		t.Fatalf("save builder: dir %q name %q", b.StartDir, b.StartFile)
 	}
-	// A malformed filter and an empty name configure nothing.
+	// 不正な形式のフィルタと空の名前は何も設定しない。
 	b = dlgFileBuilder(in, "保存", "no pipe here", "")
 	if len(b.Filters) != 0 || b.StartFile != "" {
 		t.Fatalf("empty filter must not configure anything: %+v", b)
@@ -385,7 +385,7 @@ func TestHttpget(t *testing.T) {
 	defer srv.Close()
 	mustOutIO(t, fmt.Sprintf("mes(httpget(%q))\n", srv.URL+"/ok"), "", "hello\n")
 	mustErrIO(t, fmt.Sprintf("mes(httpget(%q))\n", srv.URL+"/missing"), "404")
-	// Save form writes the body and returns its size.
+	// 保存形式は本体を書き込み、そのサイズを返す。
 	dir := t.TempDir()
 	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
 	mustOutIO(t, fmt.Sprintf("mes(httpget(%q, %q))\n", srv.URL+"/ok", join("out.txt")), "", "5\n")
@@ -393,7 +393,8 @@ func TestHttpget(t *testing.T) {
 	if err != nil || string(data) != "hello" {
 		t.Fatalf("saved body = %q, %v", data, err)
 	}
-	// Unreachable host is an error, not a hang (client timeout).
+	// 到達できないホストはハングではなくエラー（クライアントの
+	// タイムアウト）。
 	mustErrIO(t, "mes(httpget(\"http://127.0.0.1:1/nope\"))\n", "httpget")
 }
 
@@ -407,11 +408,11 @@ func TestHttppost(t *testing.T) {
 		fmt.Fprintf(w, "%s|%s", r.Header.Get("Content-Type"), body)
 	}))
 	defer srv.Close()
-	// Default content type is application/json.
+	// 既定のコンテンツタイプは application/json。
 	mustOutIO(t, fmt.Sprintf("mes(httppost(%q, %q))\n", srv.URL, `{"a":1}`), "", "application/json|{\"a\":1}\n")
-	// Explicit content type.
+	// 明示的なコンテンツタイプ。
 	mustOutIO(t, fmt.Sprintf("mes(httppost(%q, %q, %q))\n", srv.URL, "x=1", "application/x-www-form-urlencoded"), "", "application/x-www-form-urlencoded|x=1\n")
-	// Save form writes the body and returns its size.
+	// 保存形式は本体を書き込み、そのサイズを返す。
 	dir := t.TempDir()
 	out := filepath.ToSlash(filepath.Join(dir, "post.txt"))
 	mustOutIO(t, fmt.Sprintf("mes(httppost(%q, %q, %q, %q))\n", srv.URL, "hi", "text/plain", out), "", "13\n")
@@ -424,7 +425,7 @@ func TestHttppost(t *testing.T) {
 }
 
 func TestExec(t *testing.T) {
-	// Async launch: returns 0 once started, without waiting.
+	// 非同期の起動: 待たずに、起動すると 0 を返す。
 	if runtime.GOOS == "windows" {
 		mustOutIO(t, "mes(exec(\"cmd\", \"/c\", \"exit\", \"3\"))\n", "", "0\n")
 	} else {
@@ -433,9 +434,9 @@ func TestExec(t *testing.T) {
 	mustErrIO(t, "mes(exec(\"no-such-command-xyz\"))\n", "exec：")
 }
 
-// TestExecgui mirrors TestExec for the detached twin: async launch
-// returns 0 once started, start failure is an error (only the console
-// differs, which output-based tests cannot observe).
+// TestExecgui は切り離された双子について TestExec を反映する: 非同期の
+// 起動は開始すると 0 を返し、起動失敗はエラー（異なるのはコンソール
+// のみで、これは出力ベースのテストでは観測できない）。
 func TestExecgui(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		mustOutIO(t, "mes(execgui(\"cmd\", \"/c\", \"exit\", \"3\"))\n", "", "0\n")
@@ -446,12 +447,12 @@ func TestExecgui(t *testing.T) {
 	mustErrIO(t, "mes(execgui(1))\n", "execgui")
 }
 
-// TestChildOutWriters locks the child-output guard: a real *os.File
-// passes through (the child inherits the handle, no copy goroutine), an
-// in-process writer is wrapped so os/exec's copy goroutine cannot race
-// the interpreter's own writes. exec/pipeexec hand the interpreter's
-// output to a child, and an unwrapped bytes.Buffer lost whole writes
-// under that race (TestExec flaked about 10% of runs).
+// TestChildOutWriters は子プロセス出力の防護を固定する: 実際の *os.File
+// はそのまま通過し（子はハンドルを継承し、複製のゴルーチンは不要）、
+// プロセス内のライタはラップされるため os/exec の複製ゴルーチンが
+// インタプリタ自身の書き込みと競合できない。exec/pipeexec はインタプリタ
+// の出力を子に渡すため、ラップしない bytes.Buffer はその競合で書き込み
+// 全体を失っていた（TestExec は約 10% の実行でちらついた）。
 func TestChildOutWriters(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "io")
 	if err != nil {
@@ -506,23 +507,23 @@ func TestPiperun(t *testing.T) {
 	} else {
 		mustOutIO(t, "r = piperun(\"printf\", \"hi\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\nhi\n\n")
 	}
-	// Non-zero exits are values, not errors.
+	// 非ゼロの終了はエラーではなく値である。
 	if runtime.GOOS == "windows" {
 		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"exit\", \"3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
 	} else {
 		mustOutIO(t, "r = piperun(\"sh\", \"-c\", \"exit 3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
 	}
-	// Stderr is captured into r[2].
+	// 標準エラーは r[2] に取り込まれる。
 	if runtime.GOOS == "windows" {
 		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"echo oops>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\r\n\n")
 	} else {
 		mustOutIO(t, "r = piperun(\"sh\", \"-c\", \"echo oops 1>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\n\n")
 	}
-	// Start failure is [-1, "", message], never an error.
+	// 起動失敗は [-1, "", message] で、決してエラーではない。
 	mustOutIO(t, "r = piperun(\"no-such-command-xyz\")\nmes(r[0])\nmes(r[2] != \"\")\n", "", "-1\ntrue\n")
 }
 
-// GUI calls (mousedown included) fail cleanly outside a window.
+	// GUI 呼出（mousedown を含む）はウィンドウ外ではきれいに失敗する。
 func TestMouseDownOutsideWindow(t *testing.T) {
 	mustErrIO(t, "mes(mousedown())\n", "GUI")
 }
@@ -544,7 +545,7 @@ func TestConsoleIO(t *testing.T) {
 	mustOutIO(t, "pos(3, 4)\n", "", "\x1b[5;4H")
 	mustOutIO(t, "pos(-1, 0)\n", "", "\x1b[1;0H")
 	mustOutIO(t, "pos(-5, -3)\n", "", "\x1b[-2;-4H")
-	// mes()/print() follow the cursor on CUI too (terminal positions).
+	// mes()/print() は CUI でもカーソルに追従する（端末の位置決め）。
 	mustOutIO(t, "pos(5, 2)\nmes(\"hi\")\n", "", "\x1b[3;6Hhi\n")
 	mustOutIO(t, "pos(1, 1)\nprint(\"ab\")\npos(4, 1)\nprint(\"cd\")\n", "", "\x1b[2;2Hab\x1b[2;5Hcd")
 	mustOutIO(t, "title(\"T\")\n", "", "\x1b]0;T\x07")
@@ -565,8 +566,8 @@ func TestSplitStyleArgs(t *testing.T) {
 	if len(rest) != 0 || st != gui.StyleBold|gui.StyleItalic {
 		t.Fatalf("got %v, %v", rest, st)
 	}
-	// A trailing keyword is consumed even after non-strings; the
-	// non-string itself stays printable. Near-misses stay printable.
+	// 末尾のキーワードは非文字列の後でも消費される。非文字列自体は
+	// 印字可能なまま。ニアミスも印字可能なまま。
 	rest, st = splitStyleArgs([]Value{Str("a"), Int(1), Str("bold")})
 	if len(rest) != 2 || st != gui.StyleBold {
 		t.Fatalf("got %v, %v", rest, st)
@@ -584,8 +585,8 @@ func TestInput(t *testing.T) {
 	mustOutIO(t, "s = input()\nmes(s == \"\")\n", "", "true\n") // EOF
 }
 
-// runScriptDir runs src with the working directory and script directory
-// given, returning captured stdout.
+// runScriptDir は与えられた作業ディレクトリとスクリプトディレクトリで
+// src を実行し、捕まえた標準出力を返す。
 func runScriptDir(t *testing.T, src, cwd, scriptDir string) string {
 	t.Helper()
 	prog, err := Parse(src)
@@ -618,8 +619,8 @@ func runScriptDir(t *testing.T, src, cwd, scriptDir string) string {
 }
 
 func TestScriptDirResolution(t *testing.T) {
-	dirA := t.TempDir() // script home
-	dirB := t.TempDir() // working directory
+	dirA := t.TempDir() // スクリプトのホーム
+	dirB := t.TempDir() // 作業ディレクトリ
 	write := func(dir, name, body string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o666); err != nil {
@@ -630,20 +631,20 @@ func TestScriptDirResolution(t *testing.T) {
 	write(dirB, "data.txt", "from-b")
 	write(dirB, "only-b.txt", "b")
 
-	// Script dir wins over the working directory.
+	// スクリプトのディレクトリが作業ディレクトリより優先される。
 	if got := runScriptDir(t, "mes(noteload(\"data.txt\"))\n", dirB, dirA); got != "from-a\n" {
 		t.Fatalf("script-dir first: got %q", got)
 	}
-	// Working directory is the fallback.
+	// 作業ディレクトリはフォールバックである。
 	if got := runScriptDir(t, "mes(noteload(\"only-b.txt\"))\n", dirB, dirA); got != "b\n" {
 		t.Fatalf("cwd fallback: got %q", got)
 	}
-	// Absolute paths pass through untouched.
+	// 絶対パスはそのまま通過する。
 	abs := filepath.ToSlash(filepath.Join(dirB, "data.txt"))
 	if got := runScriptDir(t, fmt.Sprintf("mes(noteload(%q))\n", abs), dirB, dirA); got != "from-b\n" {
 		t.Fatalf("absolute: got %q", got)
 	}
-	// New files land beside the script, not in the working directory.
+	// 新しいファイルは作業ディレクトリではなくスクリプトの隣に作られる。
 	runScriptDir(t, "notesave(\"new.txt\", \"hi\")\n", dirB, dirA)
 	if _, err := os.Stat(filepath.Join(dirA, "new.txt")); err != nil {
 		t.Fatalf("save beside script: %v", err)
@@ -651,7 +652,8 @@ func TestScriptDirResolution(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dirB, "new.txt")); !os.IsNotExist(err) {
 		t.Fatalf("save must not land in cwd: %v", err)
 	}
-	// No script dir (REPL): today's working-directory behavior.
+	// スクリプトのディレクトリがない（REPL）: 現在の作業ディレクトリの
+	// 挙動。
 	if got := runScriptDir(t, "mes(noteload(\"only-b.txt\"))\n", dirB, ""); got != "b\n" {
 		t.Fatalf("repl cwd: got %q", got)
 	}
@@ -659,34 +661,35 @@ func TestScriptDirResolution(t *testing.T) {
 
 func TestFiles(t *testing.T) {
 	dir := t.TempDir()
-	// Forward slashes: the script language has no backslash escapes besides
-	// \" \\ \n \t \r, and Windows accepts forward slashes.
+	// 前方スラッシュ: スクリプト言語は \" \\ \n \t \r 以外の
+	// バックスラッシュエスケープを持たず、Windows は前方スラッシュを
+	// 受け付ける。
 	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
 
 	mustOutIO(t, "mes(exist(\""+join("nope")+"\"))\n", "", "false\n")
 	mustErrIO(t, "delete(\""+join("nope")+"\")\n", "delete：")
 
-	// notesave/noteload + exist roundtrip.
+	// notesave/noteload + exist の往復。
 	mustOutIO(t, "notesave(\""+join("t.txt")+"\", \"a\\nb\")\nmes(exist(\""+join("t.txt")+"\"))\nmes(noteload(\""+join("t.txt")+"\"))\n", "",
 		"true\na\nb\n")
 
-	// bsave/bload roundtrip with size clip.
+	// bsave/bload のサイズ切り詰め付き往復。
 	mustOutIO(t, "bsave(\""+join("b.bin")+"\", [65, 66, 67])\na = bload(\""+join("b.bin")+"\")\nmes(a)\nmes(length(a))\nbsave(\""+join("c.bin")+"\", [1, 2, 3], 2)\nmes(length(bload(\""+join("c.bin")+"\")))\n", "",
 		"[65, 66, 67]\n3\n2\n")
 	mustErrIO(t, "bsave(\""+join("x.bin")+"\", [256])\n", "0 から 255")
-	// A huge size is a range error, never a Go panic, and writes nothing.
+	// 巨大なサイズは Go の panic ではなく範囲エラーで、何も書き込まない。
 	mustErrIO(t, "bsave(\""+join("y.bin")+"\", [1, 2, 3], 9223372036854775807)\n", "サイズが範囲外")
 	if _, err := os.Stat(filepath.Join(dir, "y.bin")); !os.IsNotExist(err) {
 		t.Fatalf("bsave with huge size must not create the file: %v", err)
 	}
 	mustErrIO(t, "mes(bload(\""+join("missing.bin")+"\"))\n", "bload：")
 
-	// mkdir/delete/bcopy.
+	// mkdir/delete/bcopy。
 	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nmes(exist(\""+join("sub")+"\"))\n", "", "true\n")
 	mustOutIO(t, "bcopy(\""+join("t.txt")+"\", \""+join("t2.txt")+"\")\nmes(exist(\""+join("t2.txt")+"\"))\ndelete(\""+join("t2.txt")+"\")\nmes(exist(\""+join("t2.txt")+"\"))\n", "",
 		"true\nfalse\n")
 
-	// dirlist + chdir (restore cwd afterwards).
+	// dirlist + chdir（後で cwd を復元）。
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -701,8 +704,8 @@ func TestFiles(t *testing.T) {
 	mustOutIO(t, "a = dirlist(\"*.gsh\")\nmes(a)\n", "", "[z.gsh]\n")
 }
 
-// TestFileinfo pins the one-stat metadata triple [size, mtime_ms,
-// isdir]: regular file, missing path, and directory.
+// TestFileinfo は1回の stat のメタデータ三つ組 [size, mtime_ms, isdir] を
+// 固定する: 通常のファイル、存在しないパス、ディレクトリ。
 func TestFileinfo(t *testing.T) {
 	dir := t.TempDir()
 	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
@@ -739,8 +742,8 @@ func TestPeekPoke(t *testing.T) {
 	mustErrIO(t, "poke([0], 0, 256)\n", "0 から 255")
 	mustErrIO(t, "mes(peek([\"x\"], 0))\n", "バイト")
 	mustErrIO(t, "mes(lpeek([1, 2], 0))\n", "範囲外")
-	// Huge indexes must be range errors, never a Go panic (int(i)+n
-	// wraps on MaxInt64 and used to skip the bounds check).
+	// 巨大な添字は Go の panic ではなく範囲エラーでなければならない
+	// （int(i)+n は MaxInt64 でラップし、境界検査を飛ばしていた）。
 	mustErrIO(t, "mes(peek([1], 9223372036854775807))\n", "範囲外")
 	mustErrIO(t, "mes(wpeek([1, 2], 9223372036854775807))\n", "範囲外")
 	mustErrIO(t, "mes(lpeek([1, 2, 3, 4], 9223372036854775804))\n", "範囲外")
@@ -751,7 +754,7 @@ func TestPushPopJoin(t *testing.T) {
 	mustOutIO(t, "a = []\nmes(push(a, 1))\nmes(push(a, 2, 3))\nmes(a)\n", "", "1\n3\n[1, 2, 3]\n")
 	mustOutIO(t, "a = [1, 2, 3]\nmes(pop(a))\nmes(a)\n", "", "3\n[1, 2]\n")
 	mustOutIO(t, "mes(join([1, 2, 3]))\nmes(join([\"a\", \"b\"], \"-\"))\nmes(join([], \",\"))\nmes(join([1, 2, 3], \",\"))\n", "", "123\na-b\n\n1,2,3\n")
-	// Shared reference: push through an alias is visible.
+	// 共有参照: 別名を通じた push が見える。
 	mustOutIO(t, "a = [1]\nb = a\npush(b, 2)\nmes(a)\n", "", "[1, 2]\n")
 	mustErrIO(t, "mes(pop([]))\n", "配列が空")
 	mustErrIO(t, "push(1, 2)\n", "配列である必要があります")
@@ -767,17 +770,18 @@ func TestArrayExtras(t *testing.T) {
 	mustOutIO(t, "a = [1, 2, 3]\nmes(remove(a, 0))\nmes(a)\n", "", "[1]\n[2, 3]\n")
 	mustOutIO(t, "a = [1, 2, 3, 4]\nmes(slice(a, 1, 3))\nmes(slice(a, -2))\nmes(slice(a, 0, -1))\n", "", "[2, 3]\n[3, 4]\n[1, 2, 3]\n")
 	mustOutIO(t, "a = [\"x\", \"y\"]\nmes(find(a, \"y\"))\nmes(find(a, \"z\"))\nmes(find(a, 1))\n", "", "1\n-1\n-1\n")
-	// Chaining: sort returns the array itself.
+	// 連鎖: sort は配列自身を返す。
 	mustOutIO(t, "mes(join(sort([3, 1, 2]), \"-\"))\n", "", "1-2-3\n")
-	// sort accepts ints, floats, and mixed numerics; strings sort
-	// separately; anything else is an error.
+	// sort は整数、浮動小数点数、混合の数値を受け付ける。文字列は別に
+	// ソートされ、それ以外はエラーである。
 	mustOutIO(t, "a = [2.5, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2.5, 10]\n")
 	mustOutIO(t, "a = [2, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2, 10]\n")
 	mustErrIO(t, "sort([1, \"a\"])\n", "すべて数値かすべて文字列")
 	mustErrIO(t, "sort([true])\n", "すべて数値かすべて文字列")
 	mustErrIO(t, "insert([1], 5, 2)\n", "範囲外")
 	mustErrIO(t, "remove([1], 0, 2)\n", "範囲外")
-	// Huge index/count must be range errors, never a Go panic.
+	// 巨大な添字/個数は Go の panic ではなく範囲エラーでなければ
+	// ならない。
 	mustErrIO(t, "insert([1], 9223372036854775807, 2)\n", "範囲外")
 	mustErrIO(t, "remove([1, 2], 9223372036854775807, 1)\n", "範囲外")
 	mustErrIO(t, "remove([1, 2], 0, 9223372036854775807)\n", "範囲外")
@@ -804,14 +808,29 @@ func TestLexTokens(t *testing.T) {
 	mustErrIO(t, "lextokens(1)\n", "文字列である必要があります")
 }
 
+// TestSrcAnalyze はエディタが使う1パスで例外を起こさない解析器を
+// 固定する: lextokens/parsetree と同じトークン/木の形状を持つ
+// [errstr, tokens, tree]。壊れたソースでは（例外を起こすのではなく）
+// エラー文字列を返す。
+func TestSrcAnalyze(t *testing.T) {
+	mustOutIO(t, "r = srcanalyze(\"x = 1\\n\")\nmes(r[0] == \"\")\nmes(length(r[1]))\nmes(r[1][0][0])\nmes(r[2][0])\nmes(length(r[2][4]))\n", "", "true\n4\nIDENT\nprogram\n1\n")
+	// 字句エラー: メッセージ＋空の tokens/tree。例外は起こさない。
+	mustOutIO(t, "r = srcanalyze(\"mes('a')\")\nmes(r[0] == \"\")\nmes(length(r[1]))\nmes(length(r[2]))\n", "", "false\n0\n0\n")
+	// 解析エラーも同様（途中まで入力されたソース）。
+	mustOutIO(t, "r = srcanalyze(\"mes(\")\nmes(r[0] == \"\")\nmes(length(r[1]))\n", "", "false\n0\n")
+	// 生のディレクティブはここでも lextokens と同じく字句エラーである。
+	mustOutIO(t, "r = srcanalyze(\"#define X 1\\n\")\nmes(r[0] == \"\")\n", "", "false\n")
+	mustErrIO(t, "srcanalyze(1)\n", "文字列である必要があります")
+}
+
 func TestParsetree(t *testing.T) {
 	mustOutIO(t, "t = parsetree(\"def f(a, b) {\\nreturn a\\n}\\nmes(f(1, 2))\\n\")\nmes(t[0])\nmes(length(t[4]))\nmes(t[4][0][4])\nmes(t[4][0][5][1][4])\nmes(t[4][1][0])\nmes(t[4][0][1])\n", "",
 		"program\n2\nf\nb\ncall\n1\n")
-	// Absent optionals are "" (readable into variables, testable with ==).
+	// 存在しない省略可能なものは ""（変数へ読み出せ、== で判定できる）。
 	mustOutIO(t, "t = parsetree(\"if true {\\nmes(1)\\n}\\n\")\nmes(t[4][0][6] == \"\")\n", "", "true\n")
 	mustOutIO(t, "t = parsetree(\"def f() {\\nreturn\\n}\\n\")\nmes(t[4][0][6][0][4] == \"\")\n", "", "true\n")
 	mustOutIO(t, "t = parsetree(\"repeat 3 {\\n}\\n\")\nmes(t[4][0][5] == \"\")\n", "", "true\n")
-	// Operators use source symbols; expression statements unwrap.
+	// 演算子はソースの記号を使う。式文は展開される。
 	mustOutIO(t, "t = parsetree(\"x = 1 + 2 * 3\\n\")\nmes(t[4][0][0])\nmes(t[4][0][5][4])\nmes(t[4][0][5][6][0])\n", "", "assign\n+\nbinary\n")
 	mustOutIO(t, "mes(vartype(parsetree(\"x = 1\")))\n", "", "array\n")
 	mustErrIO(t, "parsetree(1)\n", "文字列である必要があります")

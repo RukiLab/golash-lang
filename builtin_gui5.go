@@ -1,11 +1,11 @@
-// GUI builtins (G5 form widgets: chkbox, combox, mesbox, objprm
-// plus the checked/getstr getters). Always registered; GUI calls need
-// a window (a GUI backend), otherwise they report an error.
+// GUI組み込み関数（G5フォーム部品：chkbox、combox、mesbox、objprm
+// およびchecked/getstr取得系）。常に登録される。GUI呼び出しには
+// ウィンドウ（GUIバックエンド）が必要で、無い場合はエラーを返す。
 package main
 
 func init() {
-	// chkbox(id, label, x, y [, checked]): place a checkbox.
-	// The box sizes itself from the font and label; w/h were removed.
+	// chkbox(id, label, x, y [, checked])：チェックボックスを配置する。
+	// 大きさはフォントとラベルから自動決定される。w/hは廃止された。
 	register("chkbox", 4, 5, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "chkbox")
 		if err != nil {
@@ -41,7 +41,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// checked(id): checkbox state.
+	// checked(id)：チェックボックスの状態。
 	register("checked", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "checked")
 		if err != nil {
@@ -58,7 +58,7 @@ func init() {
 		return Bool(p), nil
 	})
 
-	// combox(id, x, y, w, h, items [, sel]): place a dropdown list.
+	// combox(id, x, y, w, h, items [, sel])：ドロップダウンリストを配置する。
 	register("combox", 6, 7, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "combox")
 		if err != nil {
@@ -100,7 +100,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// mesbox(id, x, y, w, h [, text]): place a multiline text box.
+	// mesbox(id, x, y, w, h [, text])：複数行テキストボックスを配置する。
 	register("mesbox", 5, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mesbox")
 		if err != nil {
@@ -128,7 +128,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// getstr(id): multiline box content.
+	// getstr(id)：複数行ボックスの内容。
 	register("getstr", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "getstr")
 		if err != nil {
@@ -145,9 +145,9 @@ func init() {
 		return Str(s), nil
 	})
 
-	// setstr(id, s): replace multiline box content. mesbox is
-	// display-only (ebitenui TextArea has no editing), so it serves
-	// as a program-driven log viewer with getstr().
+	// setstr(id, s)：複数行ボックスの内容を置き換える。mesboxは
+	// 表示専用（ebitenuiのTextAreaには編集機能がない）なので、getstr()と
+	// 組み合わせてプログラム駆動のログ表示用として使う。
 	register("setstr", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "setstr")
 		if err != nil {
@@ -167,10 +167,10 @@ func init() {
 		return Null(), nil
 	})
 
-	// objprm(id, key, value): widget parameter. key "enable" toggles
-	// interactivity (value 0/1). The widget theme is fixed
-	// (Windows standard: white, gray frame, black text), so no color
-	// keys exist.
+	// objprm(id, key, value)：部品のパラメータ。キー「enable」で
+	// 操作可否を切り替える（値0/1）。部品のテーマは固定
+	//（Windows標準：白地・灰枠・黒文字）のため、色系の
+	// キーは存在しない。
 	register("objprm", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objprm")
 		if err != nil {

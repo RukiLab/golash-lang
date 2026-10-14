@@ -1,4 +1,4 @@
-// AST definitions for HSP successor language.
+// HSP後継言語のAST定義。
 package main
 
 import (
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Pos is a source position (1-based, file-local when File is set).
+// Posはソース位置（1始まり、File設定時はファイル内位置）。
 type Pos struct {
 	File   string
 	Line   int
@@ -20,13 +20,13 @@ func (p Pos) String() string {
 	return fmt.Sprintf("%d:%d", p.Line, p.Column)
 }
 
-// Node is the base of all AST nodes.
+// NodeはすべてのASTノードの基底。
 type Node interface {
 	Pos() Pos
 	String() string
 }
 
-// Stmt and Expr marker interfaces.
+// StmtとExprのマーカーインターフェース。
 type Stmt interface {
 	Node
 	stmtNode()
@@ -36,7 +36,7 @@ type Expr interface {
 	exprNode()
 }
 
-// Program is the translation unit.
+// Programは翻訳単位。
 type Program struct {
 	Stmts []Stmt
 	At    Pos
@@ -52,7 +52,7 @@ func (n *Program) String() string {
 	return sb.String()
 }
 
-// ---------- Statements ----------
+// ---------- 文 ----------
 
 type BlockStmt struct {
 	Stmts []Stmt
@@ -90,11 +90,11 @@ func (n *AssignStmt) String() string {
 	return fmt.Sprintf("%s = %s", n.Target.String(), n.Value.String())
 }
 
-// CompoundAssignStmt is `target op= value` (e.g. `x += 1`). Unlike the
-// old desugar, the target address is evaluated exactly once.
+// CompoundAssignStmtは `target op= value`（例 `x += 1`）。旧来の
+// 糖衣構文展開とは異なり、代入先アドレスはちょうど1回だけ評価される。
 type CompoundAssignStmt struct {
 	Target Expr
-	Op     TokenType // binary operator (TokPlus, TokMinus, ...)
+	Op     TokenType // 二項演算子（TokPlus、TokMinus、…）
 	Value  Expr
 	At     Pos
 }
@@ -119,7 +119,7 @@ func (n *ExprStmt) String() string {
 type IfStmt struct {
 	Cond Expr
 	Then *BlockStmt
-	Else Stmt // nil, *BlockStmt, or *IfStmt (for else if)
+	Else Stmt // nil、*BlockStmt、または*IfStmt（else if用）
 	At   Pos
 }
 
@@ -138,9 +138,9 @@ func (n *IfStmt) String() string {
 
 type RepeatStmt struct {
 	Count   Expr
-	Var     string // counter/index name; empty when absent
+	Var     string // カウンタ／インデックス名。ない場合は空
 	HasVar  bool
-	Item    string // element name (`as i, item`); empty when absent
+	Item    string // 要素名（`as i, item`）。ない場合は空
 	HasItem bool
 	Body    *BlockStmt
 	At      Pos
@@ -170,8 +170,8 @@ func (n *WhileStmt) String() string {
 	return fmt.Sprintf("while %s %s", n.Cond.String(), n.Body.String())
 }
 
-// SwitchCase is one `case v, ... { }` or `default { }` branch.
-// Default branches carry no Values.
+// SwitchCaseは `case v, ... { }` または `default { }` の1分岐。
+// default分岐はValuesを持たない。
 type SwitchCase struct {
 	Values  []Expr
 	Body    *BlockStmt
@@ -224,7 +224,7 @@ func (n *ContinueStmt) String() string {
 }
 
 type ReturnStmt struct {
-	Value Expr // nil when bare `return`
+	Value Expr // 素の `return` のときはnil
 	At    Pos
 }
 
@@ -259,7 +259,7 @@ func (n *DefStmt) String() string {
 	return fmt.Sprintf("def %s(%s) %s", n.Name, strings.Join(names, ", "), n.Body.String())
 }
 
-// ---------- Expressions ----------
+// ---------- 式 ----------
 
 type IntLit struct {
 	Raw   string
@@ -306,8 +306,8 @@ func (n *BoolLit) String() string {
 	return "false"
 }
 
-// NullLit is the null value. It has no literal syntax; the parser
-// emits it for elided call arguments (f(a, , b)).
+// NullLitはnull値。リテラル構文はなく、パーサーが
+// 省略された呼び出し引数（f(a, , b)）用に生成する。
 type NullLit struct {
 	At Pos
 }
@@ -346,7 +346,7 @@ func (n *ArrayLit) String() string {
 type IndexExpr struct {
 	Base  Expr
 	Index Expr
-	At    Pos // position of '['
+	At    Pos // '[' の位置
 	// Paren は `(a[0])` のように全体が括弧で囲まれていた場合に真。
 	// 代入先としては認めない。
 	Paren bool
@@ -361,7 +361,7 @@ func (n *IndexExpr) String() string {
 type CallExpr struct {
 	Callee Expr
 	Args   []Expr
-	At     Pos // position of '('
+	At     Pos // '(' の位置
 }
 
 func (n *CallExpr) Pos() Pos  { return n.At }
@@ -390,7 +390,7 @@ type BinaryExpr struct {
 	Op TokenType
 	L  Expr
 	R  Expr
-	At Pos // position of operator
+	At Pos // 演算子の位置
 }
 
 func (n *BinaryExpr) Pos() Pos  { return n.At }
@@ -399,7 +399,7 @@ func (n *BinaryExpr) String() string {
 	return fmt.Sprintf("(%s %s %s)", n.L.String(), opSymbol(n.Op), n.R.String())
 }
 
-// opSymbol renders an operator token as its source symbol (for parse dumps).
+// opSymbolは演算子トークンをソース上の記号として描画する（構文木ダンプ用）。
 func opSymbol(op TokenType) string {
 	switch op {
 	case TokPlus:

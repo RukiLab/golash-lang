@@ -11,35 +11,38 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Custom single-line editor (inputbox): self-drawn box with caret,
-// horizontal scroll and OS IME conversion. The in-conversion text
-// renders in a fixed top-left bar (see drawIMEComp); the OS candidate
-// window is likewise fixed at the screen origin. It replaces the
-// ebitenui TextInput so the caret position is known.
+// カスタムの単一行エディタ（inputbox）: キャレット・水平スクロール・
+// OS の IME 変換を備えた自己描画のボックス。変換中のテキストは固定の
+// 左上のバーに描画される（drawIMEComp を参照）。OS の候補ウィンドウも
+// 同様に画面原点に固定される。キャレット位置を知るために ebitenui の
+// TextInput を置き換える。
 //
-// Focus model: left-click focuses one box (blurring the rest);
-// clicking elsewhere blurs the box. The IME field follows box focus
-// so conversion works without an explicit ime(1) (game-thread only):
-// a fresh focus focuses the field, box defocus (click elsewhere,
-// Enter/Escape) blurs it. Focus is otherwise sticky: immediate-mode
-// scripts poll input() with no box focused, and an idle auto-blur
-// would kill conversion between keystrokes. ime(0) force-disables
-// conversion until ime(1) or the next box focus edge.
+// フォーカスモデル: 左クリックは1つのボックスをフォーカスし（他は
+// ぼかす）。他の場所をクリックするとボックスからフォーカスが外れる。
+// IME フィールドはボックスのフォーカスに追従するため、明示的な ime(1)
+// なしで変換が動く（ゲームスレッドのみ）: 新しいフォーカスはフィールド
+// をフォーカスし、ボックスのフォーカス外れ（他の場所をクリック、
+// Enter/Escape）はそれをぼかす。それ以外ではフォーカスは粘着的である:
+// 即時モードのスクリプトはどのボックスもフォーカスされずに input() を
+// ポーリングし、アイドル時の自動ぼかしはキー入力の間の変換を殺して
+// しまう。ime(0) は ime(1) または次のボックスフォーカスのエッジまで
+// 変換を強制的に無効にする。
 
-// inputState is one editor. Guarded by backend mu; game-thread
-// mutated in pumpInputs, script-thread read in InputText.
+// inputState は1つのエディタ。バックエンドの mu で保護され、ゲーム
+// スレッドの pumpInputs で変更され、スクリプトスレッドの InputText で
+// 読まれる。
 type inputState struct {
 	rect    image.Rectangle
 	text    []rune
-	caret   int // rune index 0..len(text)
+	caret   int // ルーンインデックス 0..len(text)
 	focused bool
-	scroll  int // x pixel offset of the visible text
-	// held-key repeat (backspace/delete/arrows on the game thread).
+	scroll  int // 可視テキストの x ピクセルオフセット
+	// 押下キーの繰返し（バックスペース/デリート/矢印をゲームスレッドで）。
 	repKey  ebiten.Key
 	repNext int64
 }
 
-// insert adds runes at the caret.
+// insert はキャレット位置にルーンを追加する。
 func (e *inputState) insert(rs []rune) {
 	if len(rs) == 0 {
 		return
@@ -48,7 +51,7 @@ func (e *inputState) insert(rs []rune) {
 	e.caret += len(rs)
 }
 
-// backspace deletes before the caret; del deletes at it.
+// backspace はキャレットの前を削除し、del はキャレット位置を削除する。
 func (e *inputState) backspace() {
 	if e.caret > 0 {
 		e.text = append(e.text[:e.caret-1], e.text[e.caret:]...)
@@ -74,9 +77,9 @@ func (e *inputState) moveRight() {
 	}
 }
 
-// repFire gates a held editing key: just-pressed fires at once and
-// arms the repeat; a different key takes over; release disarms.
-// Pure logic, unit-testable.
+// repFire は押下中の編集キーを制御する: 押した瞬間に発火して繰返しを
+// 武装し、別のキーが引き継ぎ、離すと武装解除する。純粋な論理で、
+// ユニットテスト可能。
 func (e *inputState) repFire(key ebiten.Key, just, held bool, now int64) bool {
 	if !held {
 		if e.repKey == key {
@@ -95,7 +98,7 @@ func (e *inputState) repFire(key ebiten.Key, just, held bool, now int64) bool {
 	return false
 }
 
-// editAction is one editing-key effect, applied by pumpInputs.
+// editAction は1つの編集キーの効果。pumpInputs が適用する。
 func (e *inputState) editAction(key ebiten.Key) {
 	switch key {
 	case ebiten.KeyBackspace:
@@ -113,7 +116,7 @@ func (e *inputState) editAction(key ebiten.Key) {
 	}
 }
 
-// focusedLocked returns the focused editor; caller holds mu.
+// focusedLocked はフォーカス中のエディタを返す。呼出し側は mu を保持。
 func (b *WindowBackend) focusedLocked() *inputState {
 	for _, e := range b.widgets {
 		if e.kind == wInput && e.edit != nil && e.edit.focused {
@@ -123,8 +126,8 @@ func (b *WindowBackend) focusedLocked() *inputState {
 	return nil
 }
 
-// AddInput creates (or replaces) a text input with initial text
-// (caret at the end). Custom-drawn: no ebitenui child.
+// AddInput は初期テキスト（キャレットは末尾）付きのテキスト入力を
+// 作成（または置換）する。カスタム描画: ebitenui の子は持たない。
 func (b *WindowBackend) AddInput(id, x, y, w, h int, text string) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("inputbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
@@ -137,8 +140,8 @@ func (b *WindowBackend) AddInput(id, x, y, w, h int, text string) error {
 	return nil
 }
 
-// InputText returns the current input content (script-thread safe,
-// never blocks: the state itself is mu-guarded).
+// InputText は現在の入力内容を返す（スクリプトスレッド安全、決して
+// ブロックしない: 状態自体が mu で保護されている）。
 func (b *WindowBackend) InputText(id int) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -149,7 +152,8 @@ func (b *WindowBackend) InputText(id int) (string, error) {
 	return string(e.edit.text), nil
 }
 
-// blurEditsLocked defocuses every editor; caller holds mu.
+// blurEditsLocked はすべてのエディタからフォーカスを外す。呼出し側は
+// mu を保持。
 func (b *WindowBackend) blurEditsLocked() {
 	for _, e := range b.widgets {
 		if e.kind == wInput && e.edit != nil && e.edit.focused {
@@ -159,27 +163,28 @@ func (b *WindowBackend) blurEditsLocked() {
 	}
 }
 
-// editFocusPlan is the IME-field decision for one pumpInputs press:
-// whether to focus/blur the field and whether the sticky ime(0)
-// disable must be cleared. Pure logic, unit-testable.
+// editFocusPlan は1回の pumpInputs の押下に対する IME フィールドの
+// 判断: フィールドをフォーカス/ぼかすべきか、粘着的な ime(0) の
+// 無効化を解除する必要があるか。純粋な論理で、ユニットテスト可能。
 type editFocusPlan struct {
-	focus  bool // focus the IME field (box focus, or re-enable after ime(0))
-	blur   bool // blur the IME field (clicked outside the focused box)
-	enable bool // clear the sticky ime(0) disable
+	focus  bool // IME フィールドをフォーカス（ボックスフォーカス、または ime(0) 後の再有効化）
+	blur   bool // IME フィールドをぼかす（フォーカス中のボックスの外をクリック）
+	enable bool // 粘着的な ime(0) の無効化を解除
 }
 
-// planEditFocus decides the IME field move for one press/observation.
-// press is a real press edge (not the latched clicked() level), hit
-// says the press landed inside an enabled inputbox, hadFocus says a
-// box was focused before the press, boxFocused says one is focused
-// now, fieldFocused/imeOff are the live IME field state. Pure logic,
-// unit-testable.
+// planEditFocus は1回の押下/観測に対する IME フィールドの動きを決める。
+// press は実際の押下エッジ（ラッチされた clicked() レベルではない）。
+// hit は押下が有効な inputbox の内側に入ったか、hadFocus は押下前に
+// ボックスがフォーカスされていたか、boxFocused は今フォーカス中のものが
+// あるか、fieldFocused/imeOff は現在の IME フィールドの状態。純粋な
+// 論理で、ユニットテスト可能。
 //
-// Rules: a press inside a box focuses the field and re-enables
-// conversion after ime(0); a press outside blurs the field only when
-// a box was focused (the entry is finished) and ime(0) was not set;
-// with a box focused but the field not (any other blur) the field is
-// re-focused so conversion keeps working.
+// 規則: ボックス内の押下はフィールドをフォーカスし ime(0) 後の変換を
+// 再有効化する。ボックスの外の押下は、ボックスがフォーカスされていた
+// （入力が終わった）ときのみ、かつ ime(0) が設定されていないときのみ
+// フィールドをぼかす。ボックスがフォーカスされているがフィールドは
+// そうでない（他のあらゆるぼかし）場合、変換が動き続けるよう
+// フィールドを再フォーカスする。
 func planEditFocus(press, hit, hadFocus, boxFocused, fieldFocused, imeOff bool) editFocusPlan {
 	if hit {
 		return editFocusPlan{focus: true, enable: true}
@@ -193,28 +198,29 @@ func planEditFocus(press, hit, hadFocus, boxFocused, fieldFocused, imeOff bool) 
 	return editFocusPlan{}
 }
 
-// editKeysOwnedByField reports whether editing keys (Backspace/Delete/
-// arrows/Home/End) belong to the IME field this tick. While converting
-// or while the field holds undrained text, the field owns them and the
-// box must stay out, or keystrokes would apply twice (field and box).
-// Otherwise the field is an empty slate that would swallow them
-// (notably Backspace, which no-ops in an empty field), so the box
-// handles them. Pure logic, unit-testable.
+// editKeysOwnedByField は編集キー（Backspace/Delete/矢印/Home/End）が
+// このティックで IME フィールドに属するかを報告する。変換中、または
+// フィールドが未排出のテキストを保持している間は、フィールドがそれらを
+// 所有し、ボックスは関与してはならない。さもないとキー入力が2重に
+// 適用される（フィールドとボックス両方）。それ以外の場合、フィールドは
+// それらを飲み込んでしまう（空のフィールドでは動作しない Backspace が
+// 顕著）からのっぺらぼうなので、ボックスがそれらを扱う。純粋な論理で、
+// ユニットテスト可能。
 func editKeysOwnedByField(imeOn bool, comp, fieldText, pending string) bool {
 	return imeOn && (comp != "" || fieldText != "" || pending != "")
 }
 
-// pumpInputs handles focus and editing on the game thread (called
-// from Update after pumpIME). Clicks are observed, not consumed.
+// pumpInputs はゲームスレッドでフォーカスと編集を処理する（pumpIME の
+// 後の Update から呼ばれる）。クリックは消費されず観測される。
 func (b *WindowBackend) pumpInputs() {
 	x, y := ebiten.CursorPosition()
-	// Press edge, not the latched clicked() flag: clickFlag stays set
-	// until the script consumes it, so a latched level would blur a
-	// box (and the IME field) on later frames while the mouse sits
-	// outside, and would re-enable conversion right after ime(0).
-	// The edge lasts for the Update that observed the press, which
-	// always runs, so no click is missed even if the script consumes
-	// clicked() in between.
+	// ラッチされた clicked() フラグではなく押下エッジ: clickFlag は
+	// スクリプトが消費するまで設定されたままなので、ラッチされた
+	// レベルだと、マウスが外にある間の後続フレームでボックス（と IME
+	// フィールド）をぼかし、ime(0) の直後に変換を再有効化してしまう。
+	// エッジは押下を観測した Update の間だけ持続し、それは必ず実行
+	// されるため、スクリプトがその間に clicked() を消費しても
+	// クリックは見逃されない。
 	press := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 
 	b.mu.Lock()
@@ -249,10 +255,10 @@ func (b *WindowBackend) pumpInputs() {
 	if plan.focus {
 		b.imeField.Focus()
 	} else if plan.blur {
-		// Clicked outside any box: the entry is finished. A
-		// conversion in flight is dropped with the blur (matches
-		// the Enter/Escape path below); sticky ime(0) keeps the
-		// field blurred without touching mirrors.
+		// どのボックスの外をクリック: 入力は終わった。進行中の変換は
+		// ぼかしとともに破棄される（下記の Enter/Escape 経路と一致）。
+		// 粘着的な ime(0) はミラーに触れずにフィールドをぼかしたまま
+		// 保つ。
 		b.mu.Lock()
 		b.imePending = ""
 		b.imePrev = ""
@@ -264,17 +270,17 @@ func (b *WindowBackend) pumpInputs() {
 		b.imeField.Blur()
 	}
 
-	// While a box is focused it owns the key stream: input() reports
-	// "" and Update routes committed characters into the caret.
-	// Without a focused box the candidate window falls back to the
-	// origin (there is no caret to anchor it to).
+	// ボックスがフォーカスされている間はそれがキー列を所有する:
+	// input() は "" を報告し、Update は確定した文字をキャレットへ
+	// 導く。フォーカス中のボックスがない場合、候補ウィンドウは原点に
+	// フォールバックする（アンカーにするキャレットがない）。
 
 	if ed == nil {
 		return
 	}
 	now := b.Tick()
-	// Committed characters land at the caret. While the IME field is
-	// focused they arrive via pumpIME; otherwise plain.
+	// 確定した文字はキャレット位置に入る。IME フィールドがフォーカス
+	// されている間は pumpIME 経由で、それ以外は素のまま届く。
 	b.mu.Lock()
 	imeOn := b.imeField.IsFocused()
 	comp := b.imeComposing
@@ -297,15 +303,15 @@ func (b *WindowBackend) pumpInputs() {
 			b.mu.Unlock()
 		}
 	}
-	// While converting, Enter/Escape belong to the IME (they commit
-	// or cancel the composition); otherwise they blur the box.
+	// 変換中は Enter/Escape は IME に属する（それらが合成を確定または
+	// 取り消す）。それ以外の場合はボックスをぼかす。
 	if !imeOn || comp == "" {
 		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeyKPEnter) ||
 			inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			b.mu.Lock()
 			b.blurEditsLocked()
-			// Drop field residue like the line editor does on
-			// confirm: the entry is finished.
+			// 行エディタが確認時に行うようにフィールドの残りを破棄
+			// する: 入力は終わった。
 			b.imePending = ""
 			b.imePrev = ""
 			b.imeComposing = ""
@@ -317,9 +323,10 @@ func (b *WindowBackend) pumpInputs() {
 			return
 		}
 	}
-	// While the field owns input it also owns the editing keys below;
-	// with an empty field the box handles them (see
-	// editKeysOwnedByField): the invisible field would swallow them.
+	// フィールドが入力を所有している間は、下記の編集キーも所有する。
+	// フィールドが空の場合はボックスがそれらを扱う
+	// （editKeysOwnedByField を参照）: 見えないフィールドがそれらを
+	// 飲み込んでしまう。
 	fieldText := ""
 	if imeOn {
 		fieldText = b.imeField.Text()
@@ -327,7 +334,7 @@ func (b *WindowBackend) pumpInputs() {
 	if editKeysOwnedByField(imeOn, comp, fieldText, pending) {
 		return
 	}
-	// Editing keys (game thread: inpututil is safe here).
+	// 編集キー（ゲームスレッド: ここでは inpututil は安全）。
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, k := range []ebiten.Key{
@@ -346,8 +353,9 @@ func (b *WindowBackend) pumpInputs() {
 	}
 }
 
-// drawInputs paints custom editors above the UI (game thread; called
-// from Draw). Text is clipped to the box via a sub-image viewport.
+// drawInputs はカスタムエディタを UI の上に描画する（ゲームスレッド。
+// Draw から呼ばれる）。テキストはサブイメージのビューポートでボックス
+// にクリップされる。
 func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 	type snap struct {
 		id       int
@@ -388,16 +396,15 @@ func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 	b.mu.Unlock()
 }
 
-// compSpan is one underline run over the composition: [start, end)
-// in runes, thick for the conversion target clause.
+// compSpan は合成上の1つの下線の走り: ルーンで [start, end)。変換対象
+// の句では太い。
 type compSpan struct {
 	start, end int
 	thick      bool
 }
 
-// compSpans splits n composition runes into underline runs from the
-// clause range, skipping empties and clamping into range. Pure logic,
-// unit-testable.
+// compSpans は n 個の合成ルーンを句の範囲から下線の走りに分割し、
+// 空を飛ばし範囲内に切り詰める。純粋な論理で、ユニットテスト可能。
 func compSpans(n, rs, re int) []compSpan {
 	if rs < 0 {
 		rs = 0
@@ -421,12 +428,11 @@ func compSpans(n, rs, re int) []compSpan {
 	return out
 }
 
-// drawIMEComp paints the in-conversion text in a top-left bar flush
-// with the window corner (white face, gray ring, black text) above
-// everything: conversion target clause with a thick underline, the
-// rest thin. Unlike the box caret, the composition display never
-// moves: one predictable spot for inputbox and immediate input()
-// alike. Game thread (Draw).
+// drawIMEComp は変換中のテキストをウィンドウの隅にぴったり合った
+// 左上のバー（白い面、灰色のリング、黒い文字）に、すべての上に描く:
+// 変換対象の句は太い下線、残りは細い。ボックスのキャレットと違い、
+// 合成の表示は決して動かない: inputbox と即時の input() の両方に
+// とって予測可能な1つの場所である。ゲームスレッド（Draw）。
 func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 	b.mu.Lock()
 	comp := b.imeComposing
@@ -451,9 +457,9 @@ func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 		rs, re = 0, 0
 	}
 	const pad = 2.0
-	// imeCompExtraH pads the bar past the text line: a 16px line box
-	// ends at baseline + half descent, where the 3px clause underline
-	// would otherwise hang over the frame.
+	// imeCompExtraH はテキスト行を超えてバーを埋める: 16px の行
+	// ボックスはベースライン + ディセントの半分で終わるため、3px の
+	// 句の下線が枠からはみ出てしまう。
 	const imeCompExtraH = 2.0
 	w := measureInput(face, rsRunes)
 	bw, bh := w+pad*2, lineH+imeCompExtraH
@@ -462,8 +468,8 @@ func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 	vector.StrokeRect(screen, float32(x)+0.5, float32(y)+0.5, float32(bw)-1, float32(bh)-1, 1, themeFrame, false)
 	op := &text.DrawOptions{}
 	tx := x + pad
-	// Region top lands on the bar top (text/v2 semantics, same as
-	// drawTextFrag); the baseline sits ascent below it.
+	// 領域の上端はバーの上端に乗る（drawTextFrag と同じ text/v2 の
+	// 意味論）。ベースラインはその ascent 下に位置する。
 	op.GeoM.Translate(tx, y)
 	op.ColorScale.Reset()
 	op.ColorScale.ScaleWithColor(themeInk)
@@ -481,9 +487,9 @@ func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 	}
 }
 
-// inputFaceColors selects the editor face: focus tints the background
-// pale blue with a blue frame, disabled greys out (winning over focus).
-// Pure logic, unit-tested.
+// inputFaceColors はエディタの面を選ぶ: フォーカスは背景を青枠の淡青
+// に染め、無効は灰色化する（フォーカスより優先）。純粋な論理で、
+// ユニットテスト済み。
 func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
 	bg, frameC = themeWhite, themeFrame
 	if focused {
@@ -495,11 +501,11 @@ func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
 	return bg, frameC
 }
 
-// drawInput paints one editor: frame, clipped text and caret. The
-// in-conversion text is not drawn here; it renders in the fixed
-// top-left bar (drawIMEComp). Fixed Windows-standard colors (white,
-// gray frame, black text; pale-blue/blue focus face). Pure drawing
-// (no backend), unit-testable where noted.
+// drawInput は1つのエディタを描画する: 枠、クリップされたテキスト、
+// キャレット。変換中のテキストはここでは描かれず、固定の左上のバーに
+// 描かれる（drawIMEComp）。固定の Windows 標準色（白、灰色の枠、黒い
+// 文字。フォーカスは淡青/青の面）。純粋な描画（バックエンド非依存）
+// で、注記のある箇所はユニットテスト可能。
 func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.GoTextFace, ascent, descent float64, tick int64) {
 	r := st.rect
 	bg, frameC := inputFaceColors(st.focused, disabled)
@@ -514,7 +520,7 @@ func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.G
 	}
 	caretX := measureInput(face, st.text[:st.caret])
 	visX := caretX - float64(st.scroll)
-	// Keep the caret visible.
+	// キャレットを見えるままに保つ。
 	if visX > float64(inner.Dx()) {
 		st.scroll = int(caretX) - inner.Dx()
 		visX = caretX - float64(st.scroll)
@@ -535,14 +541,14 @@ func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.G
 		fg = themeGrey
 	}
 	op := &text.DrawOptions{}
-	// Vertically centered (region top lands on the origin, so offset
-	// by half the leftover inner height).
+	// 垂直方向は中央揃え（領域の上端は原点に乗るため、残った内側の
+	// 高さの半分だけずらす）。
 	op.GeoM.Translate(float64(inner.Min.X)-float64(st.scroll),
 		float64(inner.Min.Y)+(float64(inner.Dy())-(ascent+descent))/2)
 	op.ColorScale.Reset()
 	op.ColorScale.ScaleWithColor(fg)
 	text.Draw(dst, string(st.text), face, op)
-	// Caret blink (~2Hz).
+	// キャレットの点滅（約2Hz）。
 	if st.focused && !disabled && tick/30%2 == 0 {
 		cx := float32(inner.Min.X) + float32(visX)
 		if cx >= float32(inner.Min.X) && cx <= float32(inner.Max.X) {
@@ -552,8 +558,8 @@ func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.G
 	}
 }
 
-// measureInput widths a rune prefix at face (caret placement).
-// Pure, unit-testable.
+// measureInput はフェイスでルーンの接頭辞の幅を測る（キャレット位置
+// 決め用）。純粋で、ユニットテスト可能。
 func measureInput(face *text.GoTextFace, prefix []rune) float64 {
 	if face == nil || len(prefix) == 0 {
 		return 0

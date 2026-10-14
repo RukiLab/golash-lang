@@ -8,8 +8,9 @@ import (
 	"testing"
 )
 
-// runFile parses a script file (with #include splicing) and runs it,
-// returning mes() output. Both parse-time and runtime errors surface.
+// runFile はスクリプトファイルを（#include のスプライス込みで）解析して
+// 実行し、mes() の出力を返す。解析時のエラーと実行時のエラーの両方が
+// 表面化する。
 func runFile(t *testing.T, path string) (string, error) {
 	t.Helper()
 	prog, err := ParseFile(path)
@@ -47,7 +48,7 @@ func TestModeDirective(t *testing.T) {
 		}
 		return mode
 	}
-	// Omitted means gui.
+	// 省略は gui を意味する。
 	if m := modeOf("a.gsh", "mes(\"hi\")\n"); m != "gui" {
 		t.Fatalf("default = %q, want gui", m)
 	}
@@ -57,11 +58,11 @@ func TestModeDirective(t *testing.T) {
 	if m := modeOf("c.gsh", "#mode gui\nmes(\"hi\")\n"); m != "gui" {
 		t.Fatalf("gui = %q", m)
 	}
-	// Last active one wins.
+	// 最後に有効だったものが勝つ。
 	if m := modeOf("d.gsh", "#mode cli\n#mode gui\n"); m != "gui" {
 		t.Fatalf("last-wins = %q", m)
 	}
-	// Inactive branches do not count.
+	// 無効な分岐は数に入らない。
 	if m := modeOf("e.gsh", "#ifdef NOPE\n#mode cli\n#endif\n"); m != "gui" {
 		t.Fatalf("inactive = %q", m)
 	}
@@ -69,7 +70,7 @@ func TestModeDirective(t *testing.T) {
 	if m := modeOf("f.gsh", "#include \"lib.gsh\"\n"); m != "cli" {
 		t.Fatalf("include = %q", m)
 	}
-	// CRLF sources: a trailing \r must not poison directives.
+	// CRLF ソース: 末尾の \r がディレクティブを害してはならない。
 	if m := modeOf("crlf.gsh", "#mode gui\r\nmes(\"hi\")\r\n"); m != "gui" {
 		t.Fatalf("crlf gui = %q", m)
 	}
@@ -81,7 +82,7 @@ func TestModeDirective(t *testing.T) {
 	if out, err := runFile(t, filepath.Join(dir, "defcrlf.gsh")); err != nil || out != "1\n" {
 		t.Fatalf("crlf define = %q, %v", out, err)
 	}
-	// Bad values are an error; the unknown-directive hint lists #mode.
+	// 不正な値はエラー。未知のディレクティブのヒントは #mode を列挙する。
 	writeFile(t, filepath.Join(dir, "x.gsh"), "#mode bogus\n")
 	if _, _, err := CombineFileMode(filepath.Join(dir, "x.gsh")); err == nil ||
 		!strings.Contains(err.Error(), "#mode cli") {
@@ -163,7 +164,7 @@ func TestIncludeMalformed(t *testing.T) {
 			t.Fatalf("src %q: want directive error, got nil", src)
 		}
 	}
-	// Inline # is not a directive: the lexer rejects it.
+	// 行中の # はディレクティブではない: 字句解析器がそれを拒否する。
 	writeFile(t, filepath.Join(dir, "main.gsh"), "x = 1 #include \"a.gsh\"\n")
 	if _, err := ParseFile(filepath.Join(dir, "main.gsh")); err == nil || !strings.Contains(err.Error(), "不正な文字") {
 		t.Fatalf("want illegal character error, got %v", err)
@@ -172,20 +173,20 @@ func TestIncludeMalformed(t *testing.T) {
 
 func TestIncludeErrorPosition(t *testing.T) {
 	dir := t.TempDir()
-	// Runtime error inside the library reports the library file+line.
+	// ライブラリ内の実行時エラーはライブラリのファイル+行を報告する。
 	writeFile(t, filepath.Join(dir, "lib.gsh"), "def boom() {\nreturn nosuchvar\n}\n")
 	writeFile(t, filepath.Join(dir, "main.gsh"), "#include \"lib.gsh\"\nmes(boom())\n")
 	_, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err == nil || !strings.Contains(err.Error(), "lib.gsh:2:") {
 		t.Fatalf("want lib.gsh:2: position, got %v", err)
 	}
-	// Syntax errors likewise.
+	// 構文エラーも同様である。
 	writeFile(t, filepath.Join(dir, "bad.gsh"), "if {\n}\n")
 	writeFile(t, filepath.Join(dir, "main2.gsh"), "#include \"bad.gsh\"\n")
 	if _, err := ParseFile(filepath.Join(dir, "main2.gsh")); err == nil || !strings.Contains(err.Error(), "bad.gsh:1:") {
 		t.Fatalf("want bad.gsh:1: position, got %v", err)
 	}
-	// Errors in the main file keep working.
+	// メインファイル内のエラーはこれまでどおり動く。
 	writeFile(t, filepath.Join(dir, "main3.gsh"), "mes(1)\nif {\n}\n")
 	if _, err := ParseFile(filepath.Join(dir, "main3.gsh")); err == nil || !strings.Contains(err.Error(), "main3.gsh:2:") {
 		t.Fatalf("want main3.gsh:2: position, got %v", err)
@@ -213,7 +214,7 @@ func TestDefineBasic(t *testing.T) {
 	if got != "16\n17\n" {
 		t.Fatalf("got %q", got)
 	}
-	// String, float, bool and negative constants.
+	// 文字列、浮動小数点数、bool、負の定数。
 	got, err = runSrcPP(t, "#define S \"hi\"\n#define F 2.5\n#define B true\n#define N -3\nmes(S)\nmes(F)\nmes(B)\nmes(N)\n")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -221,7 +222,7 @@ func TestDefineBasic(t *testing.T) {
 	if got != "hi\n2.5\ntrue\n-3\n" {
 		t.Fatalf("got %q", got)
 	}
-	// A use on an earlier line than the definition is not substituted.
+	// 定義より前の行での使用は置換されない。
 	if _, err := runSrcPP(t, "mes(A)\n#define A 1\n"); err == nil {
 		t.Fatal("forward define use should fail")
 	}
@@ -229,14 +230,14 @@ func TestDefineBasic(t *testing.T) {
 
 func TestDefineErrors(t *testing.T) {
 	for _, src := range []string{
-		"#define M 2 * 3\n",          // expressions are not constants
-		"#define M x\n",              // identifier is not a literal
-		"#define 1X 2\n",             // bad name
-		"#define X 1\n#define X 2\n", // redefinition
-		"#define if 1\n",             // keywords cannot be defined
-		"#define true 1\n",           // true/false cannot be defined
-		"#define mes 1\n",            // builtins cannot be hijacked
-		"#define length\n",           // valueless builtins cannot either
+		"#define M 2 * 3\n",          // 式は定数ではない
+		"#define M x\n",              // 識別子はリテラルではない
+		"#define 1X 2\n",             // 不正な名前
+		"#define X 1\n#define X 2\n", // 再定義
+		"#define if 1\n",             // キーワードは定義できない
+		"#define true 1\n",           // true/false は定義できない
+		"#define mes 1\n",            // 組込みは乗っ取れない
+		"#define length\n",           // 値なしの組込みも同様にできない
 	} {
 		if _, err := runParsePP(src); err == nil {
 			t.Fatalf("src %q: want define error, got nil", src)
@@ -252,7 +253,7 @@ func TestDefineAutoNumber(t *testing.T) {
 	if got != "0\n1\n2\n" {
 		t.Fatalf("got %q", got)
 	}
-	// Explicit values reset the counter.
+	// 明示的な値はカウンタをリセットする。
 	got, err = runSrcPP(t, "#define A\n#define B 5\n#define C\nmes(A)\nmes(B)\nmes(C)\n")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -260,7 +261,7 @@ func TestDefineAutoNumber(t *testing.T) {
 	if got != "0\n5\n6\n" {
 		t.Fatalf("got %q", got)
 	}
-	// Negative explicit values work.
+	// 負の明示的な値も機能する。
 	got, err = runSrcPP(t, "#define North\n#define South -2\n#define East\nmes(North)\nmes(South)\nmes(East)\n")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -268,7 +269,7 @@ func TestDefineAutoNumber(t *testing.T) {
 	if got != "0\n-2\n-1\n" {
 		t.Fatalf("got %q", got)
 	}
-	// Non-int defines leave the counter alone.
+	// int でない define はカウンタをそのままにする。
 	got, err = runSrcPP(t, "#define Name \"x\"\n#define A\nmes(A)\nmes(Name)\n")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -276,16 +277,16 @@ func TestDefineAutoNumber(t *testing.T) {
 	if got != "0\nx\n" {
 		t.Fatalf("got %q", got)
 	}
-	// Inactive regions never reach the counter.
+	// 無効な領域はカウンタに決して届かない。
 	got, err = runSrcPP(t, "#ifdef MISSING\n#define Skip\n#endif\n#define A\nmes(A)\nmes(\"ok\")\n")
 	if err != nil || got != "0\nok\n" {
 		t.Fatalf("inactive define: got %q, %v", got, err)
 	}
-	// Uses see defines from earlier lines only.
+	// 使用は先行する行の define のみを見る。
 	if _, err := runSrcPP(t, "mes(X_Q)\n#define X_Q 0\n"); err == nil {
 		t.Fatalf("use before define should fail")
 	}
-	// Duplicates still error, even valueless.
+	// 重複は値なしでも依然エラーになる。
 	if _, err := runParsePP("#define A\n#define A\nmes(1)\n"); err == nil {
 		t.Fatalf("duplicate valueless define should fail")
 	}
@@ -307,13 +308,13 @@ func TestIfdef(t *testing.T) {
 	if err != nil || got != "n\n" {
 		t.Fatalf("ifndef: got %q, %v", got, err)
 	}
-	// Nesting.
+	// 入れ子。
 	got, err = runSrcPP(t, "#define A 1\n#ifdef A\n#ifdef B\nmes(\"ab\")\n#else\nmes(\"a\")\n#endif\n#else\nmes(\"none\")\n#endif\n")
 	if err != nil || got != "a\n" {
 		t.Fatalf("nested: got %q, %v", got, err)
 	}
-	// Inactive regions are fully skipped: missing includes and bad
-	// defines inside them must not error.
+	// 無効な領域は完全に飛ばされる: その中の存在しない include や
+	// 不正な define はエラーになってはならない。
 	got, err = runSrcPP(t, "#ifdef MISSING\n#include \"no-such-file.gsh\"\n#define BAD 1 +\nmes(\"x\")\n#else\nmes(\"ok\")\n#endif\n")
 	if err != nil || got != "ok\n" {
 		t.Fatalf("inactive skip: got %q, %v", got, err)
@@ -322,12 +323,12 @@ func TestIfdef(t *testing.T) {
 
 func TestConditionalErrors(t *testing.T) {
 	for _, src := range []string{
-		"#else\n", "#endif\n", // stray
-		"#ifdef A\n#else\n#else\n#endif\n", // duplicate else
-		"#ifdef A\nmes(1)\n",               // unclosed
-		"#ifdef A\n",                       // unclosed (empty body)
-		"#ifdef\n", "#ifdef A B\n",         // malformed
-		"#else x\n", "#endif x\n", // trailing garbage
+		"#else\n", "#endif\n", // 迷子
+		"#ifdef A\n#else\n#else\n#endif\n", // else の重複
+		"#ifdef A\nmes(1)\n",               // 閉じられていない
+		"#ifdef A\n",                       // 閉じられていない（空の本体）
+		"#ifdef\n", "#ifdef A B\n",         // 不正な形式
+		"#else x\n", "#endif x\n", // 末尾の余分なもの
 	} {
 		if _, err := runParsePP(src); err == nil {
 			t.Fatalf("src %q: want conditional error, got nil", src)
@@ -341,7 +342,7 @@ func TestErrorDirective(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "使えません") {
 		t.Fatalf("want custom message, got %v", err)
 	}
-	// Inactive #error is ignored.
+	// 無効な #error は無視される。
 	got, err := runSrcPP(t, "#ifdef MISSING\n#error boom\n#endif\nmes(\"ok\")\n")
 	if err != nil || got != "ok\n" {
 		t.Fatalf("inactive #error: got %q, %v", got, err)
@@ -350,21 +351,21 @@ func TestErrorDirective(t *testing.T) {
 
 func TestDefineAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
-	// Library constant visible to the main file (defined before include).
+	// ライブラリの定数がメインファイルから見える（include より前に定義）。
 	writeFile(t, filepath.Join(dir, "lib.gsh"), "mes(LIBVAL)\n")
 	writeFile(t, filepath.Join(dir, "main.gsh"), "#define LIBVAL 42\n#include \"lib.gsh\"\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil || got != "42\n" {
 		t.Fatalf("lib use: got %q, %v", got, err)
 	}
-	// Main-file define visible inside the library (defined at include).
+	// メインファイルの define がライブラリ内から見える（include 時に定義）。
 	writeFile(t, filepath.Join(dir, "lib2.gsh"), "mes(VAL2 * 2)\n")
 	writeFile(t, filepath.Join(dir, "main2.gsh"), "#define VAL2 21\n#include \"lib2.gsh\"\n")
 	got, err = runFile(t, filepath.Join(dir, "main2.gsh"))
 	if err != nil || got != "42\n" {
 		t.Fatalf("lib2 use: got %q, %v", got, err)
 	}
-	// Line order: a define after the include must not rewrite the library.
+	// 行順: include より後の define はライブラリを書き換えてはならない。
 	writeFile(t, filepath.Join(dir, "lib3.gsh"), "mes(LATE)\n")
 	writeFile(t, filepath.Join(dir, "main3.gsh"), "#include \"lib3.gsh\"\n#define LATE 1\n")
 	if _, err := runFile(t, filepath.Join(dir, "main3.gsh")); err == nil {
@@ -374,21 +375,21 @@ func TestDefineAcrossFiles(t *testing.T) {
 
 func TestDefineUpwardSharing(t *testing.T) {
 	dir := t.TempDir()
-	// Library define visible to the parent after the #include.
+	// ライブラリの define が #include の後で親から見える。
 	writeFile(t, filepath.Join(dir, "lib.gsh"), "#define UPVAR 7\n")
 	writeFile(t, filepath.Join(dir, "main.gsh"), "#include \"lib.gsh\"\nmes(UPVAR * 6)\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil || got != "42\n" {
 		t.Fatalf("upward use: got %q, %v", got, err)
 	}
-	// ... and to #ifdef checks after the #include.
+	// ...そして #include の後の #ifdef 判定からも。
 	writeFile(t, filepath.Join(dir, "libf.gsh"), "#define FEAT 1\n")
 	writeFile(t, filepath.Join(dir, "mainf.gsh"), "#include \"libf.gsh\"\n#ifdef FEAT\nmes(\"yes\")\n#else\nmes(\"no\")\n#endif\n")
 	got, err = runFile(t, filepath.Join(dir, "mainf.gsh"))
 	if err != nil || got != "yes\n" {
 		t.Fatalf("upward ifdef: got %q, %v", got, err)
 	}
-	// ... and to later siblings (A defines, B uses).
+	// ...そして後続の兄弟からも（A が定義し、B が使う）。
 	writeFile(t, filepath.Join(dir, "a.gsh"), "#define SIB 21\n")
 	writeFile(t, filepath.Join(dir, "b.gsh"), "mes(SIB * 2)\n")
 	writeFile(t, filepath.Join(dir, "mains.gsh"), "#include \"a.gsh\"\n#include \"b.gsh\"\n")
@@ -396,13 +397,13 @@ func TestDefineUpwardSharing(t *testing.T) {
 	if err != nil || got != "42\n" {
 		t.Fatalf("sibling use: got %q, %v", got, err)
 	}
-	// Stream order still holds: a use before the include fails.
+	// ストリーム順は依然成り立つ: include より前の使用は失敗する。
 	writeFile(t, filepath.Join(dir, "libp.gsh"), "#define PRE 1\n")
 	writeFile(t, filepath.Join(dir, "mainp.gsh"), "mes(PRE)\n#include \"libp.gsh\"\n")
 	if _, err := runFile(t, filepath.Join(dir, "mainp.gsh")); err == nil {
 		t.Fatal("use before include should fail")
 	}
-	// Redefining a library name in the parent is still an error.
+	// ライブラリ名を親で再定義するのは依然エラーである。
 	writeFile(t, filepath.Join(dir, "libd.gsh"), "#define DUP 1\n")
 	writeFile(t, filepath.Join(dir, "maind.gsh"), "#include \"libd.gsh\"\n#define DUP 2\nmes(1)\n")
 	if _, err := runFile(t, filepath.Join(dir, "maind.gsh")); err == nil {
@@ -415,9 +416,10 @@ func TestChecksrc(t *testing.T) {
 	chk := func(name, src string) string {
 		t.Helper()
 		writeFile(t, filepath.Join(dir, name), src)
-		// Absolute path: runFile leaves scriptDir empty, so relative
-		// lookup would miss the temp dir. Slashes keep the generated
-		// source free of backslash escapes on Windows.
+		// 絶対パス: runFile は scriptDir を空にするため、相対の参照では
+		// 一時ディレクトリを見逃してしまう。スラッシュを使うことで、
+		// 生成されたソースに Windows のバックスラッシュエスケープを
+		// 含めずに済む。
 		abs := filepath.ToSlash(filepath.Join(dir, name))
 		progSrc := "mes(checksrc(\"" + abs + "\"))\n"
 		writeFile(t, filepath.Join(dir, "chk_"+name), "#mode cli\n"+progSrc)
@@ -427,26 +429,26 @@ func TestChecksrc(t *testing.T) {
 		}
 		return strings.TrimSuffix(got, "\n")
 	}
-	// Clean file reports "".
+	// クリーンなファイルは "" を報告する。
 	if got := chk("ok.gsh", "mes(1 + 2)\n"); got != "" {
 		t.Fatalf("clean = %q, want empty", got)
 	}
-	// Syntax error reports file:line:col: message.
+	// 構文エラーは file:line:col: message を報告する。
 	if got := chk("bad.gsh", "mes(1)\nif {\n}\n"); !strings.Contains(got, "bad.gsh:2:") {
 		t.Fatalf("syntax err = %q, want bad.gsh:2:", got)
 	}
-	// Errors inside includes name the library file.
+	// include 内のエラーはライブラリのファイル名を挙げる。
 	writeFile(t, filepath.Join(dir, "libbad.gsh"), "mes(1 +\n")
 	if got := chk("use.gsh", "#include \"libbad.gsh\"\nmes(1)\n"); !strings.Contains(got, "libbad.gsh:") {
 		t.Fatalf("include err = %q, want libbad.gsh:", got)
 	}
-	// Missing file is a report, not a crash.
+	// 存在しないファイルはクラッシュではなく報告である。
 	writeFile(t, filepath.Join(dir, "chkmiss.gsh"), "#mode cli\nmes(checksrc(\"no-such-file.gsh\"))\n")
 	got, err := runFile(t, filepath.Join(dir, "chkmiss.gsh"))
 	if err != nil || got == "" {
 		t.Fatalf("missing file: got %q, %v", got, err)
 	}
-	// Upward-shared defines check clean.
+	// 上方共有された define はクリーンに検査される。
 	writeFile(t, filepath.Join(dir, "libup.gsh"), "#define SHARED 3\n")
 	if got := chk("up.gsh", "#include \"libup.gsh\"\nmes(SHARED)\n"); got != "" {
 		t.Fatalf("upward = %q, want empty", got)
@@ -500,7 +502,7 @@ func TestCombineSource(t *testing.T) {
 	if buf.String() != "42\n" {
 		t.Fatalf("got %q", buf.String())
 	}
-	// Display "" keeps legacy positions (no file prefix).
+	// display "" は従来の位置（ファイル接頭辞なし）を保つ。
 	if _, err := CombineSource("", "#bogus\n", ""); err == nil || !strings.Contains(err.Error(), "不明なディレクティブ") {
 		t.Fatalf("want directive error, got %v", err)
 	}

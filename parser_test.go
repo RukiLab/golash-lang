@@ -39,7 +39,7 @@ func TestElidedCallArgs(t *testing.T) {
 		}
 		return c
 	}
-	// Middle elision is a null placeholder.
+	// 途中の省略は null プレースホルダ。
 	c := callOf("f(1, , 3)\n")
 	if len(c.Args) != 3 {
 		t.Fatalf("f(1, , 3): got %d args", len(c.Args))
@@ -47,7 +47,7 @@ func TestElidedCallArgs(t *testing.T) {
 	if _, ok := c.Args[1].(*NullLit); !ok {
 		t.Fatalf("middle arg = %T, want *NullLit", c.Args[1])
 	}
-	// Leading elision and trailing commas.
+	// 先頭の省略と末尾カンマ。
 	c = callOf("f(, 2)\n")
 	if len(c.Args) != 2 {
 		t.Fatalf("f(, 2): got %d args", len(c.Args))
@@ -143,9 +143,9 @@ func TestParseSwitch(t *testing.T) {
 }
 
 func TestParseBitwisePrecedence(t *testing.T) {
-	// Modernized order (Python/Rust-style): & | ^ all bind tighter
-	// than ==; within bitwise | loosest, then ^, then &.
-	// << >> tighter than relational, looser than +.
+	// 近代化された順序（Python/Rust 風）: & | ^ はすべて == より強く
+	// 結合する。ビット単位内では | が最も緩く、次に ^、そして &。
+	// << >> は関係演算子より強く、+ より緩い。
 	for _, tc := range []struct{ src, want string }{
 		{"mes(1 | 2 & 3)\n", "(1 | (2 & 3))"},
 		{"mes(6 ^ 3 | 1)\n", "((6 ^ 3) | 1)"},
@@ -166,7 +166,7 @@ func TestParseBitwisePrecedence(t *testing.T) {
 }
 
 func TestParseCompoundAssign(t *testing.T) {
-	// `x op= v` keeps its target (single evaluation at runtime).
+	// `x op= v` はその対象を保つ（実行時に一度だけ評価される）。
 	for _, tc := range []struct{ src, want string }{
 		{"x += 1\n", "x += 1"},
 		{"x -= 1\n", "x -= 1"},
@@ -191,15 +191,15 @@ func TestParseCompoundAssign(t *testing.T) {
 	}
 	mustFailParse(t, "1 += 2\n", "代入できません")
 	mustFailParse(t, "x += \n", "式が必要です")
-	// Builtin names cannot be bound (assignment, params, loop variables).
+	// 組込み名は束縛できない（代入、引数、ループ変数）。
 	mustFailParse(t, "def f(mes) {\n}\n", "組み込み関数と同名")
 	mustFailParse(t, "repeat 3 as length {\n}\n", "組み込み関数と同名")
 	mustFailParse(t, "repeat [1] as i, push {\n}\n", "組み込み関数と同名")
 }
 
 func TestParseTryAbolished(t *testing.T) {
-	// try/catch are ordinary identifiers now: try blocks parse as a
-	// variable followed by a block-looking brace.
+	// try/catch は今や通常の識別子である: try ブロックは変数の後に
+	// ブロックらしき波括弧が続くものとして解析される。
 	mustFailParse(t, "try {\nmes(1)\n} catch(e) {\nmes(e)\n}\n", "予期しない '{'")
 	prog := mustParse(t, "try = 5\n")
 	if got := prog.Stmts[0].String(); got != "try = 5" {
@@ -235,7 +235,7 @@ func TestParseMapAbolished(t *testing.T) {
 }
 
 func TestParseConditionWithBraceVar(t *testing.T) {
-	// `if x {` must be condition + block.
+	// `if x {` は条件＋ブロックでなければならない。
 	prog := mustParse(t, "x = true\nif x {\nmes(1)\n}\n")
 	ifs := prog.Stmts[1].(*IfStmt)
 	if _, ok := ifs.Cond.(*VarExpr); !ok {
@@ -254,7 +254,8 @@ func TestParseRejections(t *testing.T) {
 }
 
 func TestParseCallVsIndex(t *testing.T) {
-	// a(0) parses as a call; the interpreter rejects it with a [...] hint.
+	// a(0) は呼出として解析される。インタプリタは [...] ヒント付きで
+	// それを拒否する。
 	prog := mustParse(t, "a(0)\n")
 	es := prog.Stmts[0].(*ExprStmt)
 	if _, ok := es.X.(*CallExpr); !ok {

@@ -1,7 +1,7 @@
-// vmCases pins VM behavior for the former tree/VM parity corpus:
-// standard output, error text (with positions), and exit codes must
-// match exactly. Expectations were baked from the agreed tree/VM
-// behavior (the suite was green on both backends).
+// vmCases は旧 tree/VM パリティコーパスに対する VM の振る舞いを固定する：
+// 標準出力・エラー文言（位置付き）・終了コードは完全一致しなければならない。
+// 期待値は合意済みの tree/VM の振る舞いから作成した
+//（両バックエンドでスイートがグリーンだったもの）。
 package main
 
 import (
@@ -174,11 +174,11 @@ var vmCases = []vmCase{
 	{"i = 0\nrepeat 3 as k {\ni += 1\n}\nmes(i)\nmes(k)\n", "3\n", "6:5: 未定義の変数 \"k\" です", 0, false},
 }
 
-// builtinsGshExpected builds the expected output for examples/builtins.gsh
-// with the current year/month. gettime(0)/gettime(1) return the wall clock,
-// so a hardcoded month goes stale every month (e.g. month=9 baked in Sept
-// fails in Oct). Computing it from time.Now keeps the test green while
-// still catching off-by-one month bugs (builtin uses the same clock).
+// builtinsGshExpected は examples/builtins.gsh 用の期待出力を
+// 現在の年/月で組み立てる。gettime(0)/gettime(1) は壁時計を返すため、
+// 月を直書きすると毎月古くなる（例：9月に埋め込んだ month=9 は
+// 10月に失敗する）。time.Now から計算すればテストは通り続けつつ、
+// 月の off-by-one バグも検出できる（builtin も同じ時計を使う）。
 func builtinsGshExpected() string {
 	now := time.Now()
 	return fmt.Sprintf("1d6 x5:\n  3\n  4\n  3\n  3\n  6\nlen=21\nmid=Hello\npos=9\ntrim=[Hello, HSP World!]\nsplit: [a, b, c] n=3\n0042\npi=3.14159\nabs=7 sqrt=1.4142135623730951\nclamp=10\npath base=app\npath ext=.gsh\nyear=%d month=%d\nlines=3 line2=two\none\ntwo\nthree\nfour\npeek=65 wpeek=17218\ntypes: int string array\nstack: 1-2-3 pop=3\nuser: Alice 98\ntotal=6\ndone\n", now.Year(), int(now.Month()))

@@ -537,7 +537,7 @@ func (f *fcomp) returnStmt(n *ReturnStmt) error {
 	return nil
 }
 
-// --- repeat ---
+// ---------- repeat ----------
 
 func (f *fcomp) repeat(n *RepeatStmt) error {
 	cv, err := f.expr(n.Count)
@@ -736,7 +736,7 @@ func (f *fcomp) putVar(name string, src uint8, at Pos) error {
 	return nil
 }
 
-// --- switch ---
+// ---------- switch ----------
 
 func (f *fcomp) switchStmt(n *SwitchStmt) error {
 	sv, err := f.expr(n.Value)

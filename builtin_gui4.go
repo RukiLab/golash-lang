@@ -1,13 +1,13 @@
-// GUI builtins (G4 drawing extension: pngsave, paint, font).
-// Always registered; GUI calls need a window (a GUI backend),
-// otherwise they report an error.
+// GUI 組込（G4 描画拡張: pngsave, paint, font）。
+// 常に登録される。GUI 呼出にはウィンドウ（GUI バックエンド）が必要で、
+// なければエラーを報告する。
 package main
 
 import "os"
 
 func init() {
-	// pngsave(path [, id]): save a draw buffer as PNG (id defaults to
-	// the current target).
+	// pngsave(path [, id]): 描画バッファを PNG として保存する（id は
+	// 既定で現在のターゲット）。
 	register("pngsave", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pngsave")
 		if err != nil {
@@ -31,7 +31,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// paint(x, y): flood-fill the seed region with the current color.
+	// paint(x, y): シード領域を現在の色で塗りつぶす（ flood-fill ）。
 	register("paint", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "paint")
 		if err != nil {
@@ -51,8 +51,8 @@ func init() {
 		return Null(), nil
 	})
 
-	// galpha(a): global drawing alpha 0-255 (shapes and blits; text stays
-	// opaque). galpha(255) restores full opacity.
+	// galpha(a): 描画全体のアルファ 0-255（図形とブリット。文字は
+	// 不透明なまま）。galpha(255) で完全な不透明度に戻る。
 	register("galpha", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "galpha")
 		if err != nil {
@@ -68,9 +68,10 @@ func init() {
 		return Null(), nil
 	})
 
-	// font(size) / font(spec) / font(spec, size): text face size in
-	// pixels (cell grid scales with it). spec is a font file path or a
-	// system font name (e.g. "msgothic.ttc", "YuGothR.ttc").
+	// font(size) / font(spec) / font(spec, size): 文字フェイスの
+	// サイズをピクセルで（セルグリッドもこれに応じてスケールする）。
+	// spec はフォントファイルのパスまたはシステムフォント名
+	// （例: "msgothic.ttc", "YuGothR.ttc"）。
 	register("font", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "font")
 		if err != nil {
@@ -86,10 +87,9 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		// The script directory and the working directory are searched
-		// first (exact file names, extension completion, and prefix
-		// matches), then the system font directories. A bare name falls
-		// through when nothing matches.
+		// スクリプトディレクトリと作業ディレクトリが最初に検索される
+		// （完全なファイル名、拡張子補完、前方一致）。次にシステムの
+		// フォントディレクトリ。裸の名前はどれも一致しないと通過する。
 		dirs := []string{}
 		if d := in.ScriptDir(); d != "" {
 			dirs = append(dirs, d)

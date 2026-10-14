@@ -1,6 +1,6 @@
-// GUI builtins (G6 perspective-correct textured raster).
-// Always registered; GUI calls need a window (a GUI backend),
-// otherwise they report an error.
+// GUI組み込み関数（G6透視補正つきテクスチャラスタ）。
+// 常に登録される。GUI呼び出しにはウィンドウ（GUIバックエンド）が
+// 必要で、無い場合はエラーを返す。
 package main
 
 import (
@@ -8,16 +8,16 @@ import (
 )
 
 func init() {
-	// gquad(tex, xs, ys, us, vs, lights): map source quads onto
-	// destination quads with perspective correction (the homography is
-	// solved per face, so the script never passes weights).
+	// gquad(tex, xs, ys, us, vs, lights)：転送先四角形へ元画像の
+	// 四角形を透視補正つきで貼り付ける（ホモグラフィは面ごとに
+	// 解くため、スクリプト側が重みを渡す必要はない）。
 	//
-	// xs/ys/us/vs are flat arrays holding four values per face: the
-	// destination corners in order (clockwise or counter-clockwise) and
-	// the source pixels they sample. lights holds one 0xRRGGBB color per
-	// corner, Gouraud-interpolated across the face (four equal colors are
-	// flat shading). Arrays of 4N elements draw N faces in one command
-	// (capped at 65536); a face with no area draws nothing.
+	// xs/ys/us/vsは1面あたり4値を持つ平坦配列：転送先の角を
+	// 順番に（時計回りまたは反時計回り）と、それが参照する
+	// 元画像画素を並べる。lightsは角ごとに1つの0xRRGGBB色を持ち、
+	// 面内でグーロー補間される（4角同色ならフラットシェーディング）。
+	// 4N要素の配列でN面を1命令で描画する（上限65536）。
+	// 面積のない面は何も描画しない。
 	register("gquad", 6, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "gquad")
 		if err != nil {
@@ -47,10 +47,9 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		// Four values per face, the same face count everywhere: one
-		// rule for both a single face and a batch. All empty is a no-op
-		// (a loop that culled every face draws nothing, buffer included),
-		// like a degenerate face; anything else misshapen is an error.
+		// 1面あたり4値、面数は全体で共通：単一面も一括も同じ
+		// 規則で扱う。すべて空は無操作（全除外ループは何も描画せず、
+		// バッファも含む）で、縮退面と同様。それ以外の不揃いはエラー。
 		if len(xs) == 0 && len(ys) == 0 && len(us) == 0 && len(vs) == 0 && len(lights) == 0 {
 			return Null(), nil
 		}
@@ -81,9 +80,9 @@ func init() {
 	})
 }
 
-// numArrArg reads one gquad() coordinate array: an array of int/float
-// elements. Rejects other element types with the element index, so a
-// mixed batch (one string inside the loop output) is pinpointed.
+// numArrArgはgquad()の座標配列を1つ読み取る：int/float要素の配列。
+// 他の要素型は要素番号つきで拒否するため、混在バッチ
+//（ループ出力に紛れた1つの文字列など）の特定が容易。
 func numArrArg(name string, args []Value, i int, at Pos) ([]float64, error) {
 	arr, err := needArray(name, args, i, at)
 	if err != nil {
@@ -100,8 +99,8 @@ func numArrArg(name string, args []Value, i int, at Pos) ([]float64, error) {
 	return out, nil
 }
 
-// colorArrArg reads one gquad() lights array: an array of 0xRRGGBB ints.
-// Colors follow the pget() convention (color()/objprm() already use it).
+// colorArrArgはgquad()のlights配列を1つ読み取る：0xRRGGBB整数の配列。
+// 色はpget()の慣例に従う（color()/objprm()も同様）。
 func colorArrArg(name string, args []Value, i int, at Pos) ([]int64, error) {
 	arr, err := needArray(name, args, i, at)
 	if err != nil {
@@ -120,8 +119,8 @@ func colorArrArg(name string, args []Value, i int, at Pos) ([]int64, error) {
 	return out, nil
 }
 
-// numValue unwraps an int/float Value (needFloat works on args; array
-// elements need the same acceptance without an args slice).
+// numValueはint/floatのValueを取り出す（needFloatは引数用。配列
+// 要素も引数スライスなしで同じ受け入れが必要）。
 func numValue(v Value) (float64, bool) {
 	switch v.K {
 	case KFloat:
@@ -132,7 +131,7 @@ func numValue(v Value) (float64, bool) {
 	return 0, false
 }
 
-// rgb01 unpacks a 0xRRGGBB color into 0..1 triplets (pget convention).
+// rgb01は0xRRGGBB色を0〜1の三つ組に分解する（pgetの慣例）。
 func rgb01(c int64) [3]float64 {
 	return [3]float64{
 		float64((c>>16)&0xFF) / 255,

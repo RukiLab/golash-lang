@@ -26,7 +26,7 @@ func TestMmLoadErrors(t *testing.T) {
 	}
 }
 
-// writeSineWAV writes a tiny 8kHz mono 16-bit WAV.
+// writeSineWAV は小さな 8kHz モノラル 16ビット WAV を書き込む。
 func writeSineWAV(t *testing.T, path string) {
 	t.Helper()
 	const rate, n = 8000, 80
@@ -70,7 +70,7 @@ func TestMmWavRoundtrip(t *testing.T) {
 		t.Skipf("no audio device in this environment: %v", err)
 	}
 	b.MmStop(&id)
-	b.MmStop(nil) // all: no-op when empty
+	b.MmStop(nil) // all: 空の場合は何もしない
 	if err := b.MmPlay(9999, false); err == nil {
 		t.Fatal("expected error for unknown sound")
 	}
@@ -105,7 +105,7 @@ func TestMmVolume(t *testing.T) {
 	if vol != 0.5 {
 		t.Fatalf("stored vol = %v, want 0.5", vol)
 	}
-	// Live adjust needs a device; skip cleanly without one.
+	// ライブ調整にはデバイスが必要。デバイスが無い場合は正常にスキップする。
 	if err := b.MmPlay(id, false); err != nil {
 		t.Skipf("no audio device in this environment: %v", err)
 	}
@@ -126,5 +126,5 @@ func TestKeyDownUnknown(t *testing.T) {
 	if _, ok := b.KeyDown(-1); ok {
 		t.Fatal("code -1 must be unknown")
 	}
-	// Known codes are only queried inside the game loop (see renderGame).
+	// 既知のコードはゲームループ内でのみ問い合わせられる（renderGame を参照）。
 }

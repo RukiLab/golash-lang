@@ -37,8 +37,8 @@ func TestLexKeywordsAndOps(t *testing.T) {
 	for _, ty := range types {
 		found[ty] = true
 	}
-	// try/catch are ordinary identifiers now (like goto/gosub/elif).
-	// `let` was abolished and is an ordinary identifier too.
+	// try/catch は通常の識別子として扱われる（goto/gosub/elif と同様）。
+	// `let` も廃止され通常の識別子である。
 	for _, word := range []string{"try", "catch", "goto", "let"} {
 		types := lexTypes(t, word)
 		if len(types) == 0 || types[0] != TokIdent {
@@ -124,7 +124,7 @@ func TestLexRadix(t *testing.T) {
 }
 
 func TestLexSemicolonIsToken(t *testing.T) {
-	// ';' lexes fine; the parser rejects it.
+	// ';' は字句解析では正常に扱われ、パーサ側で拒否されます。
 	types := lexTypes(t, "x = 1;")
 	if types[3] != TokSemicolon {
 		t.Fatalf("got %v, want SEMICOLON at index 3", types)
@@ -133,11 +133,11 @@ func TestLexSemicolonIsToken(t *testing.T) {
 
 func TestLexErrors(t *testing.T) {
 	for _, src := range []string{
-		// NOTE: `a & b` / `a | b` used to error here; they are bitwise
-		// operators now (see TestParseBitwisePrecedence).
+		// 注意：`a & b` / `a | b` は以前ここでエラーでしたが、現在はビット演算子です
+		// （TestParseBitwisePrecedence を参照）。
 		"'x'", "\"unterminated", "/* nope",
 		"\"bad \\q escape\"", "x = 1e",
-		// Malformed numbers: trailing dot, glued letters/underscores.
+		// 不正な数値：末尾のドット、文字やアンダースコアの貼り付き。
 		"3.", "1_000", "123abc", "0d5", "3.14x", "10else",
 	} {
 		if _, err := Lex(src); err == nil {
@@ -147,8 +147,8 @@ func TestLexErrors(t *testing.T) {
 }
 
 func TestLexNulRejected(t *testing.T) {
-	// Raw NUL bytes are never valid source text (the `\0` escape is
-	// the only way to spell one): in code, strings, and comments.
+	// 生の NUL バイトはソーステキストとして決して有効になりません（`\0` エスケープだけが
+	// 唯一の書き方です）：コード内、文字列内、コメント内のいずれでも同様です。
 	for _, src := range []string{
 		"x = 1\x00\n",
 		"\"ab\x00cd\"",
@@ -159,7 +159,7 @@ func TestLexNulRejected(t *testing.T) {
 			t.Errorf("Lex(%q): expected NUL error, got nil", src)
 		}
 	}
-	// The escape still works.
+	// エスケープは今も有効です。
 	toks, err := Lex("\"a\\0b\"")
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestLexPositions(t *testing.T) {
 	if toks[0].Line != 1 || toks[0].Column != 1 {
 		t.Fatalf("first token pos: %+v", toks[0])
 	}
-	// toks: IDENT(ab) NEWLINE IDENT(cd) EOF
+	// トークン列：IDENT(ab) NEWLINE IDENT(cd) EOF
 	if toks[2].Line != 2 || toks[2].Column != 3 {
 		t.Fatalf("cd token pos: %+v", toks[2])
 	}

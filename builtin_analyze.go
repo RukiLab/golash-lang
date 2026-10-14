@@ -1,15 +1,15 @@
-// Code-analysis builtins for editor tooling (CUI + GUI).
+// エディタツール向けのコード解析組込（CUI + GUI）。
 //
-// lextokens() exposes the lexer for syntax highlighting and static
-// analysis; strwidth() measures display width for caret placement in
-// hand-made editors; parsetree() exposes the parser for outline,
-// navigation, and hover.
+// lextokens() は字句ハイライトと静的解析のために字句解析器を公開し、
+// strwidth() は自作エディタでのキャレット位置決め用に表示幅を測り、
+// parsetree() はアウトライン・ナビゲーション・ホバー用に構文解析器を
+// 公開する。
 package main
 
 func init() {
-	// lextokens(src): tokenize source, returning an array of
-	// [type, text, line, col] arrays (EOF omitted). Lex errors are
-	// runtime errors carrying the lexer position.
+	// lextokens(src): ソースをトークン化し、[type, text, line, col]
+	// 配列の配列（EOF は除く）を返す。字句エラーは字句解析器の位置を
+	// 伴う実行時エラーになる。
 	register("lextokens", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		src, err := needString("lextokens", args, 0, at)
 		if err != nil {
@@ -29,8 +29,8 @@ func init() {
 		return ArrayOf(out), nil
 	})
 
-	// strwidth(s): display width of s — pixels at the current GUI
-	// face, rune count on CUI. For caret placement in editors.
+	// strwidth(s): s の表示幅 — GUI の現在のフェイスではピクセル、
+	// CUI ではルーン数。エディタでのキャレット位置決め用。
 	register("strwidth", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("strwidth", args, 0, at)
 		if err != nil {
@@ -39,12 +39,12 @@ func init() {
 		return Int(int64(in.be.TextWidth(s))), nil
 	})
 
-	// parsetree(src): parse source into a tree for editors (outline,
-	// navigation, hover): ["program", line, col, text, stmts].
-	// Every node is [type, line, col, text, ...kind fields]; bodies
-	// are statement arrays; expression statements unwrap to their
-	// expression. Raw directives (#...) are lex errors, like
-	// lextokens. Parse errors are runtime errors.
+	// parsetree(src): ソースを解析してエディタ用の木
+	// （アウトライン・ナビゲーション・ホバー）を返す:
+	// ["program", line, col, text, stmts]。各ノードは
+	// [type, line, col, text, ...種類別フィールド] で、本体は文の配列、
+	// 式文はその式に展開される。生のディレクティブ（#...）は
+	// lextokens と同じく字句エラーである。解析エラーは実行時エラー。
 	register("parsetree", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		src, err := needString("parsetree", args, 0, at)
 		if err != nil {
@@ -65,11 +65,12 @@ func init() {
 		return nodeArr("program", Pos{Line: 1, Column: 1}, prog.String(), ArrayOf(stmts)), nil
 	})
 
-	// checksrc(path): lex + parse a file (with #include expansion) for
-	// editors, returning "" when clean or "file:line:col: message" for
-	// the first error. Unlike running the file, this never executes
-	// code and never raises: editors show the text and jump to it.
-	// Paths resolve like file builtins (script directory first).
+	// checksrc(path): エディタ用にファイルを字句解析＋構文解析する
+	// （#include 展開込み）。正常なら ""、エラーなら最初のエラーの
+	// "file:line:col: message" を返す。ファイルを実行するのとは違い、
+	// これはコードを一切実行せず、例外も起こさない。エディタはこの
+	// テキストを表示して該当位置へ飛ぶ。パスはファイル系組込と同じく
+	// 解決される（スクリプトディレクトリ優先）。
 	register("checksrc", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("checksrc", args, 0, at)
 		if err != nil {
@@ -84,17 +85,55 @@ func init() {
 		}
 		return Str(""), nil
 	})
+
+	// srcanalyze(src): エディタツール用に字句解析＋構文解析を1回で
+	// 行い、[errstr, tokens, tree] を返す。errstr は正常なら ""
+	// （tokens/tree が埋まる）。そうでなければ位置付きメッセージで、
+	// tokens/tree は空。壊れたコードで例外を起こしスクリプト全体を
+	// 停止させてしまう lextokens/parsetree とは違い（try/catch は
+	// 存在しない）、これによりエディタは途中まで入力されたソースを
+	// 安全に解析できる。lextokens と同様、生のディレクティブ（#...）
+	// はここでも字句エラーである — 呼出し側があらかじめ除去する
+	// （エディタの hl_lex_src がそうする）。
+	register("srcanalyze", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		src, err := needString("srcanalyze", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		empty := ArrayOf(nil)
+		toks, err := Lex(src)
+		if err != nil {
+			return ArrayOf([]Value{Str(err.Error()), empty, empty}), nil
+		}
+		prog, err := ParseTokens(toks)
+		if err != nil {
+			return ArrayOf([]Value{Str(err.Error()), empty, empty}), nil
+		}
+		out := make([]Value, 0, len(toks))
+		for _, t := range toks {
+			if t.Type == TokEOF {
+				continue
+			}
+			out = append(out, ArrayOf([]Value{Str(string(t.Type)), Str(t.Lit), Int(int64(t.Line)), Int(int64(t.Column))}))
+		}
+		stmts := make([]Value, 0, len(prog.Stmts))
+		for _, s := range prog.Stmts {
+			stmts = append(stmts, stmtValue(s))
+		}
+		tree := nodeArr("program", Pos{Line: 1, Column: 1}, prog.String(), ArrayOf(stmts))
+		return ArrayOf([]Value{Str(""), ArrayOf(out), tree}), nil
+	})
 }
 
-// nodeArr builds the common node array: kind, position, canonical
-// text, then kind-specific fields.
+// nodeArr は共通のノード配列を構築する: 種類、位置、正規テキスト、
+// その後ろに種類別フィールド。
 func nodeArr(typ string, at Pos, text string, fields ...Value) Value {
 	out := make([]Value, 0, 4+len(fields))
 	out = append(out, Str(typ), Int(int64(at.Line)), Int(int64(at.Column)), Str(text))
 	return ArrayOf(append(out, fields...))
 }
 
-// blockValues converts a statement block (nil-safe).
+// blockValues は文ブロックを変換する（nil 安全）。
 func blockValues(b *BlockStmt) []Value {
 	out := make([]Value, 0)
 	if b == nil {
@@ -106,9 +145,9 @@ func blockValues(b *BlockStmt) []Value {
 	return out
 }
 
-// exprOrAbsent converts an optional expression. Absence is ""
-// (never null): tree slots stay readable into variables, and == ""
-// tests them.
+// exprOrAbsent は省略可能な式を変換する。省略は ""（null には決して
+// ならない）。これにより木のスロットは変数へ読み出せ、== "" で判定
+// できる。
 func exprOrAbsent(x Expr) Value {
 	if x == nil {
 		return Str("")
@@ -116,8 +155,8 @@ func exprOrAbsent(x Expr) Value {
 	return exprValue(x)
 }
 
-// stmtValue converts one statement; expression statements unwrap to
-// their expression so the tree has no "expr" wrapper nodes.
+// stmtValue は1文を変換する。式文はその式に展開されるため、木に
+// "expr" ラッパーノードは生じない。
 func stmtValue(s Stmt) Value {
 	switch n := s.(type) {
 	case *AssignStmt:
@@ -174,7 +213,7 @@ func stmtValue(s Stmt) Value {
 	}
 }
 
-// exprValue converts one expression node.
+// exprValue は1つの式ノードを変換する。
 func exprValue(x Expr) Value {
 	switch n := x.(type) {
 	case *IntLit:
