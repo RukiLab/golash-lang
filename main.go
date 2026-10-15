@@ -36,7 +36,7 @@ import (
 // ldflags を与えない通常ビルドではこの既定値（= VERSION と同値）が
 // 使われます。コメント・コード内に版リテラルは書かないこと (同テストが
 // 検出する)。バンドル形式の codecVersion とは独立した番号です。
-var golashVersion = "0.8.0"
+var golashVersion = "0.8.1"
 
 // runProgram はレジスタVM上で prog を実行します。
 func runProgram(in *Interp, prog *Program) error {

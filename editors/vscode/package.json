@@ -2,7 +2,7 @@
   "name": "goulash",
   "displayName": "Golash",
   "description": "Golash (.gsh) language support: syntax highlighting and editing helpers",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "publisher": "goulash",
   "license": "MIT",
   "engines": {

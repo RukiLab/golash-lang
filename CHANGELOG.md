@@ -1,11 +1,11 @@
 # CHANGELOG
 
 Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）で、git の
-タグ（`v0.8.0`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
+タグ（`v0.8.1`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
 入る予定の変更で、版上げは README の「バージョン管理」または
 `go run ./tools/bumpver.go` を参照してください。
 
-## [Unreleased]
+## [0.8.1]
 
 ### 追加
 - `objset(id, val)`・`objget(id)`・`objenable(id, flag)`（GUI）を追加。`button` の表示文字列・`chkbox` の状態/ラベル・`inputbox`/`mesbox` の内容・`listbox`/`combox` の選択/項目を種別と値の型で切り替えて操作し、有効・無効は別命令に分離
