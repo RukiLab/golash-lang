@@ -84,67 +84,56 @@ func init() {
 		return Null(), nil
 	})
 
-	// pget(x, y): 現在の描画先から1ピクセルを読み取る。
-	// 色を 0xRRGGBB 整数（r*65536+g*256+b）で返す。
-	register("pget", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// pget(): pos() の位置から1ピクセルを読み取る。
+	// 色を 0xRRGGBB 整数（r*65536+g*256+b）で返す。範囲外はエラー。
+	register("pget", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pget")
 		if err != nil {
 			return Null(), err
 		}
-		x, err := needInt("pget", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		y, err := needInt("pget", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		c, err := wb.GetPixel(int(x), int(y))
+		x, y := wb.CursorPixels()
+		c, err := wb.GetPixel(x, y)
 		if err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Int(int64(c[0])*65536 + int64(c[1])*256 + int64(c[2])), nil
 	})
 
-	// pset(x, y): 現在の色で1ピクセルを描く。
-	register("pset", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// pset(): pos() の位置に現在の色で1ピクセルを描く。
+	register("pset", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pset")
 		if err != nil {
 			return Null(), err
 		}
-		x, err := needInt("pset", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		y, err := needInt("pset", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		wb.SetPixel(int(x), int(y), wb.Foreground())
+		x, y := wb.CursorPixels()
+		wb.SetPixel(x, y, wb.Foreground())
 		return Null(), nil
 	})
 
-	// line(x1, y1, x2, y2): 現在の色で1ピクセル幅の直線を引く。
-	register("line", 4, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// line(x2, y2): pos() の位置から (x2, y2) へ現在の色で
+	// 1ピクセル幅の直線を引く。pos() 自体は移動しない。
+	register("line", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "line")
 		if err != nil {
 			return Null(), err
 		}
-		pts := make([]int, 4)
-		for i := range pts {
-			v, err := needInt("line", args, i, at)
-			if err != nil {
-				return Null(), err
-			}
-			pts[i] = int(v)
+		x1, y1 := wb.CursorPixels()
+		x2, err := needInt("line", args, 0, at)
+		if err != nil {
+			return Null(), err
 		}
-		wb.StrokeLine(pts[0], pts[1], pts[2], pts[3], wb.Foreground())
+		y2, err := needInt("line", args, 1, at)
+		if err != nil {
+			return Null(), err
+		}
+		wb.StrokeLine(x1, y1, int(x2), int(y2), wb.Foreground())
 		return Null(), nil
 	})
 
-	// boxf(): 画面全体を塗りつぶす。boxf(x1, y1, x2, y2): 塗りつぶし矩形（角は正規化される）。
-	register("boxf", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "boxf")
+	// rect(): 画面全体を塗りつぶす。rect(w, h): pos() の位置を
+	// 左上として w x h の矩形を塗りつぶす（負の辺は逆向きに正規化される）。
+	register("rect", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "rect")
 		if err != nil {
 			return Null(), err
 		}
@@ -153,53 +142,58 @@ func init() {
 			wb.FillRect(0, 0, w, h, wb.Foreground())
 			return Null(), nil
 		}
-		if len(args) != 4 {
-			return Null(), rtErrf(at, "boxf は引数を 0 個または 4 個必要としますが、%d 個が渡されました", len(args))
+		if len(args) != 2 {
+			return Null(), rtErrf(at, "rect は引数を 0 個または 2 個必要としますが、%d 個が渡されました", len(args))
 		}
-		pts := make([]int, 4)
-		for i := range pts {
-			v, err := needInt("boxf", args, i, at)
-			if err != nil {
-				return Null(), err
-			}
-			pts[i] = int(v)
+		w, err := needInt("rect", args, 0, at)
+		if err != nil {
+			return Null(), err
 		}
-		x, w := normSpan(pts[0], pts[2])
-		y, h := normSpan(pts[1], pts[3])
-		wb.FillRect(x, y, w, h, wb.Foreground())
+		h, err := needInt("rect", args, 1, at)
+		if err != nil {
+			return Null(), err
+		}
+		x, y := wb.CursorPixels()
+		if w < 0 {
+			x += int(w)
+			w = -w
+		}
+		if h < 0 {
+			y += int(h)
+			h = -h
+		}
+		wb.FillRect(x, y, int(w), int(h), wb.Foreground())
 		return Null(), nil
 	})
 
-	// circle(x, y, r [, fill]): 現在の色で円を描く。
-	register("circle", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "circle")
+	// ellipse(w, h [, fill]): pos() の位置を中心に全幅 w・全高 h の
+	// 楕円を現在の色で描く（w == h で真円）。w・h は 0 以上。
+	register("ellipse", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "ellipse")
 		if err != nil {
 			return Null(), err
 		}
-		x, err := needInt("circle", args, 0, at)
+		w, err := needInt("ellipse", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		y, err := needInt("circle", args, 1, at)
+		h, err := needInt("ellipse", args, 1, at)
 		if err != nil {
 			return Null(), err
 		}
-		r, err := needInt("circle", args, 2, at)
-		if err != nil {
-			return Null(), err
-		}
-		if r < 0 {
-			return Null(), argErr("circle", 2, at, "半径は 0 以上である必要があります。%d が指定されました", r)
+		if w < 0 || h < 0 {
+			return Null(), argErr("ellipse", 0, at, "大きさは 0 以上である必要があります。%d x %d が指定されました", w, h)
 		}
 		fill := false
-		if len(args) == 4 {
-			f, err := needInt("circle", args, 3, at)
+		if len(args) == 3 {
+			f, err := needInt("ellipse", args, 2, at)
 			if err != nil {
 				return Null(), err
 			}
 			fill = f != 0
 		}
-		wb.Circle(int(x), int(y), int(r), fill, wb.Foreground())
+		x, y := wb.CursorPixels()
+		wb.Ellipse(x, y, int(w), int(h), fill, wb.Foreground())
 		return Null(), nil
 	})
 
@@ -290,11 +284,4 @@ func init() {
 		return Int(int64(id)), nil
 	})
 
-}
-
-func normSpan(a, b int) (int, int) {
-	if a <= b {
-		return a, b - a
-	}
-	return b, a - b
 }

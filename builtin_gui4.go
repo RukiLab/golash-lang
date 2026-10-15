@@ -31,21 +31,14 @@ func init() {
 		return Null(), nil
 	})
 
-	// paint(x, y): シード領域を現在の色で塗りつぶす（ flood-fill ）。
-	register("paint", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// paint(): pos() の位置をシードに現在の色で塗りつぶす（ flood-fill ）。
+	register("paint", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "paint")
 		if err != nil {
 			return Null(), err
 		}
-		x, err := needInt("paint", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		y, err := needInt("paint", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		if err := wb.FloodFill(int(x), int(y), wb.Foreground()); err != nil {
+		x, y := wb.CursorPixels()
+		if err := wb.FloodFill(x, y, wb.Foreground()); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil

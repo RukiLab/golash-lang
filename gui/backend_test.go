@@ -1854,7 +1854,7 @@ func countWhite(screen *ebiten.Image, x0, y0, x1, y1 int) int {
 	return lit
 }
 
-// checkTextLayer はループ内で mes()/print() のピクセルが boxf()/pset() と
+// checkTextLayer はループ内で mes()/print() のピクセルが rect()/pset() と
 // 同じキャンバス層にあることを検証する: 呼出順がどちらがどちらを覆うか
 // を決める。探りは他の段階が触れる図形やウィジェットから離れた画面領域
 // (440,100)-(480,120) を使う。
@@ -1865,7 +1865,7 @@ func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	// 明示的な白いインク: 探りは重なり（呼出順）をテストするため、
 	// 既定の描画色ではなく、fg の既定に依存してはならない。
 	b.SetColor(255, 255, 255, 255)
-	// boxf() が探りの領域を消去し、それから mes() がその上に描く。
+	// rect() が探りの領域を消去し、それから mes() がその上に描く。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
 	b.mu.Lock()
 	b.curX, b.curY = float64(x0), float64(y0)
@@ -1874,7 +1874,7 @@ func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	b.drainQueue()
 	b.Draw(screen)
 	g.textAlone = countLit(screen, x0, y0, x1, y1)
-	// 後ろの boxf() がテキストを覆う: 1つの層、呼出順が勝つ。
+	// 後ろの rect() がテキストを覆う: 1つの層、呼出順が勝つ。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
 	b.drainQueue()
 	b.Draw(screen)
@@ -1888,7 +1888,7 @@ func (g *renderGame) checkTextLayer(screen *ebiten.Image) {
 	b.drainQueue()
 	b.Draw(screen)
 	g.textAlone = countLit(screen, x0, y0, x1, y1)
-	// 後ろの boxf() がテキストを覆う: 1つの層、呼出順が勝つ。
+	// 後ろの rect() がテキストを覆う: 1つの層、呼出順が勝つ。
 	b.FillRect(x0, y0, x1-x0, y1-y0, [4]int{0, 0, 0, 255})
 	b.drainQueue()
 	b.Draw(screen)
@@ -3424,17 +3424,17 @@ func TestGuiRender(t *testing.T) {
 		t.Fatal("Circle pixel not visible")
 	}
 	// テキストは図形とキャンバス層を共有する: mes() のピクセルは
-	// バッファに現れ、後ろの boxf() がそれらを覆い、boxf() の後の
+	// バッファに現れ、後ろの rect() がそれらを覆い、rect() の後の
 	// mes() は図形の上に描かれる。
 	t.Logf("text layer: alone=%d covered=%d over-shape=%d", g.textAlone, g.textCovered, g.textOn)
 	if g.textAlone == 0 {
 		t.Fatal("mes() pixels missing from the canvas layer")
 	}
 	if g.textCovered != 0 {
-		t.Fatalf("boxf() after mes() left %d text pixels: text is not on the canvas layer", g.textCovered)
+		t.Fatalf("rect() after mes() left %d text pixels: text is not on the canvas layer", g.textCovered)
 	}
 	if g.textOn == 0 {
-		t.Fatal("mes() after boxf() drew nothing on top of the shape")
+		t.Fatal("mes() after rect() drew nothing on top of the shape")
 	}
 	if !g.probedInput {
 		t.Fatal("input stage never ran")

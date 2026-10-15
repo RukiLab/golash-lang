@@ -10,6 +10,9 @@ Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）�
 ### 追加
 - `objset(id, val)`・`objget(id)`・`objenable(id, flag)`（GUI）を追加。`button` の表示文字列・`chkbox` の状態/ラベル・`inputbox`/`mesbox` の内容・`listbox`/`combox` の選択/項目を種別と値の型で切り替えて操作し、有効・無効は別命令に分離
 
+### 変更
+- 描画系の位置指定を `pos()` に統一。`pset()` / `pget()` / `paint()` は引数なし（`pos()` の位置に描画・読取・シード）、`line(x2,y2)` は `pos()` から `(x2,y2)` へ描画、`rect(w,h)` は `pos()` を左上とした `w x h` 塗り（`rect()` の全画面は維持、負の辺は逆向きに正規化）、`ellipse(w,h [,fill])` は `pos()` を中心とした全幅 `w`・全高 `h` の楕円描画（`w == h` で真円）に変更。旧名の `boxf`・`circle`・旧形式（`pset(x,y)`・`pget(x,y)`・`line(x1,y1,x2,y2)`・`boxf(x1,y1,x2,y2)`・`circle(x,y,r [,fill])`・`paint(x,y)`）は未定義・引数エラーになる。`gcopy()` の転送先は従来通り `pos()`、`gquad()` のみ絶対座標配列のまま。ウィジェット（`button`・`inputbox`・`listbox`・`chkbox`・`combox`・`mesbox`）の配置位置も `pos()` に統一し、`x`・`y` 引数を廃止（大きさのみ指定。`chkbox` は `chkbox(id,label [,checked])`）
+
 ### 削除
 - `setlist`・`sellist`・`selected`・`gettext`・`checked`・`getstr`・`setstr`・`pressed`・旧 `objprm(id, key, value)` を廃止。項目更新は `objset(id, 配列)` のみ（文字列一括は受け付けない）、選択は `objset(id, 整数)`、取得は `objget(id)`（`button` は押下イベントで呼び出し時に消費。表示文字列の取得は廃止）、有効・無効は `objenable(id, flag)` に一本化。旧名は未定義関数としてエラーになる
 
@@ -27,7 +30,6 @@ Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）�
 - `filetime(path)`（CUI/GUI共通）：ファイルの更新時刻を Unix ミリ秒で返します（存在しなければ `0`）。エディタが「外部でファイルが書き換わった」ことを検出するのに使えます
 - `fileinfo(path)`（CUI/GUI共通）：ファイルの情報を `[サイズ, 更新時刻, ディレクトリか]` の配列で1回の stat で返します（存在しなければ `[-1, 0, false]`）。`exist()`＋`filetime()` を別々に呼ばずに済みます。サイズはバイト数、更新時刻は Unix ミリ秒（`filetime()` と同じ値）です
 - `gsh build` で `#mode gui`（省略時を含む）の exe はコンソールなし（windowsgui）で出すように変更。ダブルクリック起動で黒いコンソールが開かなくなり、それを閉じたときに同コンソールの全プロセス（エディタ本体＋実行した子プロセス）が道連れに終了する事故を防ぐ。`#mode cli` の exe は従来通りコンソール付き
-- `execgui(name, args...)`（CUI/GUI共通）：`exec()` の非同期起動をコンソールなしで行う GUI子プロセス用。子にコンソールを作らないため黒窓が出ず、親子の道連れ終了もない。起動失敗は `exec()` 同様エラー。取り込みが要る場合は `piperun()` を使う
 - `piperun()` / `pipeexec()` の子はコンソール窓を作らないように変更（取り込みはパイプのため無関係）。エディタの実行・診断などの裏起動で黒窓がちらつかない
 - `srcanalyze(src)`（CUI/GUI共通）：ソースを字句解析＋構文解析して `[エラー文字列, トークン列, 構文木]` で返します。正常時はエラー文字列が `""`、異常時はエラー文字列が入ってトークン列・構文木は空です。壊れたコードで例外を投げる `lextokens()` / `parsetree()` と違い失敗を値で返すため、try/catch のない言語でも入力途中のソースを安全に解析でき、エディタのハイライト向けです
 - `mesbox()`（複数行表示欄）に縦スクロールバーを表示し、`setstr()` のたびに末尾へ自動スクロールするように変更（ログ表示向け）

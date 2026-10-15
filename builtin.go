@@ -5,7 +5,7 @@
 // out パラメータは戻り値になり、述語は bool を返し、失敗は実行時エラーになる。
 //
 // GUI ワードは builtin_gui*.go（G1-G6）にある：
-// screen, gsel, pset, pget, line, boxf, circle, gcopy, gquad, gmode,
+// screen, gsel, pset, pget, line, rect, ellipse, gcopy, gquad, gmode,
 // picload, pngsave, paint, font,
 // getkey, mousex, mousey, clicked,
 // mmload, mmplay, mmstop, mmvol, button, inputbox,

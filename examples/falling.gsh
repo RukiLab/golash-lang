@@ -631,7 +631,8 @@ def draw_field() {
         if r >= BUFFER_ROWS {
             if clear_timer > 0 && clearing_lines[r] == 1 {
                 color(255, 255, 255)
-                boxf(0, (r - BUFFER_ROWS) * BLOCK_SIZE, COLS * BLOCK_SIZE, (r - BUFFER_ROWS + 1) * BLOCK_SIZE)
+                pos(0, (r - BUFFER_ROWS) * BLOCK_SIZE)
+                rect(COLS * BLOCK_SIZE, BLOCK_SIZE)
             } else {
                 repeat COLS as c {
                     if field[r][c] != 0 {

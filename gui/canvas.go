@@ -360,6 +360,42 @@ func (b *WindowBackend) Circle(x, y, r int, fill bool, fg [4]int) {
 	})
 }
 
+// Ellipse は現在の対象に楕円を描画する（中心 cx, cy、全幅 w、全高 h。
+// fill が真なら塗り潰し、偽なら1pxの輪郭）。w == h で真円になる。
+// 縮退（w または h が 0 以下）は何も描画しない。
+func (b *WindowBackend) Ellipse(cx, cy, w, h int, fill bool, fg [4]int) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	sel := b.currentSel()
+	c := b.fillColor(fg)
+	b.enqueue(func() {
+		var path vector.Path
+		ellipsePath(&path, float32(cx), float32(cy), float32(w)/2, float32(h)/2)
+		var cs ebiten.ColorScale
+		cs.ScaleWithColor(c)
+		opts := &vector.DrawPathOptions{ColorScale: cs}
+		if fill {
+			vector.FillPath(b.ensureTarget(sel), &path, &vector.FillOptions{}, opts)
+			return
+		}
+		vector.StrokePath(b.ensureTarget(sel), &path, &vector.StrokeOptions{Width: 1}, opts)
+	})
+}
+
+// ellipsePath は中心 (cx, cy)・半径 (rx, ry) の楕円を
+// 4つの3次ベジェ近似（kappa 法）で path に追加する。
+func ellipsePath(path *vector.Path, cx, cy, rx, ry float32) {
+	const kappa = 0.5522848
+	kx, ky := kappa*rx, kappa*ry
+	path.MoveTo(cx+rx, cy)
+	path.CubicTo(cx+rx, cy+ky, cx+kx, cy+ry, cx, cy+ry)
+	path.CubicTo(cx-kx, cy+ry, cx-rx, cy+ky, cx-rx, cy)
+	path.CubicTo(cx-rx, cy-ky, cx-kx, cy-ry, cx, cy-ry)
+	path.CubicTo(cx+kx, cy-ry, cx+rx, cy-ky, cx+rx, cy)
+	path.Close()
+}
+
 // ClearCanvas は現在の対象を消去する（透明。黒が透ける）。
 func (b *WindowBackend) ClearCanvas() {
 	sel := b.currentSel()

@@ -224,13 +224,19 @@ func TestGuiWidgetValidation(t *testing.T) {
 	if _, err := guiEval(t, "clrobj(99)"); err == nil {
 		t.Fatal("clrobj unknown should error")
 	}
-	if _, err := guiEval(t, "button(1, \"x\", 0, 0, 0, 10)"); err == nil {
+	if _, err := guiEval(t, "button(1, \"x\", 0, 10)"); err == nil {
 		t.Fatal("button zero width should error")
 	}
-	// 引数順：(id, label, x, y, w, h)。文字列idはブロック前に
-	// 引数0として失敗しなければならない。
-	if _, err := guiEval(t, "button(\"x\", \"y\", 0, 0, 10, 10)"); err == nil {
+	// 引数順：(id, label, w, h)。位置は pos() で指定する。
+	// 文字列idはブロック前に引数0として失敗しなければならない。
+	if _, err := guiEval(t, "button(\"x\", \"y\", 10, 10)"); err == nil {
 		t.Fatal("button string id should error")
+	}
+	if _, err := guiEval(t, "button(1, \"x\")"); err == nil {
+		t.Fatal("button arity should error")
+	}
+	if _, err := guiEval(t, "button(1, \"x\", 0, 0, 100, 30)"); err == nil {
+		t.Fatal("old 6-arg button should error")
 	}
 	// 成功系はguiEvalが汲み上げないゲームスレッド作業をキューに入れる
 	//（ブロックしてしまう）。バックエンド側の収まりは
@@ -247,29 +253,50 @@ func TestGuiWidgetValidation(t *testing.T) {
 }
 
 func TestGuiFormValidation(t *testing.T) {
-	// chkboxは自動サイズ：w/h形式は廃止（4〜5引数）。注意：guiEvalは
+	// 位置は pos() で指定する（x/y 引数は廃止）。注意：guiEvalは
 	// 描画キューを汲み上げないため、ここではループ前のエラーのみ検証する。
 	// 成功系はヘッドレスのTestFormWidgetsHeadlessで扱う。
-	if _, err := guiEval(t, "chkbox(1, \"x\", 0, 0, 0, 10)"); err == nil {
-		t.Fatal("old 6-arg chkbox should error")
+	if _, err := guiEval(t, "chkbox(1, \"x\", 0, 0)"); err == nil {
+		t.Fatal("old 4-arg chkbox should error")
 	}
-	if _, err := guiEval(t, "chkbox(\"x\", \"y\", 0, 0)"); err == nil {
+	if _, err := guiEval(t, "chkbox(\"x\", \"y\")"); err == nil {
 		t.Fatal("chkbox string id should error")
 	}
-	if _, err := guiEval(t, "chkbox(1, 0, 0, 0)"); err == nil {
+	if _, err := guiEval(t, "chkbox(1, 0)"); err == nil {
 		t.Fatal("chkbox non-string label should error")
+	}
+	if _, err := guiEval(t, "chkbox(1)"); err == nil {
+		t.Fatal("chkbox arity should error")
+	}
+	if _, err := guiEval(t, "inputbox(1, 2)"); err == nil {
+		t.Fatal("inputbox arity should error")
+	}
+	if _, err := guiEval(t, "inputbox(0, 0, 0, 64, 24)"); err == nil {
+		t.Fatal("old 5-arg inputbox should error")
+	}
+	if _, err := guiEval(t, "listbox(1, 100, 30, [1])"); err == nil {
+		t.Fatal("listbox non-string item should error")
+	}
+	if _, err := guiEval(t, "listbox(1, 0, 0, 100, 30, [\"a\"])"); err == nil {
+		t.Fatal("old 6-arg listbox should error")
 	}
 	if _, err := guiEval(t, "objget(99)"); err == nil {
 		t.Fatal("objget unknown should error")
 	}
-	if _, err := guiEval(t, "combox(1, 0, 0, 100, 30, [1])"); err == nil {
+	if _, err := guiEval(t, "combox(1, 100, 30, [1])"); err == nil {
 		t.Fatal("combox non-string item should error")
 	}
-	if _, err := guiEval(t, "combox(1, 0, 0, 100, 30, [\"a\"], 5)"); err == nil {
+	if _, err := guiEval(t, "combox(1, 100, 30, [\"a\"], 5)"); err == nil {
 		t.Fatal("combox out-of-range sel should error")
 	}
-	if _, err := guiEval(t, "mesbox(1, 0, 0, 100, 0)"); err == nil {
+	if _, err := guiEval(t, "combox(1, 0, 0, 100, 30, [\"a\"])"); err == nil {
+		t.Fatal("old 6-arg combox should error")
+	}
+	if _, err := guiEval(t, "mesbox(1, 100, 0)"); err == nil {
 		t.Fatal("mesbox zero height should error")
+	}
+	if _, err := guiEval(t, "mesbox(1, 0, 0, 100, \"x\")"); err == nil {
+		t.Fatal("old 5-arg mesbox should error")
 	}
 	if _, err := guiEval(t, "objenable(99, 1)"); err == nil {
 		t.Fatal("objenable unknown should error")
@@ -289,14 +316,14 @@ func TestGuiDrawValidation(t *testing.T) {
 	if v, err := guiEval(t, "font(24)"); err != nil || v.K != KNull {
 		t.Fatalf("font(24): got %v, %v", v, err)
 	}
-	if _, err := guiEval(t, "paint(-1, 0)"); err == nil {
+	if _, err := guiEval(t, "paint(1)"); err == nil {
+		t.Fatal("paint with arg should error")
+	}
+	if v, err := guiEval(t, "paint()"); err != nil || v.K != KNull {
+		t.Fatalf("paint(): got %v, %v", v, err)
+	}
+	if _, err := guiEvalSeq(t, "pos(-1, 0)\npaint()\n"); err == nil {
 		t.Fatal("paint out-of-range seed should error")
-	}
-	if _, err := guiEval(t, "paint(\"x\", 0)"); err == nil {
-		t.Fatal("paint string x should error")
-	}
-	if v, err := guiEval(t, "paint(10, 10)"); err != nil || v.K != KNull {
-		t.Fatalf("paint(10, 10): got %v, %v", v, err)
 	}
 	if _, err := guiEval(t, "gcopy(99, 0, 0, 10, 10)"); err == nil {
 		t.Fatal("gcopy unknown buffer should error")
@@ -347,28 +374,119 @@ func TestGuiDrawValidation(t *testing.T) {
 
 func TestGuiPgetValidation(t *testing.T) {
 	// CUIバックエンドには読み取るキャンバスがない。
-	mustErrIO(t, "pget(10, 10)\n", "pget は GUI ビルドが必要です")
+	mustErrIO(t, "pget()\n", "pget は GUI ビルドが必要です")
 	// ヘッドレスウィンドウバックエンド（320x200）：検証は
-	// ゲームスレッド読み戻しより先に実行される。
-	if _, err := guiEval(t, "pget(-1, 0)"); err == nil {
-		t.Fatal("pget negative x should error")
-	}
-	if _, err := guiEval(t, "pget(0, -1)"); err == nil {
-		t.Fatal("pget negative y should error")
-	}
-	if _, err := guiEval(t, "pget(320, 0)"); err == nil {
-		t.Fatal("pget x == width should error")
-	}
-	if _, err := guiEval(t, "pget(0, 200)"); err == nil {
-		t.Fatal("pget y == height should error")
-	}
-	if _, err := guiEval(t, "pget(\"x\", 0)"); err == nil {
-		t.Fatal("pget string x should error")
-	}
-	if _, err := guiEval(t, "pget(0, 1.5)"); err == nil {
-		t.Fatal("pget float y should error")
-	}
+	// ゲームスレッド読み戻しより先に実行される。位置は pos() で指定する。
 	if _, err := guiEval(t, "pget(1)"); err == nil {
 		t.Fatal("pget arity should error")
+	}
+	if _, err := guiEvalSeq(t, "pos(-1, 0)\npget()\n"); err == nil {
+		t.Fatal("pget negative x should error")
+	}
+	if _, err := guiEvalSeq(t, "pos(0, -1)\npget()\n"); err == nil {
+		t.Fatal("pget negative y should error")
+	}
+	if _, err := guiEvalSeq(t, "pos(320, 0)\npget()\n"); err == nil {
+		t.Fatal("pget x == width should error")
+	}
+	if _, err := guiEvalSeq(t, "pos(0, 200)\npget()\n"); err == nil {
+		t.Fatal("pget y == height should error")
+	}
+}
+
+// guiEvalSeq は複文スクリプトを1つのヘッドレスバックエンド上で
+// 順に評価する（pos() で位置を決めてから描画する形式の検証用）。
+// 成功系の描画はキューに入るだけでブロックしないが、pget() の成功系は
+// ゲームスレッドの読み戻しを待つためヘッドレスでは扱わない。
+func guiEvalSeq(t *testing.T, src string) (Value, error) {
+	t.Helper()
+	prog, err := Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wb, err := gui.New(320, 200)
+	if err != nil {
+		t.Skipf("system font unavailable: %v", err)
+	}
+	in := NewInterpWithBackend(wb, strings.NewReader(""))
+	vm := newVmachine(in)
+	v := Null()
+	for _, st := range prog.Stmts {
+		es, ok := st.(*ExprStmt)
+		if !ok {
+			t.Fatalf("want ExprStmt, got %T", st)
+		}
+		v, err = vm.evalOne(es.X, es.X.Pos())
+		if err != nil {
+			return Null(), err
+		}
+	}
+	return v, nil
+}
+
+func TestGuiPosDrawValidation(t *testing.T) {
+	// pset(): 引数なし。位置は pos() で指定する。
+	if v, err := guiEval(t, "pset()"); err != nil || v.K != KNull {
+		t.Fatalf("pset(): got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "pset(1)"); err == nil {
+		t.Fatal("pset arity should error")
+	}
+	if _, err := guiEval(t, "pset(1, 2)"); err == nil {
+		t.Fatal("old 2-arg pset should error")
+	}
+	// line(x2, y2): pos() から (x2, y2) へ引く。
+	if _, err := guiEvalSeq(t, "pos(10, 20)\nline(30, 40)\n"); err != nil {
+		t.Fatalf("pos+line: got %v", err)
+	}
+	if _, err := guiEval(t, "line(1, 2, 3)"); err == nil {
+		t.Fatal("line arity should error")
+	}
+	if _, err := guiEval(t, "line(1, 2, 3, 4)"); err == nil {
+		t.Fatal("old 4-arg line should error")
+	}
+	if _, err := guiEval(t, "line(\"x\", 0)"); err == nil {
+		t.Fatal("line string x should error")
+	}
+	// rect(w, h): pos() を左上として w x h を塗る。rect() は全画面。
+	if v, err := guiEval(t, "rect()"); err != nil || v.K != KNull {
+		t.Fatalf("rect(): got %v, %v", v, err)
+	}
+	if _, err := guiEvalSeq(t, "pos(0, 0)\nrect(10, 20)\n"); err != nil {
+		t.Fatalf("pos+rect: got %v", err)
+	}
+	if _, err := guiEval(t, "rect(1)"); err == nil {
+		t.Fatal("rect arity should error")
+	}
+	if _, err := guiEval(t, "rect(1, 2, 3)"); err == nil {
+		t.Fatal("rect too many args should error")
+	}
+	if _, err := guiEval(t, "rect(\"x\", 1)"); err == nil {
+		t.Fatal("rect string w should error")
+	}
+	if _, err := guiEval(t, "boxf(10, 20)"); err == nil {
+		t.Fatal("boxf should be undefined")
+	}
+	// ellipse(w, h [, fill]): pos() を中心に全幅 w・全高 h の楕円を描く。
+	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(20, 20)\n"); err != nil {
+		t.Fatalf("pos+ellipse: got %v", err)
+	}
+	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(20, 10, 1)\n"); err != nil {
+		t.Fatalf("pos+ellipse fill: got %v", err)
+	}
+	if _, err := guiEval(t, "ellipse(10)"); err == nil {
+		t.Fatal("ellipse arity should error")
+	}
+	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(10, 10, 1, 1)\n"); err == nil {
+		t.Fatal("ellipse too many args should error")
+	}
+	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(-1, 5)\n"); err == nil {
+		t.Fatal("ellipse negative size should error")
+	}
+	if _, err := guiEval(t, "ellipse(\"x\", 1)"); err == nil {
+		t.Fatal("ellipse string w should error")
+	}
+	if _, err := guiEval(t, "circle(10, 10)"); err == nil {
+		t.Fatal("circle should be undefined")
 	}
 }

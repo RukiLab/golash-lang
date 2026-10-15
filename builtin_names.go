@@ -4,7 +4,7 @@ package main
 // TestBuiltinRegistryComplete から参照される。
 var guiBuiltinNames = []string{
 	"screen", "gsel", "buffer",
-	"pset", "pget", "line", "boxf", "circle",
+	"pset", "pget", "line", "rect", "ellipse",
 	"gcopy", "gquad", "gmode", "picload",
 	"pngsave", "galpha", "paint", "font",
 	"getkey", "mousex", "mousey", "clicked", "mousedown", "mousewheel", "fullscreen", "closing", "screensize", "cursor",
