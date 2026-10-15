@@ -6,9 +6,9 @@ package gui
 
 const (
 	// listSliderW は表示される垂直スライダーの幅
-	// (MinHandleSize 既定 16 + トラック余白ゼロ)。水平スライダーは
-	// 非表示のため予約しない。
-	listSliderW = 16
+	// (MinHandleSize 12 + トラック余白ゼロ)。水平スライダーは
+	// 非表示のため予約しない。Win11 風の細身 (12px) に寄せる。
+	listSliderW = 12
 
 	// listPadX はリストボックス内の水平余白:
 	// ScrollContainerPadding(1) + EntryTextPadding(2) の両側分。

@@ -1,5 +1,6 @@
-// GUI組み込み関数（G5フォーム部品：chkbox、combox、mesbox、objprm
-// およびchecked/getstr取得系）。常に登録される。GUI呼び出しには
+// GUI組み込み関数（G5フォーム部品：chkbox、combox、mesbox）。
+// 状態の取得・変更は objget/objset、有効・無効は objenable で行う。
+// 常に登録される。GUI呼び出しには
 // ウィンドウ（GUIバックエンド）が必要で、無い場合はエラーを返す。
 package main
 
@@ -39,23 +40,6 @@ func init() {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil
-	})
-
-	// checked(id)：チェックボックスの状態。
-	register("checked", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "checked")
-		if err != nil {
-			return Null(), err
-		}
-		id, err := needInt("checked", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		p, err := wb.Checked(int(id))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Bool(p), nil
 	})
 
 	// combox(id, x, y, w, h, items [, sel])：ドロップダウンリストを配置する。
@@ -126,76 +110,5 @@ func init() {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil
-	})
-
-	// getstr(id)：複数行ボックスの内容。
-	register("getstr", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "getstr")
-		if err != nil {
-			return Null(), err
-		}
-		id, err := needInt("getstr", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		s, err := wb.AreaText(int(id))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Str(s), nil
-	})
-
-	// setstr(id, s)：複数行ボックスの内容を置き換える。mesboxは
-	// 表示専用（ebitenuiのTextAreaには編集機能がない）なので、getstr()と
-	// 組み合わせてプログラム駆動のログ表示用として使う。
-	register("setstr", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "setstr")
-		if err != nil {
-			return Null(), err
-		}
-		id, err := needInt("setstr", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		s, err := needString("setstr", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		if err := wb.SetAreaText(int(id), s); err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Null(), nil
-	})
-
-	// objprm(id, key, value)：部品のパラメータ。キー「enable」で
-	// 操作可否を切り替える（値0/1）。部品のテーマは固定
-	//（Windows標準：白地・灰枠・黒文字）のため、色系の
-	// キーは存在しない。
-	register("objprm", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "objprm")
-		if err != nil {
-			return Null(), err
-		}
-		id, err := needInt("objprm", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		key, err := needString("objprm", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		v, err := needInt("objprm", args, 2, at)
-		if err != nil {
-			return Null(), err
-		}
-		switch key {
-		case "enable":
-			if err := wb.SetEnabled(int(id), v != 0); err != nil {
-				return Null(), rtErrf(at, "%s", err.Error())
-			}
-			return Null(), nil
-		default:
-			return Null(), rtErrf(at, "objprm：不明なキー %q です（\"enable\" が必要です）", key)
-		}
 	})
 }

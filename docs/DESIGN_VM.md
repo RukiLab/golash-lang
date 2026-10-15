@@ -163,9 +163,9 @@ BRKTOP CONTTOP RETTOP HALT`
 
 ---
 
-## 3.5 ホットループ最適化（`bench.gsh` 0.35秒目標）
+## 3.5 ホットループ最適化（計数ループ 0.35秒目標）
 
-目標 `examples/bench.gsh`（1000万回 `repeat`＋`i += 1`）の wall 0.35秒以内。
+目標 1000万回 `repeat`＋`i += 1` の計数ループの wall 0.35秒以内。
 方針：意味論を変えない・decoder/codec に手を入れない・外れは通常経路へ。
 
 - 複合代入融合（`INCCHK`、2ワード）：変数ターゲットの `+=`/`-=` を
@@ -195,7 +195,7 @@ BRKTOP CONTTOP RETTOP HALT`
 - `CALLB` の引数は機械共有バッファの切出しで渡す（組込は再入しない）。
 - `LOADG`/`STOREG` の名前解決はロード時 intern＋gidx 書換え（都度 map なし）。
 - 配列リテラルは空配列＋`APPEND` の逐次構築に lowering し、
-  巨大リテラル（`falling.gsh` の 400 要素超）でもレジスタを消費しない。
+  巨大リテラル（`examples/falling.gsh` の 400 要素超）でもレジスタを消費しない。
 - ホットループ（`while` 整数加算 100万回）は反復回数を10倍にしても
   1実行の割当てが不変（＝1周あたり 0 allocs。残りは起動時の定数分）。
 
@@ -204,7 +204,7 @@ BRKTOP CONTTOP RETTOP HALT`
 ## 5. 検証結果
 
 - `parity_test.go`：約120の inline スクリプト（正常・全エラー文言・位置・
-  終了コード）＋CLI作例6ファイルの両系完全一致。
+  終了コード）＋`testdata/parity/` のCLI作例6ファイルの両系完全一致。
 - `TestVMZeroAllocLoop`：反復 10万／100万で割当て不変。
 - `TestVMSpeedup`（中央値、実測例）：`fib(24)` 約5.3倍、
   100万回 `while` 加算 約3.7～4.3倍。
@@ -229,7 +229,7 @@ BRKTOP CONTTOP RETTOP HALT`
 ## 7. 既知の制限（内部限界）
 
 - 1プロトタイプあたりレジスタ255（8bit operand）。超過時は内部エラー
-  （現実の作例では `falling.gsh` も13に収まる）。
+  （現実の作例では `examples/falling.gsh` も13に収まる）。
 - 1呼出あたり引数255。配列リテラルの要素数は無制限（`APPEND` 方式）。
 - `VMProgram` は実行した機械に帰属する（`addProg` が G系の D を書換えるため）。
   プログラムの機械間共有はしない（毎回 `Compile` する）。

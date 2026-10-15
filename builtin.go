@@ -8,9 +8,9 @@
 // screen, gsel, pset, pget, line, boxf, circle, gcopy, gquad, gmode,
 // picload, pngsave, paint, font,
 // getkey, mousex, mousey, clicked,
-// mmload, mmplay, mmstop, mmvol, button, pressed, inputbox, gettext,
-// listbox, selected, clrobj, dialog,
-// chkbox, checked, combox, mesbox, getstr, objprm。
+// mmload, mmplay, mmstop, mmvol, button, inputbox,
+// listbox, clrobj, dialog,
+// chkbox, combox, mesbox, objset, objget, objenable。
 // palette は意図的に未対応（truecolor バックエンドにパレットがないため）。
 // 将来用に予約：mplay。
 package main

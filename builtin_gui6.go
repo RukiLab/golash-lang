@@ -100,7 +100,7 @@ func numArrArg(name string, args []Value, i int, at Pos) ([]float64, error) {
 }
 
 // colorArrArgはgquad()のlights配列を1つ読み取る：0xRRGGBB整数の配列。
-// 色はpget()の慣例に従う（color()/objprm()も同様）。
+// 色はpget()の慣例に従う（color()も同様）。
 func colorArrArg(name string, args []Value, i int, at Pos) ([]int64, error) {
 	arr, err := needArray(name, args, i, at)
 	if err != nil {

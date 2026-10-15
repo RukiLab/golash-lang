@@ -215,14 +215,11 @@ func TestGuiWidgetValidation(t *testing.T) {
 	if _, err := guiEval(t, "dialog(\"x\", \"bogus\")"); err == nil {
 		t.Fatal("dialog bogus mode should error")
 	}
-	if _, err := guiEval(t, "pressed(99)"); err == nil {
-		t.Fatal("pressed unknown should error")
+	if _, err := guiEval(t, "objget(99)"); err == nil {
+		t.Fatal("objget unknown should error")
 	}
-	if _, err := guiEval(t, "gettext(99)"); err == nil {
-		t.Fatal("gettext unknown should error")
-	}
-	if _, err := guiEval(t, "selected(99)"); err == nil {
-		t.Fatal("selected unknown should error")
+	if _, err := guiEval(t, "objset(99, 1)"); err == nil {
+		t.Fatal("objset unknown should error")
 	}
 	if _, err := guiEval(t, "clrobj(99)"); err == nil {
 		t.Fatal("clrobj unknown should error")
@@ -238,14 +235,14 @@ func TestGuiWidgetValidation(t *testing.T) {
 	// 成功系はguiEvalが汲み上げないゲームスレッド作業をキューに入れる
 	//（ブロックしてしまう）。バックエンド側の収まりは
 	// TestListboxItemsFitAndStayUnique / TestButtonLabelFitsで扱う。
-	if _, err := guiEval(t, "setlist(1)"); err == nil {
-		t.Fatal("setlist arity should error")
+	if _, err := guiEval(t, "objset(1)"); err == nil {
+		t.Fatal("objset arity should error")
 	}
-	if _, err := guiEval(t, "setlist(1, [1])"); err == nil {
-		t.Fatal("setlist non-string item should error")
+	if _, err := guiEval(t, "objget()"); err == nil {
+		t.Fatal("objget arity should error")
 	}
-	if _, err := guiEval(t, "sellist(1, \"x\")"); err == nil {
-		t.Fatal("sellist non-int index should error")
+	if _, err := guiEval(t, "objenable(1, \"x\")"); err == nil {
+		t.Fatal("objenable non-int flag should error")
 	}
 }
 
@@ -262,8 +259,8 @@ func TestGuiFormValidation(t *testing.T) {
 	if _, err := guiEval(t, "chkbox(1, 0, 0, 0)"); err == nil {
 		t.Fatal("chkbox non-string label should error")
 	}
-	if _, err := guiEval(t, "checked(99)"); err == nil {
-		t.Fatal("checked unknown should error")
+	if _, err := guiEval(t, "objget(99)"); err == nil {
+		t.Fatal("objget unknown should error")
 	}
 	if _, err := guiEval(t, "combox(1, 0, 0, 100, 30, [1])"); err == nil {
 		t.Fatal("combox non-string item should error")
@@ -274,27 +271,8 @@ func TestGuiFormValidation(t *testing.T) {
 	if _, err := guiEval(t, "mesbox(1, 0, 0, 100, 0)"); err == nil {
 		t.Fatal("mesbox zero height should error")
 	}
-	if _, err := guiEval(t, "getstr(99)"); err == nil {
-		t.Fatal("getstr unknown should error")
-	}
-	if _, err := guiEval(t, "objprm(99, \"enable\", 1)"); err == nil {
-		t.Fatal("objprm unknown should error")
-	}
-	if _, err := guiEval(t, "objprm(1, \"bogus\", 1)"); err == nil {
-		t.Fatal("objprm bogus key should error")
-	}
-	// 廃止された色キーは不明キーとして報告される（テーマ固定）。
-	for _, src := range []string{
-		"objprm(99, \"textcolor\", 255)",
-		"objprm(1, \"textcolor\", 16777216)",
-		"objprm(1, \"backcolor\", -2)",
-		"objprm(99, \"backcolor\", 255)",
-		"objprm(1, \"color\", 255)",
-		"objprm(1, \"bgcolor\", 255)",
-	} {
-		if _, err := guiEval(t, src); err == nil || !strings.Contains(err.Error(), "不明なキー") {
-			t.Fatalf("%s: got %v, want unknown-key error", src, err)
-		}
+	if _, err := guiEval(t, "objenable(99, 1)"); err == nil {
+		t.Fatal("objenable unknown should error")
 	}
 }
 

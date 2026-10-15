@@ -55,7 +55,7 @@ func TestFitTextEllOnlyWhenNoRoom(t *testing.T) {
 
 // TestFitItemsUniqueness はリスト選択が依存する不変条件を固定する。
 // EntrySelectedHandler は項目を文字列の等価性でインデックスに戻すため、2つの項目が同じ短縮形になると
-// selected() は最初のものを報告し、エディタは誤った定義に飛んでしまう。
+// objget() は最初のものを報告し、エディタは誤った定義に飛んでしまう。
 func TestFitItemsUniqueness(t *testing.T) {
 	w := 104
 	maxw := w - listPadX
@@ -74,7 +74,7 @@ func TestFitItemsUniqueness(t *testing.T) {
 			t.Errorf("item %d %q measures %d, over maxw %d", i, s, px(s), maxw)
 		}
 		if seen[s] {
-			t.Fatalf("item %d = %q duplicates an earlier entry: selected() would report the earlier index", i, s)
+			t.Fatalf("item %d = %q duplicates an earlier entry: objget() would report the earlier index", i, s)
 		}
 		seen[s] = true
 	}

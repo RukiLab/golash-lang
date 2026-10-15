@@ -33,30 +33,16 @@ gsh parse <file.gsh>                   構文木を出力します（デバッ�
 実行例：
 
 ```sh
-gsh run examples/hello.gsh
-gsh run examples/gui_hello.gsh
+gsh run examples/falling.gsh
 ```
 
 ## サンプル
 
-`examples/` に実行可能なサンプルがあります。
+`examples/` に実行可能なサンプルがあります（言語の回帰用フィクスチャは `testdata/parity/` に分離しています）。
 
 | ファイル | 内容 |
 | --- | --- |
-| `hello.gsh` | 基本出力・変数 |
-| `builtins.gsh` | 組み込み関数の一覧動作 |
-| `edge.gsh` | 境界条件の作例 |
-| `sample19.gsh` | 分岐・関数の作例 |
-| `define.gsh` | `#define`・`switch`・`lextokens` の作例 |
-| `falling.gsh` | 落ちものパズル（`#define` 使用例） |
-| `include_demo.gsh` | `#include` による分割例 |
-| `gui_hello.gsh` | 最小の GUI ウィンドウ |
-| `gui_draw.gsh` | 図形描画・画像転送・PNG 保存 |
-| `gui_forms.gsh` | ボタン・チェック・ドロップダウン・複数行入力 |
-| `gui_input.gsh` | キー・マウス入力 |
-| `gui_widgets.gsh` | ウィジェット集（ダイアログ含む） |
-| `gui_audio.gsh` | 音声再生 |
-| `human_check.gsh` | 人手検証テスト（GUI専用。描画・入力・IME・音声の確認） |
+| `falling.gsh` | 落ちものパズル（`#define` 使用例。素材は `assets/mino.png`） |
 
 ## テスト
 

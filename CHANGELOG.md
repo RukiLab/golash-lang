@@ -5,6 +5,14 @@ Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）�
 入る予定の変更で、版上げは README の「バージョン管理」または
 `go run ./tools/bumpver.go` を参照してください。
 
+## [Unreleased]
+
+### 追加
+- `objset(id, val)`・`objget(id)`・`objenable(id, flag)`（GUI）を追加。`button` の表示文字列・`chkbox` の状態/ラベル・`inputbox`/`mesbox` の内容・`listbox`/`combox` の選択/項目を種別と値の型で切り替えて操作し、有効・無効は別命令に分離
+
+### 削除
+- `setlist`・`sellist`・`selected`・`gettext`・`checked`・`getstr`・`setstr`・`pressed`・旧 `objprm(id, key, value)` を廃止。項目更新は `objset(id, 配列)` のみ（文字列一括は受け付けない）、選択は `objset(id, 整数)`、取得は `objget(id)`（`button` は押下イベントで呼び出し時に消費。表示文字列の取得は廃止）、有効・無効は `objenable(id, flag)` に一本化。旧名は未定義関数としてエラーになる
+
 ## [0.8.0] - 2026-10-14
 
 ### 追加

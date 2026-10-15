@@ -53,13 +53,13 @@ type widgetEntry struct {
 	kind   widgetKind
 	child  widget.PreferredSizeLocateableWidget
 	remove widget.RemoveChildFunc
-	// disabled は操作を凍結する（objprm "enable"。mu で保護）。
+	// disabled は操作を凍結する（objenable。mu で保護）。
 	disabled bool
 	// ボタンのラッチ＋リスト状態（バックエンドの mu で保護）。
 	pressed bool
 	items   []string
 	selIdx  int
-	// listW は listbox が配置された幅。setlist は幅を持たないため、
+	// listW は listbox が配置された幅。objset は幅を持たないため、
 	// 項目はこれに合わせて収められる。代わりにウィジェットの矩形を
 	// 読むと、最初のレイアウト通過まで 0 に見えてしまう。
 	listW int
@@ -86,6 +86,14 @@ type widgetEntry struct {
 	list    *widget.List
 	// カスタム描画の単一行エディタ（wInput。ebitenui の子は持たない）。
 	edit *inputState
+	// gx/gy/gw/gh は配置矩形の記録（objset での作り直し用）。
+	// listbox は従来の listX/listY/listW/listH も併用する。
+	gx int
+	gy int
+	gw int
+	gh int
+	// gimgs は button の画像バッファ id（objset のラベル変更で再生成用）。
+	gimgs []int
 }
 
 // ensureUI はゲームスレッドで保持中の UI を構築する。
@@ -175,8 +183,8 @@ func (b *WindowBackend) removeWidgetLocked(id int) error {
 
 // 固定パレット: 白い面、1px の灰色の枠、黒い文字。フォーカスは
 // 青枠の淡青の面。押下/選択は青い面に濃青の枠。ホバーは固有の
-// 淡青を保つ。ウィジェットごとの上書きはない: objprm の "textcolor"/
-// "backcolor" は暗いテーマとともに削除された。
+// 淡青を保つ。ウィジェットごとの上書きはない: 色キーは
+// 暗いテーマとともに削除された。
 var (
 	themeWhite      = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
 	themeFrame      = color.NRGBA{0x80, 0x80, 0x80, 0xFF}
@@ -188,6 +196,13 @@ var (
 	themePressBg    = color.NRGBA{204, 228, 247, 0xFF}
 	themePressFrame = color.NRGBA{34, 108, 169, 0xFF}
 	themeFaceDis    = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}
+	// スクロールバー用: Win 標準寄せのグレー系。溝は薄灰の
+	// フラット、つまみは中灰で溝から分離する。ボタン面の
+	// 白と混ざって見えたのが「ダサい」原因だった。
+	themeScrollThumb       = color.NRGBA{0xC1, 0xC1, 0xC1, 0xFF}
+	themeScrollThumbHover  = color.NRGBA{0xA6, 0xA6, 0xA6, 0xFF}
+	themeScrollThumbPress  = color.NRGBA{0x78, 0x78, 0x78, 0xFF}
+	themeScrollThumbBorder = color.NRGBA{0x9E, 0x9E, 0x9E, 0xFF}
 )
 
 // frame は伸縮可能な面を構築する: bg の周りに 1px の枠。1px の内余白
@@ -365,7 +380,7 @@ func (b *WindowBackend) checkImageForSize(s int) *widget.CheckboxImage {
 
 // listEntryColors はすべてのリスト状態を定義する。押下/ホバーの背景が
 // nil（透明）のままになってはならない: SelectPressed では押下で項目が
-// 選択され、nil の Pressed 背景だと selected() が既に切り替わっていても
+// 選択され、nil の Pressed 背景だと選択状態が既に切り替わっていても
 // マウスを離すまでハイライトが隠れてしまう。選択中と選択済みの項目は
 // 押下時の青を使う。フォーカス中（ただし未選択）の項目はフォーカスの
 // 淡青を使う（項目は枠なしの平坦な色）。
@@ -406,9 +421,16 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 	// ebitenui はラベル全体を描画するため、広いものはボタンの枠から
 	// あふれる。まずボタン幅に短縮する。
 	label = fitText(label, w-buttonPadX, b.TextWidth)
+	b.mu.Lock()
+	oldDis, oldPress := false, false
+	if old, ok := b.widgets[id]; ok && old.kind == wButton {
+		oldDis, oldPress = old.disabled, old.pressed
+	}
+	b.mu.Unlock()
 	b.runOnLoop(func() {
 		face := b.uiFace()
-		e := &widgetEntry{id: id, kind: wButton, selIdx: -1, label: label}
+		e := &widgetEntry{id: id, kind: wButton, selIdx: -1, label: label, gx: x, gy: y, gw: w, gh: h, disabled: oldDis, pressed: oldPress}
+		e.gimgs = append([]int(nil), imgs...)
 		bi := b.buttonImage()
 		bt := buttonTextColor()
 		opts := []widget.ButtonOpt{
@@ -486,7 +508,11 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 		} else if label != "" {
 			opts = append(opts, widget.ButtonOpts.Text(label, face, bt))
 		}
-		b.placeChild(id, e, widget.NewButton(opts...), x, y, w, h)
+		child := widget.NewButton(opts...)
+		b.placeChild(id, e, child, x, y, w, h)
+		if oldDis {
+			child.GetWidget().Disabled = true
+		}
 	})
 	return opErr
 }
@@ -508,7 +534,7 @@ func (b *WindowBackend) Pressed(id int) (bool, error) {
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wButton {
-		return false, fmt.Errorf("pressed：不明なボタン %d です", id)
+		return false, fmt.Errorf("objget：不明なボタン %d です", id)
 	}
 	p := e.pressed
 	e.pressed = false
@@ -520,7 +546,7 @@ func (b *WindowBackend) Pressed(id int) (bool, error) {
 // syncWidgetCache はウィジェットの実行時状態を映す（ゲームスレッドのみ。
 // Update から呼ばれる）。スクリプトの読み出しはこのミラーを使うため、
 // ゲッターがフレーム途中でスクリプトをブロックすることはない
-// （gettext のちらつき修正を参照）。
+// （入力欄のちらつき修正を参照）。
 func (b *WindowBackend) syncWidgetCache() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -571,7 +597,7 @@ func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 		b.mu.Unlock()
 		return nil
 	}
-	// 同じ id/矩形、異なる項目: setlist と同じように項目をその場で
+	// 同じ id/矩形、異なる項目: objset と同じように項目をその場で
 	// 入れ替え、リストごとのスクロールとフォーカスが生き残るようにする
 	// （ウィジェットを作り直すと毎フレーム失われた）。
 	if sameID && old.kind == wList && old.list != nil &&
@@ -594,13 +620,22 @@ func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 	for i, s := range items {
 		entries[i] = s
 	}
+	b.mu.Lock()
+	oldDis := false
+	if old, ok := b.widgets[id]; ok && old.kind == wList {
+		oldDis = old.disabled
+	}
+	b.mu.Unlock()
 	b.runOnLoop(func() {
 		face := b.uiFace()
-		e := &widgetEntry{id: id, kind: wList, selIdx: -1, listW: w, listX: x, listY: y, listH: h}
+		e := &widgetEntry{id: id, kind: wList, selIdx: -1, listW: w, listX: x, listY: y, listH: h, gx: x, gy: y, gw: w, gh: h, disabled: oldDis}
 		e.items = append([]string(nil), items...)
 		list := newListWidget(b, face, e, entries)
 		b.placeChild(id, e, list, x, y, w, h)
 		e.list = list
+		if oldDis {
+			list.GetWidget().Disabled = true
+		}
 	})
 	return nil
 }
@@ -618,12 +653,12 @@ func (b *WindowBackend) UpdateList(id int, items []string) error {
 		b.mu.Unlock()
 		return nil
 	}
-	// setlist は幅を持たない: listbox() が記録した幅に合わせる
+	// objset は幅を持たない: listbox() が記録した幅に合わせる
 	// （listbox() は再レイアウトのたび、例: ウィンドウリサイズ、に
 	// 再び呼ばれる）。
 	items = fitItems(items, e.listW-listSliderW-listPadX, b.textWidthLocked)
 	// 新しい項目を映し、キャッシュされた選択を（mu の下で）同期的に
-	// クリアし、同じフレーム内の selected() 読み出しが更新前の
+	// クリアし、同じフレーム内の objget() 読み出しが更新前の
 	// インデックスを決して見ないようにする。ウィジェット自体は
 	// ゲームスレッドでボタンを入れ替える。
 	e.items = append([]string(nil), items...)
@@ -740,7 +775,7 @@ func (b *WindowBackend) SelectedIndex(id int) (int, error) {
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || (e.kind != wList && e.kind != wCombo) {
-		return 0, fmt.Errorf("selected：不明な listbox %d です", id)
+		return 0, fmt.Errorf("objget：不明な listbox %d です", id)
 	}
 	return e.selIdx, nil
 }
@@ -749,6 +784,12 @@ func (b *WindowBackend) SelectedIndex(id int) (int, error) {
 // w/h は推奨サイズ（ボックス＋ラベル）にフォールバックする。ボックス
 // の見た目はもはやレイアウト矩形に応じてスケールしないため。
 func (b *WindowBackend) AddCheck(id int, label string, x, y, w, h int, checked bool) error {
+	b.mu.Lock()
+	oldDis := false
+	if old, ok := b.widgets[id]; ok && old.kind == wCheck {
+		oldDis = old.disabled
+	}
+	b.mu.Unlock()
 	b.runOnLoop(func() {
 		face := b.uiFace()
 		init := widget.WidgetUnchecked
@@ -775,8 +816,11 @@ func (b *WindowBackend) AddCheck(id int, label string, x, y, w, h int, checked b
 				h = ph
 			}
 		}
-		e := &widgetEntry{id: id, kind: wCheck, selIdx: -1, check: cb, checked: checked}
+		e := &widgetEntry{id: id, kind: wCheck, selIdx: -1, check: cb, checked: checked, label: label, gx: x, gy: y, gw: w, gh: h, disabled: oldDis}
 		b.placeChild(id, e, cb, x, y, w, h)
+		if oldDis {
+			cb.GetWidget().Disabled = true
+		}
 	})
 	return nil
 }
@@ -788,18 +832,157 @@ func (b *WindowBackend) Checked(id int) (bool, error) {
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wCheck {
-		return false, fmt.Errorf("checked：不明な checkbox %d です", id)
+		return false, fmt.Errorf("objget：不明な checkbox %d です", id)
 	}
 	return e.checked, nil
 }
 
+// WidgetType は objset/objget の振り分け用に種別名を返す。
+func (b *WindowBackend) WidgetType(id int) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.widgets[id]
+	if !ok {
+		return "", fmt.Errorf("不明なウィジェット %d です", id)
+	}
+	switch e.kind {
+	case wButton:
+		return "button", nil
+	case wInput:
+		return "inputbox", nil
+	case wList:
+		return "listbox", nil
+	case wCheck:
+		return "chkbox", nil
+	case wCombo:
+		return "combox", nil
+	case wArea:
+		return "mesbox", nil
+	}
+	return "", fmt.Errorf("不明なウィジェット %d です", id)
+}
+
+// SetButtonLabel はボタンの表示文字列を変える。画像・矩形・有効状態を保ち作り直す。
+func (b *WindowBackend) SetButtonLabel(id int, label string) error {
+	b.mu.Lock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wButton {
+		b.mu.Unlock()
+		return fmt.Errorf("objset：不明なボタン %d です", id)
+	}
+	x, y, w, h := e.gx, e.gy, e.gw, e.gh
+	imgs := append([]int(nil), e.gimgs...)
+	b.mu.Unlock()
+	fitted := fitText(label, w-buttonPadX, b.TextWidth)
+	b.mu.Lock()
+	if cur, ok := b.widgets[id]; ok && cur.kind == wButton {
+		cur.label = fitted
+	}
+	b.mu.Unlock()
+	return b.AddButton(id, label, x, y, w, h, imgs...)
+}
+
+// SetChecked はチェックボックスのオン・オフを変える。
+func (b *WindowBackend) SetChecked(id int, on bool) error {
+	b.mu.Lock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wCheck || e.check == nil {
+		b.mu.Unlock()
+		return fmt.Errorf("objset：不明な checkbox %d です", id)
+	}
+	e.checked = on
+	cb := e.check
+	b.mu.Unlock()
+	state := widget.WidgetUnchecked
+	if on {
+		state = widget.WidgetChecked
+	}
+	b.runOnLoop(func() {
+		cb.SetState(state)
+	})
+	return nil
+}
+
+// SetCheckLabel はチェックボックスの表示文字列を変える。状態・矩形を保ち作り直す。
+func (b *WindowBackend) SetCheckLabel(id int, label string) error {
+	b.mu.Lock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wCheck {
+		b.mu.Unlock()
+		return fmt.Errorf("objset：不明な checkbox %d です", id)
+	}
+	x, y, w, h := e.gx, e.gy, e.gw, e.gh
+	checked := e.checked
+	b.mu.Unlock()
+	b.mu.Lock()
+	if cur, ok := b.widgets[id]; ok && cur.kind == wCheck {
+		cur.label = label
+	}
+	b.mu.Unlock()
+	return b.AddCheck(id, label, x, y, w, h, checked)
+}
+
+// SelectCombo は combox の選択をインデックスで変える。ハンドラは発火しない。
+func (b *WindowBackend) SelectCombo(id, index int) error {
+	b.mu.Lock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wCombo || e.combo == nil {
+		b.mu.Unlock()
+		return nil
+	}
+	if index < 0 || index >= len(e.items) {
+		b.mu.Unlock()
+		return nil
+	}
+	entry := e.items[index]
+	e.selIdx = index
+	cb := e.combo
+	b.mu.Unlock()
+	b.runOnLoop(func() {
+		cb.SetSelectedEntry(entry)
+	})
+	return nil
+}
+
+// UpdateCombo は combox の項目をその場で置き換える。選択はクリアされる。
+func (b *WindowBackend) UpdateCombo(id int, items []string) error {
+	b.mu.Lock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wCombo {
+		b.mu.Unlock()
+		return nil
+	}
+	x, y, w, h := e.gx, e.gy, e.gw, e.gh
+	b.mu.Unlock()
+	return b.AddCombo(id, x, y, w, h, items, -1)
+}
+
+// sliderHandleImage はスクロールバーのつまみ専用の面を構築する:
+// ボタン面の使い回しだと溝と同化して太く見えるため、中灰で分離し、
+// Hover/Pressed/Disabled も全状態埋める (nil だと押下+ホバーで
+// 透明に瞬く。buttonImage と同じ理由)。
+func sliderHandleImage() *widget.ButtonImage {
+	idle := frame(themeScrollThumb, themeScrollThumbBorder)
+	hover := frame(themeScrollThumbHover, themeScrollThumbBorder)
+	pressed := frame(themeScrollThumbPress, themeScrollThumbBorder)
+	dis := frame(themeFaceDis, themeScrollThumbBorder)
+	return &widget.ButtonImage{
+		Idle: idle, Hover: hover,
+		Pressed: pressed, PressedHover: pressed, Disabled: dis, PressedDisabled: dis,
+	}
+}
+
 // comboSliderParams はドロップダウンのスクロールバーを固定テーマで
-// 描画する。
+// 描画する。細身 (listSliderW=12) の Win 標準寄せ: 薄灰の溝に
+// 中灰のつまみ。
 func (b *WindowBackend) comboSliderParams() *widget.SliderParams {
-	track := frame(themeWhite, themeFrame)
+	track := frame(themeFaceDis, themeFaceDis)
+	minHandle := listSliderW
 	return &widget.SliderParams{
-		TrackImage:  &widget.SliderTrackImage{Idle: track, Hover: track, Disabled: track},
-		HandleImage: b.buttonImage(),
+		TrackImage:    &widget.SliderTrackImage{Idle: track, Hover: track, Disabled: track},
+		HandleImage:   sliderHandleImage(),
+		MinHandleSize: &minHandle,
+		TrackPadding:  widget.NewInsetsSimple(0),
 	}
 }
 
@@ -816,9 +999,15 @@ func (b *WindowBackend) AddCombo(id, x, y, w, h int, items []string, sel int) er
 	for i, s := range items {
 		entries[i] = s
 	}
+	b.mu.Lock()
+	oldDis := false
+	if old, ok := b.widgets[id]; ok && old.kind == wCombo {
+		oldDis = old.disabled
+	}
+	b.mu.Unlock()
 	b.runOnLoop(func() {
 		face := b.uiFace()
-		e := &widgetEntry{id: id, kind: wCombo, selIdx: -1}
+		e := &widgetEntry{id: id, kind: wCombo, selIdx: -1, gx: x, gy: y, gw: w, gh: h, disabled: oldDis}
 		e.items = append([]string(nil), items...)
 		labelOf := func(en any) string {
 			if s, ok := en.(string); ok {
@@ -833,6 +1022,9 @@ func (b *WindowBackend) AddCombo(id, x, y, w, h int, items []string, sel int) er
 		}
 		e.combo = cb
 		b.placeChild(id, e, cb, x, y, w, h)
+		if oldDis {
+			cb.GetWidget().Disabled = true
+		}
 	})
 	return nil
 }
@@ -892,12 +1084,21 @@ func (b *WindowBackend) AddArea(id, x, y, w, h int, text string) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("mesbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
 	}
+	b.mu.Lock()
+	oldDis := false
+	if old, ok := b.widgets[id]; ok && old.kind == wArea {
+		oldDis = old.disabled
+	}
+	b.mu.Unlock()
 	b.runOnLoop(func() {
 		face := b.uiFace()
-		e := &widgetEntry{id: id, kind: wArea, selIdx: -1, cached: text}
+		e := &widgetEntry{id: id, kind: wArea, selIdx: -1, cached: text, gx: x, gy: y, gw: w, gh: h, disabled: oldDis}
 		ta := newAreaWidget(b, face, text)
 		e.area = ta
 		b.placeChild(id, e, ta, x, y, w, h)
+		if oldDis {
+			ta.GetWidget().Disabled = true
+		}
 	})
 	return nil
 }
@@ -932,16 +1133,16 @@ func (b *WindowBackend) AreaText(id int) (string, error) {
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wArea || e.area == nil {
-		return "", fmt.Errorf("getstr：不明な mesbox %d です", id)
+		return "", fmt.Errorf("objget：不明な mesbox %d です", id)
 	}
 	return e.cached, nil
 }
 
 // SetAreaText は複数行ボックスの内容を置き換える（ゲームスレッド）。
 // ebitenui の TextArea は表示専用（キーボード編集なし）のため、mesbox
-// はプログラム駆動のログビューアとして機能する: setstr() が書き、
-// getstr() が読む。ミラーはインラインで更新されるため、続く
-// getstr() は正確になる。
+// はプログラム駆動のログビューアとして機能する: objset() が書き、
+// objget() が読む。ミラーはインラインで更新されるため、続く
+// objget() は正確になる。
 func (b *WindowBackend) SetAreaText(id int, text string) error {
 	// 存在確認を先頭で行う（AddButton/AddArea と同じように）ため、未知の
 	// id はゲームスレッドでブロックせずに失敗する。
@@ -949,7 +1150,7 @@ func (b *WindowBackend) SetAreaText(id int, text string) error {
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wArea || e.area == nil {
 		b.mu.Unlock()
-		return fmt.Errorf("setstr：不明な mesbox %d です", id)
+		return fmt.Errorf("objset：不明な mesbox %d です", id)
 	}
 	b.mu.Unlock()
 	b.runOnLoop(func() {
@@ -971,7 +1172,7 @@ func (b *WindowBackend) SetEnabled(id int, on bool) error {
 	_, ok := b.widgets[id]
 	b.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("objprm：不明なウィジェット %d です", id)
+		return fmt.Errorf("objenable：不明なウィジェット %d です", id)
 	}
 	b.runOnLoop(func() {
 		b.mu.Lock()

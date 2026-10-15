@@ -134,9 +134,30 @@ func (b *WindowBackend) AddInput(id, x, y, w, h int, text string) error {
 	}
 	rs := []rune(text)
 	st := &inputState{rect: image.Rect(x, y, x+w, y+h), text: rs, caret: len(rs)}
+	b.mu.Lock()
+	oldDis := false
+	if old, ok := b.widgets[id]; ok && old.kind == wInput {
+		oldDis = old.disabled
+	}
+	b.mu.Unlock()
 	b.runOnLoop(func() {
-		b.placeCustom(id, &widgetEntry{id: id, kind: wInput, selIdx: -1, edit: st})
+		b.placeCustom(id, &widgetEntry{id: id, kind: wInput, selIdx: -1, edit: st, gx: x, gy: y, gw: w, gh: h, disabled: oldDis})
 	})
+	return nil
+}
+
+// SetInputText は単一行入力の内容を置き換える（キャレットは末尾）。
+// カスタム描画のため mu 下での即時更新で足りる。
+func (b *WindowBackend) SetInputText(id int, text string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wInput || e.edit == nil {
+		return fmt.Errorf("objset：不明な inputbox %d です", id)
+	}
+	rs := []rune(text)
+	e.edit.text = rs
+	e.edit.caret = len(rs)
 	return nil
 }
 
@@ -147,7 +168,7 @@ func (b *WindowBackend) InputText(id int) (string, error) {
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wInput || e.edit == nil {
-		return "", fmt.Errorf("gettext：不明な inputbox %d です", id)
+		return "", fmt.Errorf("objget：不明な inputbox %d です", id)
 	}
 	return string(e.edit.text), nil
 }

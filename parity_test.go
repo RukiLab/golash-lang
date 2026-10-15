@@ -174,7 +174,7 @@ var vmCases = []vmCase{
 	{"i = 0\nrepeat 3 as k {\ni += 1\n}\nmes(i)\nmes(k)\n", "3\n", "6:5: 未定義の変数 \"k\" です", 0, false},
 }
 
-// builtinsGshExpected は examples/builtins.gsh 用の期待出力を
+// builtinsGshExpected は testdata/parity/builtins.gsh 用の期待出力を
 // 現在の年/月で組み立てる。gettime(0)/gettime(1) は壁時計を返すため、
 // 月を直書きすると毎月古くなる（例：9月に埋め込んだ month=9 は
 // 10月に失敗する）。time.Now から計算すればテストは通り続けつつ、
@@ -185,12 +185,12 @@ func builtinsGshExpected() string {
 }
 
 var vmFiles = []vmFileCase{
-	{"examples/hello.gsh", "Hello\nWorld\n16\n36\nHello, Alice\nx = 16 y = 20\n", "", 0, false},
-	{"examples/builtins.gsh", "", "", 0, false},
-	{"examples/edge.gsh", "2\n99\nZed\n77\n5\n7\n9\n10\ntrue\ntrue\n", "", 0, false},
-	{"examples/sample19.gsh", "Hello, Alice\nHello, Bob\nodd\n", "", 0, false},
-	{"examples/define.gsh", "0\n1\n2\n3\n10\n11\n15\nsouth\nIDENT\nx\n", "", 0, false},
-	{"examples/include_demo.gsh", "=== include demo ===\n42\n", "", 0, false},
+	{"testdata/parity/hello.gsh", "Hello\nWorld\n16\n36\nHello, Alice\nx = 16 y = 20\n", "", 0, false},
+	{"testdata/parity/builtins.gsh", "", "", 0, false},
+	{"testdata/parity/edge.gsh", "2\n99\nZed\n77\n5\n7\n9\n10\ntrue\ntrue\n", "", 0, false},
+	{"testdata/parity/sample19.gsh", "Hello, Alice\nHello, Bob\nodd\n", "", 0, false},
+	{"testdata/parity/define.gsh", "0\n1\n2\n3\n10\n11\n15\nsouth\nIDENT\nx\n", "", 0, false},
+	{"testdata/parity/include_demo.gsh", "=== include demo ===\n42\n", "", 0, false},
 }
 
 func runVMCase(t *testing.T, src string) (string, string, int, bool) {
@@ -250,7 +250,7 @@ func TestVMFiles(t *testing.T) {
 			code, hasExit := in.ExitCode()
 			out := buf.String()
 			wantOut := c.out
-			if c.file == "examples/builtins.gsh" {
+			if c.file == "testdata/parity/builtins.gsh" {
 				wantOut = builtinsGshExpected()
 			}
 			if out != wantOut || errStr != c.err || code != c.code || hasExit != c.hasExit {

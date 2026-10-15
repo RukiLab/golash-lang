@@ -11,7 +11,7 @@ var guiBuiltinNames = []string{
 	"padcount", "padbtn", "padaxis", "padname", "resizable",
 	"touchcount", "touchx", "touchy", "winmove", "dropfiles", "dropload",
 	"mmload", "mmplay", "mmstop", "mmvol",
-	"button", "pressed", "inputbox", "gettext", "ime",
-	"listbox", "setlist", "sellist", "selected", "clrobj", "dialog",
-	"chkbox", "checked", "combox", "mesbox", "getstr", "setstr", "objprm",
+	"button", "inputbox", "ime",
+	"listbox", "clrobj", "dialog",
+	"chkbox", "combox", "mesbox", "objset", "objget", "objenable",
 }

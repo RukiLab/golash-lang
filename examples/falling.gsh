@@ -1,4 +1,4 @@
-#define MINO_SIZE 16
+#define BLOCK_SIZE 16
 #define COLS 10
 #define VISIBLE_ROWS 20
 #define BUFFER_ROWS 2
@@ -158,7 +158,7 @@ gravity_interval = 60
 lock_delay = 30
 lock_reset_count = 0
 lowest_row = 0
-mino_img = 0
+block_img = 0
 sfx_move = 0
 
 // キーフラグ
@@ -620,10 +620,10 @@ def draw_block(c, r) {
     if r < BUFFER_ROWS {
         return
     }
-    px = c * MINO_SIZE
-    py = (r - BUFFER_ROWS) * MINO_SIZE
+    px = c * BLOCK_SIZE
+    py = (r - BUFFER_ROWS) * BLOCK_SIZE
     pos(px, py)
-    gcopy(mino_img, 0, 0, MINO_SIZE, MINO_SIZE)
+    gcopy(block_img, 0, 0, BLOCK_SIZE, BLOCK_SIZE)
 }
 
 def draw_field() {
@@ -631,7 +631,7 @@ def draw_field() {
         if r >= BUFFER_ROWS {
             if clear_timer > 0 && clearing_lines[r] == 1 {
                 color(255, 255, 255)
-                boxf(0, (r - BUFFER_ROWS) * MINO_SIZE, COLS * MINO_SIZE, (r - BUFFER_ROWS + 1) * MINO_SIZE)
+                boxf(0, (r - BUFFER_ROWS) * BLOCK_SIZE, COLS * BLOCK_SIZE, (r - BUFFER_ROWS + 1) * BLOCK_SIZE)
             } else {
                 repeat COLS as c {
                     if field[r][c] != 0 {
@@ -696,9 +696,9 @@ def draw() {
 
 def main() {
     // 画面サイズは拡張せず、元の 10×20 マス（160×320）を維持
-    screen(MINO_SIZE * COLS, MINO_SIZE * VISIBLE_ROWS)
+    screen(BLOCK_SIZE * COLS, BLOCK_SIZE * VISIBLE_ROWS)
     title("Falling")
-    mino_img = picload("assets/mino.png")
+    block_img = picload("assets/block.png")
     init_game()
 
     while is_running {

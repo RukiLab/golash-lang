@@ -1613,7 +1613,7 @@ func (g *renderGame) makeWidgets() {
 	}
 	t, err := g.b.InputText(12)
 	if err != nil {
-		g.wErrs = append(g.wErrs, "gettext: "+err.Error())
+		g.wErrs = append(g.wErrs, "inputtext: "+err.Error())
 	}
 	g.wText = t
 	if err := g.b.AddCheck(21, "Agree", 10, 300, 200, 32, true); err != nil {
@@ -1748,7 +1748,7 @@ func (g *renderGame) checkWidgetsPhase1() {
 		return
 	}
 	if g.wText != "init" {
-		g.wFail = "gettext mismatch: " + g.wText
+		g.wFail = "inputtext mismatch: " + g.wText
 		return
 	}
 	if !g.b.HasWidget(21) || !g.b.HasWidget(22) || !g.b.HasWidget(23) {
@@ -2042,9 +2042,9 @@ func pumpUntil(b *WindowBackend, done chan struct{}, timeout time.Duration) bool
 	}
 }
 
-// TestInputTextNoStall: gettext はキューの排出でブロックしてはならない。
+// TestInputTextNoStall: InputText はキューの排出でブロックしてはならない。
 // ブロックする読み出しはフレーム途中で cls/mes の再描画を止め、
-// ウィジェットのデモの mes("input="+gettext(id)) の行がちらついた。
+// ウィジェットのデモの mes("input="+objget(id)) の行がちらついた。
 func TestInputTextNoStall(t *testing.T) {
 	b := mustNew(t)
 	done := make(chan struct{})
@@ -2213,7 +2213,7 @@ func TestInputFocusModel(t *testing.T) {
 // 繰返しの実行（go test -count=N）は panic せずスキップする。
 // TestListEntryColorsComplete: すべてのリスト状態は背景を必要とする。
 // nil の Pressed/Hover 背景は透明として描画され、マウスボタンが押され
-// ている間ハイライトを隠していた（selected() は切り替わっていたが、
+// ている間ハイライトを隠していた（選択状態は切り替わっていたが、
 // 青はリリース時にしか現れなかった）。
 func TestListEntryColorsComplete(t *testing.T) {
 	c := listEntryColors()
@@ -2738,15 +2738,15 @@ func TestFormWidgetsHeadless(t *testing.T) {
 		t.Fatal("checked unknown should error")
 	}
 	if _, err := b.AreaText(21); err == nil {
-		t.Fatal("getstr on a checkbox should error")
+		t.Fatal("AreaText on a checkbox should error")
 	}
 	if _, err := b.SelectedIndex(21); err == nil {
-		t.Fatal("selected on a checkbox should error")
+		t.Fatal("SelectedIndex on a checkbox should error")
 	}
 	if err := b.SetEnabled(99, true); err == nil {
-		t.Fatal("objprm unknown should error")
+		t.Fatal("SetEnabled unknown should error")
 	}
-	// objprm はループで適用される（ここでは手動で汲み上げられる）。
+	// SetEnabled はループで適用される（ここでは手動で汲み上げられる）。
 	en := make(chan struct{})
 	var enErr error
 	go func() {
@@ -3188,7 +3188,7 @@ func TestListboxVerticalSlider(t *testing.T) {
 // 同じ id/矩形/項目での繰返しの listbox() 呼出はウィジェットを再利用
 // しなければならない（それによりそのスクロールオフセットと ebitenui の
 // フォーカスが生き残る）。そして異なる項目での同じ矩形の呼出は
-// 作り直さず（毎フレームスクロールをリセットしていた）setlist の
+// 作り直さず（毎フレームスクロールをリセットしていた）objset の
 // ように項目をその場で入れ替えなければならない。
 func TestListboxAddListKeepsWidget(t *testing.T) {
 	b := mustNew(t)
@@ -3301,7 +3301,7 @@ func TestAreaVerticalScrollbar(t *testing.T) {
 	b.Draw(ebiten.NewImage(640, 480))
 }
 
-// TestListboxItemsFitAndStayUnique は listbox/setlist の組込みが
+// TestListboxItemsFitAndStayUnique は listbox/objset の組込みが
 // するようにバックエンドを駆動し、格納された項目（選択がそれを参照して
 // 解決する）がリストの幅に収められ、かつ重複しないことを確認する。
 // これにより、似た名前の2つの定義の2つ目をクリックしても正しいものに
@@ -3331,11 +3331,11 @@ func TestListboxItemsFitAndStayUnique(t *testing.T) {
 		}
 		for j := 0; j < i; j++ {
 			if got[j] == s {
-				t.Fatalf("item %d %q duplicates item %d: selected() would report the earlier index", i, s, j)
+				t.Fatalf("item %d %q duplicates item %d: objget() would report the earlier index", i, s, j)
 			}
 		}
 	}
-	// setlist は記録された幅に再び収める。
+	// objset は記録された幅に再び収める。
 	if err := runWidgetOp(t, b, func() error { return b.UpdateList(41, items) }); err != nil {
 		t.Fatalf("UpdateList: %v", err)
 	}
@@ -3347,7 +3347,7 @@ func TestListboxItemsFitAndStayUnique(t *testing.T) {
 	}
 	for i := range got {
 		if got[i] != got2[i] {
-			t.Fatalf("item %d changed after setlist: %q -> %q", i, got[i], got2[i])
+			t.Fatalf("item %d changed after objset: %q -> %q", i, got[i], got2[i])
 		}
 	}
 }

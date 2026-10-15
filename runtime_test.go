@@ -405,7 +405,7 @@ func TestFormerKeywordsAreIdents(t *testing.T) {
 
 func TestSample19Golden(t *testing.T) {
 	// ParseFile を経由して、プリプロセッサ行（#mode cli）が尊重される。
-	prog, err := ParseFile("examples/sample19.gsh")
+	prog, err := ParseFile("testdata/parity/sample19.gsh")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
