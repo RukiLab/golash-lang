@@ -168,6 +168,54 @@ func keyFor(code int) (ebiten.Key, bool) {
 
 // shiftHeld はいずれかのシフトキーを報告する。ctrlHeld / altHeld も
 // 同様。
+
+// supportedKeyCodes は getkey() が受け付ける全キーコードを返す。
+func supportedKeyCodes() []int {
+	codes := []int{8, 9, 13, 16, 17, 18, 27, 32, 33, 34, 35, 36, 37, 38, 39, 40, 45, 46}
+	for c := 48; c <= 57; c++ {
+		codes = append(codes, c)
+	}
+	for c := 65; c <= 90; c++ {
+		codes = append(codes, c)
+	}
+	for c := 112; c <= 123; c++ {
+		codes = append(codes, c)
+	}
+	for c := 186; c <= 192; c++ {
+		codes = append(codes, c)
+	}
+	for c := 219; c <= 222; c++ {
+		codes = append(codes, c)
+	}
+	return codes
+}
+
+// keyDownNow はスクリプトのキーコードの現在押下状態を返す。
+// KeyDown と pumpKeys で共有する（ebiten 直読み、ロック不要）。
+func keyDownNow(code int) (bool, bool) {
+	switch code {
+	case 16:
+		return shiftHeld(), true
+	case 17:
+		return ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight), true
+	case 18:
+		return ebiten.IsKeyPressed(ebiten.KeyAltLeft) || ebiten.IsKeyPressed(ebiten.KeyAltRight), true
+	}
+	k, ok := keyFor(code)
+	if !ok {
+		return false, false
+	}
+	return ebiten.IsKeyPressed(k), true
+}
+
+// keyEdgeNext は立上りラッチの純粋遷移である。down が立ち上がった
+// 瞬間に hit を立て、prev を更新する。ユニットテスト可能。
+func keyEdgeNext(prev, down, hit bool) (bool, bool) {
+	if down && !prev {
+		hit = true
+	}
+	return down, hit
+}
 func shiftHeld() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
@@ -188,6 +236,9 @@ func clickButton(btn int) (ebiten.MouseButton, bool) {
 // pumpInput はクリックの立ち上がりエッジをラッチし、ホイールの動きを
 // 蓄積する。Update から呼ばれる。ebiten.Wheel は1ティックごとの差分
 // （アイドル時は 0）を報告するため、単純な蓄積で動きを失わない。
+// キーの立上り（getkey(code, 1) 用）もここでラッチする: スクリプトが
+// ポーリングしていなくても Update が見た押下は失われず、KeyHit が
+// 消費するまで残る（getkey(0, 1) と同じ消費型）。
 func (b *WindowBackend) pumpInput() {
 	pressed := [3]bool{
 		ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft),
@@ -195,6 +246,16 @@ func (b *WindowBackend) pumpInput() {
 		ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight),
 	}
 	_, wy := ebiten.Wheel()
+	// キー状態はロック外で一括取得する（ebiten 直読み）。
+	type keySample struct {
+		code int
+		down bool
+	}
+	samples := make([]keySample, 0, 64)
+	for _, code := range supportedKeyCodes() {
+		down, _ := keyDownNow(code)
+		samples = append(samples, keySample{code, down})
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for i := range pressed {
@@ -204,6 +265,17 @@ func (b *WindowBackend) pumpInput() {
 		b.mouseDown[i] = pressed[i]
 	}
 	b.wheelAccum += wy
+	if b.keyPrev == nil {
+		b.keyPrev = make(map[int]bool)
+	}
+	if b.keyHit == nil {
+		b.keyHit = make(map[int]bool)
+	}
+	for _, s := range samples {
+		prev := b.keyPrev[s.code]
+		hit := b.keyHit[s.code]
+		b.keyPrev[s.code], b.keyHit[s.code] = keyEdgeNext(prev, s.down, hit)
+	}
 }
 
 // MouseWheel は最後の呼出以降の保留中の垂直ホイールのデテントを返す
@@ -389,18 +461,26 @@ func (b *WindowBackend) ReadImmediate() string {
 
 // KeyDown はスクリプトのキーコードが押されているかを報告する。
 // 修飾キーのコード 16/17/18 はいずれかの側（左右）に一致する。
+// レベル検出であり、消費しない（getkey(code) / getkey(code, 0) 用）。
 func (b *WindowBackend) KeyDown(code int) (bool, bool) {
-	switch code {
-	case 16:
-		return shiftHeld(), true
-	case 17:
-		return ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight), true
-	case 18:
-		return ebiten.IsKeyPressed(ebiten.KeyAltLeft) || ebiten.IsKeyPressed(ebiten.KeyAltRight), true
-	}
-	k, ok := keyFor(code)
-	if !ok {
+	return keyDownNow(code)
+}
+
+// KeyHit は前回呼び出し以降の立上り（押した瞬間）を報告する
+// （消費される）。押している間 true を返し続ける KeyDown と違い、
+// 1回の押下で1度だけ true になる。pumpInput が Update ごとに
+// 立上りをラッチするため、同一ティック内の複数回ポーリングで
+// 二重に true になることはない（getkey(0, 1) と同じ消費型）。
+func (b *WindowBackend) KeyHit(code int) (bool, bool) {
+	if _, ok := keyDownNow(code); !ok {
 		return false, false
 	}
-	return ebiten.IsKeyPressed(k), true
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.keyHit == nil {
+		b.keyHit = make(map[int]bool)
+	}
+	h := b.keyHit[code]
+	b.keyHit[code] = false
+	return h, true
 }

@@ -183,6 +183,72 @@ func TestCtrlStep(t *testing.T) {
 	}
 }
 
+// TestKeyEdgeNext は getkey(code, 1) の立上りラッチ遷移を検証する：
+// 解放中は沈黙、押下の瞬間に1度だけ立ち上がり、保持中は沈黙を保ち、
+// 解放後の再押下で再び立ち上がる。
+func TestKeyEdgeNext(t *testing.T) {
+	prev, hit := false, false
+	prev, hit = keyEdgeNext(prev, false, hit)
+	if prev || hit {
+		t.Fatalf("idle = (%v,%v), want (false,false)", prev, hit)
+	}
+	prev, hit = keyEdgeNext(prev, true, hit)
+	if !prev || !hit {
+		t.Fatalf("press = (%v,%v), want (true,true)", prev, hit)
+	}
+	// 消費後も prev は保持される（離すまで再発火しない）。
+	prev, hit = keyEdgeNext(prev, true, false)
+	if !prev || hit {
+		t.Fatalf("hold = (%v,%v), want (true,false)", prev, hit)
+	}
+	prev, hit = keyEdgeNext(prev, true, hit)
+	if !prev || hit {
+		t.Fatalf("hold2 = (%v,%v), want (true,false)", prev, hit)
+	}
+	prev, hit = keyEdgeNext(prev, false, hit)
+	if prev || hit {
+		t.Fatalf("release = (%v,%v), want (false,false)", prev, hit)
+	}
+	prev, hit = keyEdgeNext(prev, true, hit)
+	if !prev || !hit {
+		t.Fatalf("repress = (%v,%v), want (true,true)", prev, hit)
+	}
+}
+
+// TestKeyHitConsume は KeyHit が消費型であることを検証する：
+// 立上りフラグは1度の読み出しで消え、2度目は false になる。
+// 不明コードは ok=false を返す。
+func TestKeyHitConsume(t *testing.T) {
+	b := mustNew(t)
+	if _, ok := b.KeyHit(999); ok {
+		t.Fatal("KeyHit(999) should be unknown")
+	}
+	if h, ok := b.KeyHit(37); !ok || h {
+		t.Fatalf("KeyHit idle = (%v,%v), want (false,true)", h, ok)
+	}
+	b.mu.Lock()
+	if b.keyHit == nil {
+		b.keyHit = make(map[int]bool)
+	}
+	b.keyHit[37] = true
+	b.mu.Unlock()
+	if h, ok := b.KeyHit(37); !ok || !h {
+		t.Fatalf("KeyHit latched = (%v,%v), want (true,true)", h, ok)
+	}
+	if h, ok := b.KeyHit(37); !ok || h {
+		t.Fatalf("KeyHit consumed = (%v,%v), want (false,true)", h, ok)
+	}
+	// 対応表の全コードが有効で、未知コードが無効であること。
+	for _, c := range supportedKeyCodes() {
+		if _, ok := keyDownNow(c); !ok {
+			t.Fatalf("keyDownNow(%d) should be known", c)
+		}
+	}
+	if _, ok := keyDownNow(999); ok {
+		t.Fatal("keyDownNow(999) should be unknown")
+	}
+}
+
 // TestImeDiff はフィールドミラーを検証する：追記は通過し、
 // フィールド内削除は末尾削除になり、同一テキストは無操作。
 func TestImeDiff(t *testing.T) {

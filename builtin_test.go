@@ -64,17 +64,17 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 		"abs", "sqrt", "sin", "cos", "tan", "atan", "exp", "log", "pow", "limit", "min", "max",
 		"rnd", "randomize",
 		"strlen", "strmid", "instr", "strtrim", "split", "strf", "getpath",
-		"gettime", "sleep", "await", "tick", "nanotime", "end", "assert", "logmes", "exec", "execgui", "args",
+		"gettime", "sleep", "await", "tick", "nanotime", "end", "assert", "logmes", "exec", "args",
 		"getenv", "setenv", "open", "clipget", "clipset",
 		"dlgopen", "dlgsave", "httpget", "httppost",
-		"exist", "filetime", "fileinfo", "dirlist", "delete", "mkdir", "chdir", "bcopy", "bload", "bsave",
+		"fileinfo", "dirlist", "delete", "mkdir", "chdir", "bcopy", "bload", "bsave",
 		"getcwd", "direxe", "homedir", "tmpdir",
 		"notemax", "noteget", "noteadd", "notedel", "noteload", "notesave",
 		"peek", "wpeek", "lpeek", "poke", "wpoke", "lpoke",
 		"push", "pop", "join", "dim",
 		"sort", "reverse", "insert", "remove", "slice", "find",
 		"replace", "upper", "lower", "asc", "chr",
-		"lextokens", "strwidth", "parsetree", "checksrc", "srcanalyze", "pipeexec", "piperun",
+		"lextokens", "strwidth", "parsetree", "checksrc", "srcanalyze", "pipeexec",
 	}
 	got := map[string]bool{}
 	for _, n := range builtinNames() {
@@ -425,26 +425,15 @@ func TestHttppost(t *testing.T) {
 }
 
 func TestExec(t *testing.T) {
-	// 非同期の起動: 待たずに、起動すると 0 を返す。
+	// 非同期の起動: 待たずに、起動すると 0 を返す（コンソールなしの切り離し起動）。
 	if runtime.GOOS == "windows" {
 		mustOutIO(t, "mes(exec(\"cmd\", \"/c\", \"exit\", \"3\"))\n", "", "0\n")
 	} else {
 		mustOutIO(t, "mes(exec(\"sh\", \"-c\", \"exit 3\"))\n", "", "0\n")
 	}
 	mustErrIO(t, "mes(exec(\"no-such-command-xyz\"))\n", "exec：")
-}
-
-// TestExecgui は切り離された双子について TestExec を反映する: 非同期の
-// 起動は開始すると 0 を返し、起動失敗はエラー（異なるのはコンソール
-// のみで、これは出力ベースのテストでは観測できない）。
-func TestExecgui(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		mustOutIO(t, "mes(execgui(\"cmd\", \"/c\", \"exit\", \"3\"))\n", "", "0\n")
-	} else {
-		mustOutIO(t, "mes(execgui(\"sh\", \"-c\", \"exit 3\"))\n", "", "0\n")
-	}
-	mustErrIO(t, "mes(execgui(\"no-such-command-xyz\"))\n", "execgui：")
-	mustErrIO(t, "mes(execgui(1))\n", "execgui")
+	mustErrIO(t, "mes(exec(1))\n", "exec")
+	mustErrIO(t, "mes(execgui(\"sh\"))\n", "未定義の関数")
 }
 
 // TestChildOutWriters は子プロセス出力の防護を固定する: 実際の *os.File
@@ -489,43 +478,32 @@ func TestChildOutWriters(t *testing.T) {
 
 func TestPipeexec(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		mustOutIO(t, "mes(pipeexec(\"cmd\", \"/c\", \"echo\", \"hi\"))\n", "", "hi\r\n\n")
+		mustOutIO(t, "r = pipeexec(\"cmd\", \"/c\", \"echo\", \"hi\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\nhi\r\n\n\n")
 	} else {
-		mustOutIO(t, "mes(pipeexec(\"printf\", \"hi\"))\n", "", "hi\n")
-	}
-	mustErrIO(t, "mes(pipeexec(\"no-such-command-xyz\"))\n", "pipeexec：")
-	if runtime.GOOS == "windows" {
-		mustErrIO(t, "mes(pipeexec(\"cmd\", \"/c\", \"exit\", \"3\"))\n", "終了コード 3")
-	} else {
-		mustErrIO(t, "mes(pipeexec(\"sh\", \"-c\", \"exit 3\"))\n", "終了コード 3")
-	}
-}
-
-func TestPiperun(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"echo\", \"hi\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\nhi\r\n\n\n")
-	} else {
-		mustOutIO(t, "r = piperun(\"printf\", \"hi\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\nhi\n\n")
+		mustOutIO(t, "r = pipeexec(\"printf\", \"hi\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\nhi\n\n")
 	}
 	// 非ゼロの終了はエラーではなく値である。
 	if runtime.GOOS == "windows" {
-		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"exit\", \"3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
+		mustOutIO(t, "r = pipeexec(\"cmd\", \"/c\", \"exit\", \"3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
 	} else {
-		mustOutIO(t, "r = piperun(\"sh\", \"-c\", \"exit 3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
+		mustOutIO(t, "r = pipeexec(\"sh\", \"-c\", \"exit 3\")\nmes(r[0])\nmes(r[1])\n", "", "3\n\n")
 	}
 	// 標準エラーは r[2] に取り込まれる。
 	if runtime.GOOS == "windows" {
-		mustOutIO(t, "r = piperun(\"cmd\", \"/c\", \"echo oops>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\r\n\n")
+		mustOutIO(t, "r = pipeexec(\"cmd\", \"/c\", \"echo oops>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\r\n\n")
 	} else {
-		mustOutIO(t, "r = piperun(\"sh\", \"-c\", \"echo oops 1>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\n\n")
+		mustOutIO(t, "r = pipeexec(\"sh\", \"-c\", \"echo oops 1>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\n\n")
 	}
 	// 起動失敗は [-1, "", message] で、決してエラーではない。
-	mustOutIO(t, "r = piperun(\"no-such-command-xyz\")\nmes(r[0])\nmes(r[2] != \"\")\n", "", "-1\ntrue\n")
+	mustOutIO(t, "r = pipeexec(\"no-such-command-xyz\")\nmes(r[0])\nmes(r[2] != \"\")\n", "", "-1\ntrue\n")
+	mustErrIO(t, "mes(piperun(\"sh\"))\n", "未定義の関数")
 }
 
-	// GUI 呼出（mousedown を含む）はウィンドウ外ではきれいに失敗する。
+	// GUI 呼出（getkey を含む）はウィンドウ外ではきれいに失敗する。
 func TestMouseDownOutsideWindow(t *testing.T) {
-	mustErrIO(t, "mes(mousedown())\n", "GUI")
+	mustErrIO(t, "mes(getkey(0))\n", "GUI")
+	mustErrIO(t, "mes(mousedown())\n", "未定義の関数")
+	mustErrIO(t, "mes(clicked())\n", "未定義の関数")
 }
 
 func TestAscChr(t *testing.T) {
@@ -666,11 +644,11 @@ func TestFiles(t *testing.T) {
 	// 受け付ける。
 	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
 
-	mustOutIO(t, "mes(exist(\""+join("nope")+"\"))\n", "", "false\n")
+	mustOutIO(t, "mes(fileinfo(\""+join("nope")+"\")[0] == -1)\n", "", "true\n")
 	mustErrIO(t, "delete(\""+join("nope")+"\")\n", "delete：")
 
-	// notesave/noteload + exist の往復。
-	mustOutIO(t, "notesave(\""+join("t.txt")+"\", \"a\\nb\")\nmes(exist(\""+join("t.txt")+"\"))\nmes(noteload(\""+join("t.txt")+"\"))\n", "",
+	// notesave/noteload + fileinfo の往復。
+	mustOutIO(t, "notesave(\""+join("t.txt")+"\", \"a\\nb\")\nmes(fileinfo(\""+join("t.txt")+"\")[0] != -1)\nmes(noteload(\""+join("t.txt")+"\"))\n", "",
 		"true\na\nb\n")
 
 	// bsave/bload のサイズ切り詰め付き往復。
@@ -685,8 +663,8 @@ func TestFiles(t *testing.T) {
 	mustErrIO(t, "mes(bload(\""+join("missing.bin")+"\"))\n", "bload：")
 
 	// mkdir/delete/bcopy。
-	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nmes(exist(\""+join("sub")+"\"))\n", "", "true\n")
-	mustOutIO(t, "bcopy(\""+join("t.txt")+"\", \""+join("t2.txt")+"\")\nmes(exist(\""+join("t2.txt")+"\"))\ndelete(\""+join("t2.txt")+"\")\nmes(exist(\""+join("t2.txt")+"\"))\n", "",
+	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nmes(fileinfo(\""+join("sub")+"\")[2])\n", "", "true\n")
+	mustOutIO(t, "bcopy(\""+join("t.txt")+"\", \""+join("t2.txt")+"\")\nmes(fileinfo(\""+join("t2.txt")+"\")[0] != -1)\ndelete(\""+join("t2.txt")+"\")\nmes(fileinfo(\""+join("t2.txt")+"\")[0] != -1)\n", "",
 		"true\nfalse\n")
 
 	// dirlist + chdir（後で cwd を復元）。
@@ -717,11 +695,13 @@ func TestFileinfo(t *testing.T) {
 	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nr = fileinfo(\""+join("sub")+"\")\nmes(r[1] > 0)\nmes(r[2])\n", "",
 		"true\ntrue\n")
 	mustErrIO(t, "mes(fileinfo(1))\n", "fileinfo")
+	mustErrIO(t, "mes(filetime(\"x\"))\n", "未定義の関数")
+	mustErrIO(t, "mes(exist(\"x\"))\n", "未定義の関数")
 }
 
 func TestDirs(t *testing.T) {
 	mustOutIO(t, "mes(strlen(getcwd()) > 0)\nmes(strlen(direxe()) > 0)\nmes(strlen(homedir()) > 0)\nmes(strlen(tmpdir()) > 0)\n", "", "true\ntrue\ntrue\ntrue\n")
-	mustOutIO(t, "mes(exist(getcwd()))\n", "", "true\n")
+	mustOutIO(t, "mes(fileinfo(getcwd())[2])\n", "", "true\n")
 }
 
 func TestNotes(t *testing.T) {

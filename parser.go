@@ -403,7 +403,7 @@ func (p *parser) parseDef() (Stmt, error) {
 			pm := Param{Name: pt.Lit, At: posOf(pt)}
 			p.skipNewlines()
 			if p.peek().Type == TokAssign {
-				return nil, p.errAt(pt, "デフォルト引数は廃止されました")
+				return nil, p.errAt(pt, "デフォルト引数は使用できません")
 			}
 			params = append(params, pm)
 			p.skipNewlines()
@@ -938,7 +938,7 @@ func (p *parser) parsePostfix(litOK bool) (Expr, error) {
 			}
 			x = &IndexExpr{Base: x, Index: idx, At: posOf(open)}
 		case TokDot:
-			return nil, p.errAt(p.peek(), "フィールドアクセス（a.b）は廃止されました")
+			return nil, p.errAt(p.peek(), "'.' は使用できません")
 		default:
 			return x, nil
 		}
@@ -1005,9 +1005,9 @@ func (p *parser) parsePrimary(litOK bool) (Expr, error) {
 		}
 		return x, nil
 	case TokLBrace:
-		// マップリテラルは廃止された: 式の位置の `{...}` はエラー
+		// 式の位置の `{...}` はエラー
 		// （ブロックは if/while/def/... 文に属する）。
-		return nil, p.errAt(t, "mapリテラルは廃止されました。'{' はブロックにのみ使用できます")
+		return nil, p.errAt(t, "'{' はブロックにのみ使用できます")
 	default:
 		return nil, p.errAt(t, "予期しない %s です。式が必要です", describeToken(t))
 	}

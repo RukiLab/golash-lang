@@ -47,6 +47,38 @@ func TestGuiBuiltinValidation(t *testing.T) {
 			t.Fatalf("%s: got %v, %v (want false)", src, v, err)
 		}
 	}
+	// 第2引数 mode: 省略・0 はレベル検出、1 は立上り検出（消費型）。
+	// ヘッドレスでは押下がないためいずれも false。
+	for _, src := range []string{"getkey(37, 0)", "getkey(37, 1)", "getkey(16, 1)"} {
+		v, err := guiEval(t, src)
+		if err != nil || v.K != KBool || v.B {
+			t.Fatalf("%s: got %v, %v (want false)", src, v, err)
+		}
+	}
+	// 立上り検出は消費される：押下なしでは何度呼んでも false。
+	if v, err := guiEval(t, "getkey(37, 1)"); err != nil || v.K != KBool || v.B {
+		t.Fatalf("getkey(37, 1) repeat: got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "getkey(999, 1)"); err == nil || !strings.Contains(err.Error(), "不明なキーコード") {
+		t.Fatalf("getkey(999, 1): got %v", err)
+	}
+	// マウスは code 0-2 に統合（0 左、1 中、2 右）。ヘッドレスでは false。
+	for _, src := range []string{"getkey(0)", "getkey(1)", "getkey(2)", "getkey(0, 0)", "getkey(2, 0)", "getkey(0, 1)", "getkey(1, 1)", "getkey(2, 1)"} {
+		v, err := guiEval(t, src)
+		if err != nil || v.K != KBool || v.B {
+			t.Fatalf("%s: got %v, %v (want false)", src, v, err)
+		}
+	}
+	// 3 はマウスでもキーでもないためエラー。
+	if _, err := guiEval(t, "getkey(3)"); err == nil || !strings.Contains(err.Error(), "不明なキーコード") {
+		t.Fatalf("getkey(3): got %v", err)
+	}
+	if _, err := guiEval(t, "getkey(37, 2)"); err == nil || !strings.Contains(err.Error(), "0 または 1") {
+		t.Fatalf("getkey mode range: got %v", err)
+	}
+	if _, err := guiEval(t, "getkey(37, \"x\")"); err == nil {
+		t.Fatal("getkey string mode should error")
+	}
 	if _, err := guiEval(t, "mmplay(999)"); err == nil || !strings.Contains(err.Error(), "不明なサウンド") {
 		t.Fatalf("mmplay(999): got %v", err)
 	}
@@ -69,16 +101,17 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	if _, err := guiEval(t, "keychar()"); err == nil {
 		t.Fatal("keychar should be undefined")
 	}
-	v, err = guiEval(t, "clicked()")
-	if err != nil || v.K != KBool || v.B {
-		t.Fatalf("clicked(): got %v, %v", v, err)
+	if _, err := guiEval(t, "clicked()"); err == nil {
+		t.Fatal("clicked should be undefined (use getkey(0, 1))")
 	}
-	v, err = guiEval(t, "clicked(2)")
-	if err != nil || v.K != KBool || v.B {
-		t.Fatalf("clicked(2): got %v, %v", v, err)
+	if _, err := guiEval(t, "clicked(2)"); err == nil {
+		t.Fatal("clicked should be undefined")
 	}
-	if _, err := guiEval(t, "clicked(9)"); err == nil {
-		t.Fatal("clicked bad button should error")
+	if _, err := guiEval(t, "mousedown()"); err == nil {
+		t.Fatal("mousedown should be undefined (use getkey(0))")
+	}
+	if _, err := guiEval(t, "mousedown(2)"); err == nil {
+		t.Fatal("mousedown should be undefined")
 	}
 	v, err = guiEval(t, "cursor()")
 	if err != nil || v.K != KBool {

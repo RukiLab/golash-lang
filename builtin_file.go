@@ -1,7 +1,6 @@
 // P5 組み込み: ファイルとメモ帳 (note) 操作。
 //
 // HSP との違い (文書化済み、現代化):
-//   - exist は真偽値を返す (HSP は strsize 経由でサイズを報告)。
 //   - dirlist は名前の配列を返す (HSP は出力引数に書き込む)。
 //   - note 系関数は純粋: notesel 選択の全体バッファではなく、
 //     テキストを受け取り結果を返す。
@@ -48,49 +47,14 @@ func init() {
 		return Str(os.TempDir()), nil
 	})
 
-	// exist(path): ファイルが存在するかどうか。
-	register("exist", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		p, err := needString("exist", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		_, err = os.Stat(in.resolvePath(p))
-		if err == nil {
-			return Bool(true), nil
-		}
-		if os.IsNotExist(err) {
-			return Bool(false), nil
-		}
-		return Null(), rtErrf(at, "exist：%s", err.Error())
-	})
-
-	// filetime(path): ファイルの更新時刻を Unix
-	// ミリ秒で表す (存在しない場合は 0)。ミリ秒単位に丸めることで
-	// プラットフォーム間で比較可能にし、スクリプトが外部編集に
-	// 気づくためのポーリングに使える (例: 変更されたファイルを
-	// 読み直すエディタ)。
-	register("filetime", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		p, err := needString("filetime", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		fi, err := os.Stat(in.resolvePath(p))
-		if err != nil {
-			if os.IsNotExist(err) {
-				return Int(0), nil
-			}
-			return Null(), rtErrf(at, "filetime：%s", err.Error())
-		}
-		return Int(fi.ModTime().UnixMilli()), nil
-	})
-
 	// fileinfo(path): ファイルの情報を 1 回の stat 呼び出しで取得し、
 	// [size, mtime_ms, isdir] として返す。size はバイト数、mtime は
-	// filetime() と同じ Unix ミリ秒、isdir はディレクトリ判別用。
+	// Unix ミリ秒、isdir はディレクトリ判別用。旧 filetime(path) 相当は
+	// fileinfo(path)[1]（存在しなければ 0）、旧 exist(path) 相当は
+	// fileinfo(path)[0] != -1。
 	// 存在しない場合はエラーの代わりに [-1, 0, false] を返す
-	// (filetime と同じ考え方: 言語に try/catch がないため、
-	// エディタは例外なしでポーリングする)。ディレクトリのサイズは
-	// OS 依存; exist()/filetime() を別々に呼ばず 3 項目を組み合わせること。
+	// (言語に try/catch がないため、エディタは例外なしでポーリングする)。
+	// ディレクトリのサイズはOS 依存; 別に stat せず 3 項目を組み合わせること。
 	register("fileinfo", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("fileinfo", args, 0, at)
 		if err != nil {

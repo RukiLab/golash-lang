@@ -22,3 +22,8 @@ draw_demo.png
 Thumbs.db
 .vscode/
 .idea/
+
+# 一時的な調査・実行確認用の成果物
+/zz_runprobe.exe
+/zz_t*.gsh
+/test-batch.log

@@ -190,13 +190,16 @@ func init() {
 		return ArrayOf(elems), nil
 	})
 
-	// exec(name, args...): 外部コマンドを非同期に起動し、起動すると 0 を
-	// 返す（exec が返った後も動き続ける）。標準出力・標準エラーは
-	// そのまま通過する。起動失敗はエラー。pipeexec() は同期待ちの双子で、
-	// 完了を待って標準出力を取り込む。
-	// 子プロセスは親のコンソールを共有する（Windows）: そのコンソール
-	// ウィンドウを閉じると接続された全プロセスが終了する。単独で生き残る
-	// 必要のある GUI 子プロセスは代わりに execgui() を使う。
+	// exec(name, args...): 外部コマンドをコンソールなしで非同期に起動し、
+	// 起動すると 0 を返す（exec が返った後も動き続ける）。標準出力・
+	// 標準エラーはそのまま通過する。起動失敗はエラー。pipeexec() は同期待ちの
+	// 双子で、完了を待って [終了コード, 標準出力, 標準エラー] を取り込む。
+	// 子プロセスにコンソールウィンドウを与えない（Windows の DETACHED_PROCESS。
+	// 他プラットフォームでは何もしない）。旧 exec()（親コンソール共有）および
+	// execgui() 名は廃止し、この切り離し起動に一本化した。親のコンソールを
+	// 共有しないため黒窓が出ず、コンソールを閉じても道連れに終了しない。
+	// 標準出力・標準エラーは依然継承される（親にコンソールがなければ破棄
+	// される）が、何も取り込まれない。出力が必要なら pipeexec() を使う。
 	register("exec", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("exec", args, 0, at)
 		if err != nil {
@@ -211,6 +214,7 @@ func init() {
 			argv[i] = s
 		}
 		cmd := exec.Command(name, argv...)
+		detachConsole(cmd)
 		cmd.Stdin = in.in
 		cmd.Stdout = childOut(in.be.Out())
 		cmd.Stderr = childOut(in.errOut)
@@ -222,83 +226,15 @@ func init() {
 		return Int(0), nil
 	})
 
-	// execgui(name, args...): exec() と同じ（非同期・起動すると 0 を返す・
-	// 起動失敗はエラー）だが、子プロセスにコンソールウィンドウを与えない
-	// （Windows の DETACHED_PROCESS。他プラットフォームでは何もしない）。
-	// GUI プログラムから起動される GUI 子プロセス用: これがないと子は親の
-	// コンソールを共有し、そのコンソールウィンドウを閉じると両プロセスが
-	// 一緒に終了してしまう。標準出力・標準エラーは依然継承される（親に
-	// コンソールがなければ破棄される）が、何も取り込まれない。出力が必要
-	// なら piperun() を使う。
-	register("execgui", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		name, err := needString("execgui", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		argv := make([]string, len(args)-1)
-		for i := range args[1:] {
-			s, err := needString("execgui", args, i+1, at)
-			if err != nil {
-				return Null(), err
-			}
-			argv[i] = s
-		}
-		cmd := exec.Command(name, argv...)
-		detachConsole(cmd)
-		cmd.Stdin = in.in
-		cmd.Stdout = childOut(in.be.Out())
-		cmd.Stderr = childOut(in.errOut)
-		if err := cmd.Start(); err != nil {
-			return Null(), rtErrf(at, "execgui：%s", err.Error())
-		}
-		// バックグラウンドで刈り取る。出力は既に流れている。
-		go func() { _ = cmd.Wait() }()
-		return Int(0), nil
-	})
-
-	// piperun(name, args...): 外部コマンドを実行して取り込み、
-	// [終了コード, 標準出力, 標準エラー] を返す。pipeexec() と違い、
-	// 非ゼロ終了は値（エラーではない）で、標準エラーは通過させず
-	// 取り込むため、エディタは失敗を（try/catch で包めない
-	// pipeexec のエラーに死ぬことなく）ウィンドウ内で示せる。
+	// pipeexec(name, args...): 外部コマンドを実行して取り込み、
+	// [終了コード, 標準出力, 標準エラー] を返す。非ゼロ終了は値
+	// （エラーではない）で、標準エラーは通過させず取り込むため、
+	// エディタは失敗をウィンドウ内で示せる。旧 pipeexec()（標準出力のみ返却・
+	// 失敗時エラー）および piperun() 名は廃止し、この配列返却に一本化した。
 	// コマンドの起動失敗だけが値に [-1, "", message] として畳まれる。
-	// 標準入力は pipeexec と同じく切り離される（null）。完了は待たれる
-	// （ブロッキング、タイムアウトなし）。子プロセスにはコンソール
-	// ウィンドウが与えられない（Windows。取り込みはパイプを使う）。
-	register("piperun", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		name, err := needString("piperun", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		argv := make([]string, len(args)-1)
-		for i := range args[1:] {
-			s, err := needString("piperun", args, i+1, at)
-			if err != nil {
-				return Null(), err
-			}
-			argv[i] = s
-		}
-		cmd := exec.Command(name, argv...)
-		detachConsole(cmd)
-		var stdout, stderr strings.Builder
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			if exit, ok := err.(*exec.ExitError); ok {
-				return ArrayOf([]Value{Int(int64(exit.ExitCode())), Str(stdout.String()), Str(stderr.String())}), nil
-			}
-			return ArrayOf([]Value{Int(-1), Str(""), Str(fmt.Sprintf("piperun：%s", err.Error()))}), nil
-		}
-		return ArrayOf([]Value{Int(0), Str(stdout.String()), Str(stderr.String())}), nil
-	})
-
-	// pipeexec(name, args...): 外部コマンドを実行し、その標準出力を
-	// 文字列で返す。標準入力は（null デバイスで）切り離されるため、
-	// 子プロセスがスクリプトの入力を横取りすることはない。標準エラーは
-	// 通過する。起動失敗、または非ゼロ終了はエラー（単純な exec() の
-	// 双子は出力を取り込まずコードを返す）。エラー出力を値として得るには
-	// 代わりに piperun() を使う。子プロセスにはコンソールウィンドウが
-	// 与えられない（Windows。取り込みはパイプを使う）。
+	// 標準入力は切り離される（null）。完了は待たれる（ブロッキング、
+	// タイムアウトなし）。子プロセスにはコンソールウィンドウが与えられない
+	// （Windows。取り込みはパイプを使う）。
 	register("pipeexec", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		name, err := needString("pipeexec", args, 0, at)
 		if err != nil {
@@ -314,15 +250,15 @@ func init() {
 		}
 		cmd := exec.Command(name, argv...)
 		detachConsole(cmd)
-		var out strings.Builder
-		cmd.Stdout = &out
-		cmd.Stderr = childOut(in.errOut)
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
 			if exit, ok := err.(*exec.ExitError); ok {
-				return Null(), rtErrf(at, "pipeexec：%s は終了コード %d で終了しました", name, exit.ExitCode())
+				return ArrayOf([]Value{Int(int64(exit.ExitCode())), Str(stdout.String()), Str(stderr.String())}), nil
 			}
-			return Null(), rtErrf(at, "pipeexec：%s", err.Error())
+			return ArrayOf([]Value{Int(-1), Str(""), Str(fmt.Sprintf("pipeexec：%s", err.Error()))}), nil
 		}
-		return Str(out.String()), nil
+		return ArrayOf([]Value{Int(0), Str(stdout.String()), Str(stderr.String())}), nil
 	})
 }

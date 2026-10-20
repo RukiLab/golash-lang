@@ -7,12 +7,18 @@ import (
 )
 
 func init() {
-	// getkey(code): キーが押されているかどうか。コードは Windows
-	// 仮想キーに従う: 8 backspace、9 tab、13 enter、16 shift、17 ctrl、
+	// getkey(code [, mode]): キーとマウスボタンの状態を取得する。
+	// code 0-2 はマウスボタン（0 左、1 中、2 右。clicked/mousedown の
+	// 番号付けをそのまま統合）。それ以外は Windows 仮想キーに従う:
+	// 8 backspace、9 tab、13 enter、16 shift、17 ctrl、
 	// 18 alt、27 esc、32 space、33-36 pageup/pagedown/end/home、37-40
 	// 矢印キー、45 insert、46 delete、48-57 数字、65-90 A-Z、112-123
 	// F1-F12、186-192/219-222 記号キー。
-	register("getkey", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// mode 省略時・0 は押されている間 true を返し続けるレベル検出
+	// （従来の getkey/mousedown、消費しない）。mode 1 は押した瞬間だけ
+	// true になる立上り検出で、呼び出しで消費される（従来の
+	// clicked。同一ティック内の複数回呼び出しは2回目以降 false）。
+	register("getkey", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "getkey")
 		if err != nil {
 			return Null(), err
@@ -20,6 +26,38 @@ func init() {
 		code, err := needInt("getkey", args, 0, at)
 		if err != nil {
 			return Null(), err
+		}
+		mode := int64(0)
+		if len(args) == 2 {
+			mode, err = needInt("getkey", args, 1, at)
+			if err != nil {
+				return Null(), err
+			}
+			if mode != 0 && mode != 1 {
+				return Null(), argErr("getkey", 1, at, "0 または 1 で指定してください。%d が指定されました", mode)
+			}
+		}
+		if code >= 0 && code <= 2 {
+			btn := int(code)
+			if mode == 1 {
+				c, err := wb.ClickedButton(btn)
+				if err != nil {
+					return Null(), rtErrf(at, "%s", err.Error())
+				}
+				return Bool(c), nil
+			}
+			d, err := wb.MouseDown(btn)
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return Bool(d), nil
+		}
+		if mode == 1 {
+			hit, ok := wb.KeyHit(int(code))
+			if !ok {
+				return Null(), argErr("getkey", 0, at, "不明なキーコード %d です", code)
+			}
+			return Bool(hit), nil
 		}
 		down, ok := wb.KeyDown(int(code))
 		if !ok {
@@ -44,50 +82,6 @@ func init() {
 		}
 		_, y := wb.MousePos()
 		return Int(int64(y)), nil
-	})
-
-	// clicked([btn]): 前回呼び出し以降のクリック（消費される）。
-	// btn は 0 左（既定）、1 中、2 右。
-	register("clicked", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "clicked")
-		if err != nil {
-			return Null(), err
-		}
-		btn := int64(0)
-		if len(args) == 1 {
-			var err error
-			btn, err = needInt("clicked", args, 0, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		c, err := wb.ClickedButton(int(btn))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Bool(c), nil
-	})
-
-	// mousedown([btn]): ボタンが現在押されているかどうか（0 左、
-	// 1 中、2 右）。clicked() と違って消費されない。押下でラッチして
-	// ドラッグ操作（スクロールバー、スライダー）に使う。
-	register("mousedown", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mousedown")
-		if err != nil {
-			return Null(), err
-		}
-		btn := int64(0)
-		if len(args) == 1 {
-			btn, err = needInt("mousedown", args, 0, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		d, err := wb.MouseDown(int(btn))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Bool(d), nil
 	})
 
 	// cursor([v]): 引数なしは IME 入力の照会、ありは設定（0以外 = オン）。

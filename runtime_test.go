@@ -280,11 +280,11 @@ func TestRepeatArray(t *testing.T) {
 
 func TestMapAbolished(t *testing.T) {
 	// マップリテラルは解析エラーである。
-	mustErr(t, "m = {\"a\": 1}\n", "廃止")
-	mustErr(t, "m = {}\n", "廃止")
+	mustErr(t, "m = {\"a\": 1}\n", "'{' はブロック")
+	mustErr(t, "m = {}\n", "'{' はブロック")
 	// フィールドアクセスは解析エラーである。
-	mustErr(t, "mes(m.a)\n", "廃止")
-	mustErr(t, "m.a = 2\n", "廃止")
+	mustErr(t, "mes(m.a)\n", "'.' は使用できません")
+	mustErr(t, "m.a = 2\n", "'.' は使用できません")
 	// 文字列の添字はマップの検索ではなく整数添字のエラーである。
 	mustErr(t, "m = [1]\nm[\"a\"] = 2\n", "整数である必要があります")
 	mustErr(t, "m = [1]\nmes(m[\"a\"])\n", "整数である必要があります")

@@ -169,15 +169,22 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if p, q := queuedLens(b); p != 0 || q != 0 {
 		t.Fatalf("degenerate quad enqueued: pending=%d queue=%d", p, q)
 	}
-	// 2つのソースの隅が1枚の画像を共有すると特異な写像が強制される。
+	// 特異な写像は無音で飛ばす（カード裏返し途中の潰れなど。裏で捨てる）。
+	// 単独では何も準備せず、混ざったまとまりでは有効な面だけ残る。
 	dup := q()
 	dup.U = [4]float64{0, 0, 10, 0}
 	dup.V = [4]float64{0, 0, 0, 10}
-	if err := b.DrawQuads(0, []Quad{q(), dup}); err == nil {
-		t.Fatal("collapsed corner pair should error")
+	if err := b.DrawQuads(0, []Quad{dup}); err != nil {
+		t.Fatalf("singular quad: %v", err)
 	}
 	if p, q := queuedLens(b); p != 0 || q != 0 {
-		t.Fatalf("a bad quad must not stage anything: pending=%d queue=%d", p, q)
+		t.Fatalf("singular quad enqueued: pending=%d queue=%d", p, q)
+	}
+	if err := b.DrawQuads(0, []Quad{q(), dup}); err != nil {
+		t.Fatalf("mixed batch with singular: %v", err)
+	}
+	if p, q := queuedLens(b); p != 0 || q != 1 {
+		t.Fatalf("mixed batch staged: pending=%d queue=%d, want 0/1", p, q)
 	}
 	// 空のまとまりは何もしない（すべての面を間引いたループ）。何も
 	// 準備しない — 組込みはここに到着する前に戻るが、面の層も Go 側の
@@ -185,15 +192,15 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if err := b.DrawQuads(0, nil); err != nil {
 		t.Fatalf("empty batch: %v", err)
 	}
-	if p, q := queuedLens(b); p != 0 || q != 0 {
-		t.Fatalf("empty batch enqueued: pending=%d queue=%d", p, q)
+	if p, q := queuedLens(b); p != 0 || q != 1 {
+		t.Fatalf("empty batch enqueued: pending=%d queue=%d, want 0/1", p, q)
 	}
 	// 有効な四角形1つはちょうど1つの命令を準備する。
 	if err := b.DrawQuads(0, []Quad{q()}); err != nil {
 		t.Fatalf("DrawQuads: %v", err)
 	}
-	if p, q := queuedLens(b); p != 0 || q != 1 {
-		t.Fatalf("valid quad staged: pending=%d queue=%d, want 0/1", p, q)
+	if p, q := queuedLens(b); p != 0 || q != 2 {
+		t.Fatalf("valid quad staged: pending=%d queue=%d, want 0/2", p, q)
 	}
 	// N 面のまとまりも依然ちょうど1つの命令を準備する。
 	batch := make([]Quad, 0, 7)
@@ -205,14 +212,62 @@ func TestDrawQuadsValidation(t *testing.T) {
 	if err := b.DrawQuads(0, batch); err != nil {
 		t.Fatalf("DrawQuads batch: %v", err)
 	}
-	if p, q := queuedLens(b); p != 0 || q != 2 {
-		t.Fatalf("batch staged: pending=%d queue=%d, want 0/2 (one per command)", p, q)
+	if p, q := queuedLens(b); p != 0 || q != 3 {
+		t.Fatalf("batch staged: pending=%d queue=%d, want 0/3 (one per command)", p, q)
 	}
 	// 面上限を超えると命令は準備前に拒否される。
 	if err := b.DrawQuads(0, make([]Quad, maxQuadsPerCall+1)); err == nil {
 		t.Fatal("over the face cap should error")
 	}
-	if p, q := queuedLens(b); p != 0 || q != 2 {
-		t.Fatalf("rejected batch staged: pending=%d queue=%d, want 0/2", p, q)
+	if p, q := queuedLens(b); p != 0 || q != 3 {
+		t.Fatalf("rejected batch staged: pending=%d queue=%d, want 0/3", p, q)
+	}
+}
+
+// TestDrawQuadsFoldedSkip は折り返す変換先の四角形が無音で飛ばされ、
+// 決してエラーにならないことを扱う。3D 投影で真横から見た面がこれに
+// 当たる（凹んだ凧形の変換先は解けるが重みが非正になる）。
+func TestDrawQuadsFoldedSkip(t *testing.T) {
+	b := mustNew(t)
+	if err := b.SelectTarget(0); err != nil {
+		t.Fatalf("SelectTarget(0): %v", err)
+	}
+	white := [4][3]float64{{1, 1, 1}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}}
+	q := func() Quad {
+		return Quad{
+			X: [4]float64{0, 10, 10, 0}, Y: [4]float64{0, 0, 10, 10},
+			U: [4]float64{0, 8, 8, 0}, V: [4]float64{0, 0, 8, 8},
+			Light: white,
+		}
+	}
+	folded := q()
+	folded.X = [4]float64{0, 10, 4, 0}
+	folded.Y = [4]float64{0, 0, 4, 10}
+	fh, ok := solveHomography(folded.U, folded.V, folded.X, folded.Y)
+	if !ok {
+		t.Fatal("concave destination should still solve")
+	}
+	neg := false
+	for _, wv := range quadWs(fh, folded.U, folded.V) {
+		if !(wv > 0) {
+			neg = true
+		}
+	}
+	if !neg {
+		t.Fatal("concave destination should have a non-positive weight")
+	}
+	if err := b.DrawQuads(0, []Quad{folded}); err != nil {
+		t.Fatalf("folded quad: %v", err)
+	}
+	if p, q := queuedLens(b); p != 0 || q != 0 {
+		t.Fatalf("folded quad enqueued: pending=%d queue=%d", p, q)
+	}
+	// 有効な面と折り返す面の混ざったまとまりは、有効な面だけを
+	// ちょうど1つの命令として準備する。
+	if err := b.DrawQuads(0, []Quad{q(), folded}); err != nil {
+		t.Fatalf("mixed batch: %v", err)
+	}
+	if p, q := queuedLens(b); p != 0 || q != 1 {
+		t.Fatalf("mixed batch staged: pending=%d queue=%d, want 0/1", p, q)
 	}
 }

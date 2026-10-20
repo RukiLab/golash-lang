@@ -194,7 +194,7 @@ type editFocusPlan struct {
 }
 
 // planEditFocus は1回の押下/観測に対する IME フィールドの動きを決める。
-// press は実際の押下エッジ（ラッチされた clicked() レベルではない）。
+// press は実際の押下エッジ（ラッチされた getkey(0, 1) レベルではない）。
 // hit は押下が有効な inputbox の内側に入ったか、hadFocus は押下前に
 // ボックスがフォーカスされていたか、boxFocused は今フォーカス中のものが
 // あるか、fieldFocused/imeOff は現在の IME フィールドの状態。純粋な
@@ -235,12 +235,12 @@ func editKeysOwnedByField(imeOn bool, comp, fieldText, pending string) bool {
 // 後の Update から呼ばれる）。クリックは消費されず観測される。
 func (b *WindowBackend) pumpInputs() {
 	x, y := ebiten.CursorPosition()
-	// ラッチされた clicked() フラグではなく押下エッジ: clickFlag は
+	// ラッチされた getkey(0, 1) フラグではなく押下エッジ: clickFlag は
 	// スクリプトが消費するまで設定されたままなので、ラッチされた
 	// レベルだと、マウスが外にある間の後続フレームでボックス（と IME
 	// フィールド）をぼかし、ime(0) の直後に変換を再有効化してしまう。
 	// エッジは押下を観測した Update の間だけ持続し、それは必ず実行
-	// されるため、スクリプトがその間に clicked() を消費しても
+	// されるため、スクリプトがその間に getkey(0, 1) を消費しても
 	// クリックは見逃されない。
 	press := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 

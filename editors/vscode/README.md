@@ -21,8 +21,8 @@ Golash（`.gsh`）用の言語サポートです。TextMate による構文強�
 ## 導入方法（ローカル）
 
 1. このフォルダを拡張機能ディレクトリにコピー（またはシンボリックリンク）します。
-   - Windows: `%USERPROFILE%\.vscode\extensions\goulash-0.8.0\`
-   - macOS / Linux: `~/.vscode/extensions/goulash-0.8.0/`
+   - Windows: `%USERPROFILE%\.vscode\extensions\goulash-0.8.2\`
+   - macOS / Linux: `~/.vscode/extensions/goulash-0.8.2/`
 2. VS Code を再読み込みし、`.gsh` ファイルを開きます。
 
 ## 公開手順（管理者向け）

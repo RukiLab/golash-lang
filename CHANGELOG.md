@@ -1,9 +1,26 @@
 # CHANGELOG
 
 Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）で、git の
-タグ（`v0.8.1`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
+タグ（`v0.8.2`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
 入る予定の変更で、版上げは README の「バージョン管理」または
 `go run ./tools/bumpver.go` を参照してください。
+
+## [0.8.2] - 2026-10-20
+
+### 追加
+- `gflat(xs, ys, cols)`（G7、GUI、`docs/MANUAL.md` GUI描画）：単色四角形を一括で塗る（透視補正なし）。`xs`/`ys` は1面4要素の平坦配列、`cols` は面毎1要素の `0xRRGGBB`。2三角形分割のため縮退・裏返りでもエラーにしない（背面カリングは呼出し側）。テクスチャ面 `gquad` に対する単色面の高速経路
+- DLL呼び出し（CUI/GUI共通、`docs/MANUAL.md` DLL呼び出し）：C ABI の DLL を purego 経由で呼ぶ（CGO 不要・Windows/Linux/macOS 共通）。`dlload(path)` で開き（同じパスは共用）、`dllcall(h, name, "戻り値(引数1,引数2,...)", args...)` で呼ぶ（型は int/float/string/bool/buf/void、引数15個まで）。短い呼び出し名は `#dll "path"`＋`#dlldef NAME "symbol" "sig"` で付ける。連続バッファ（`bufnewf`/`bufnewi`/`buflen`/`bufget`/`bufset`/`bufpackf`/`bufpacki`/`bufunpack`）で境界を一括で越える。呼び出しは one-way。g3d の収集は外部 DLL（`GolashProjects/g3d/g3daccel`＋`g3daccel.gsh`）が行い、2024面ベンチでフレーム全体 29.7ms → 1.4ms（VM 実装との全要素一致は `zz_parity.gsh` で検証）
+
+### 削除
+- `fastgen` 一式を廃止（`#fast`/`#endfast`、`gsh fastgen`、`*.nat.gsh`、`gsh run --fast`、`GOULASH_FAST*`）。`#fast` を含むスクリプトは「不明なディレクティブ」エラーになる。高速化は DLL呼び出しを使うこと
+- 組込 `g3dquads` を廃止（3D 専用組込は外部 DLL へ移管）。`GolashProjects/g3d/g3daccel`＋`g3daccel.gsh` の `acc_upload`/`acc_collect` を使うこと（使い方は `bench_2024.gsh` mode 4 を参照）
+
+### 変更
+- `exist()` を廃止し `fileinfo()` に一本化。旧 `exist(path)` 相当は `fileinfo(path)[0] != -1`。
+- `filetime()` を廃止し `fileinfo()` に一本化。旧 `filetime(path)` 相当は `fileinfo(path)[1]`（存在しなければ `0`）。
+- `exec()` をコンソールなしの切り離し起動に一本化。旧 `exec()`（親コンソール共有）および `execgui()` 名を廃止。旧 `execgui()` 相当が新 `exec()`。
+- `pipeexec()` を `[終了コード, 標準出力, 標準エラー]` 返却に一本化。旧 `pipeexec()`（標準出力のみ返却・失敗時エラー）および `piperun()` 名を廃止。旧 `piperun()` 相当が新 `pipeexec()`（起動失敗は `[-1, "", メッセージ]` で値として返す）。
+- `gquad()` の空・折り返し・特異な面はエラーにせず描画を飛ばすように変更。真横から見た面（重み非正）やカード裏返し途中の潰れ（特異な写像）は空の面と同様に何も描かない（裏で捨てる）。バッチ内に有効な面があればそれだけ描く。
 
 ## [0.8.1]
 

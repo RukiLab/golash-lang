@@ -47,7 +47,7 @@ func showErrorInWindow(wb *gui.WindowBackend, msg string) {
 // reportGUIError は GUI モードの失敗を標準エラー出力とネイティブ
 // ダイアログの両方に報告する。これはウィンドウが無い場合の失敗
 // （解析エラー、ウィンドウ生成失敗）向けである: GUI プログラムは
-// しばしば切り離されて起動される（エディタの execgui、ダブルクリック
+// しばしば切り離されて起動される（エディタの exec、ダブルクリック
 // された windowsgui 実行ファイル）ためコンソールがなく、標準エラー
 // 出力だけでは見えない。ダイアログが確実な伝達経路である。
 func reportGUIError(msg string) {

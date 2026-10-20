@@ -84,6 +84,12 @@ type includer struct {
 	conds []ppFrame
 	// 実行モード：最後の有効な `#mode` 引数（"cli"/"gui"、"" は未設定）。
 	mode string
+	// dllSeen は #dlldef で定義済みの名前（ツリー共有。重複はエラー）。
+	dllSeen map[string]bool
+	// dllPath は直近の #dll で指定された DLL パス（引用符つき原文。
+	// "" は未指定。以降の #dlldef が対象にする。#mode と同じく
+	// ツリー共有で、最後に有効だったものが勝つ）。
+	dllPath string
 }
 
 // runMode は実効モードを返します（未設定時は "gui"）。
@@ -109,7 +115,7 @@ type ppFrame struct {
 }
 
 func newIncluder() *includer {
-	return &includer{done: map[string]bool{}, defines: map[string]ppDefine{}}
+	return &includer{done: map[string]bool{}, defines: map[string]ppDefine{}, dllSeen: map[string]bool{}}
 }
 
 // curActive は現在の行が有効なコード中にあるかを返す。
@@ -320,6 +326,34 @@ func (st *includer) combineSource(display, src, parentDir string) ([]Token, erro
 			if active[i] {
 				st.mode = d.arg
 			}
+		case dirDll:
+			// 対象 DLL の指定。以降の #dlldef が対象にする
+			//（#mode と同じくツリー共有。最後に有効だったものが勝つ）。
+			if active[i] {
+				st.dllPath = d.rest
+			}
+		case dirDlldef:
+			if !active[i] {
+				continue
+			}
+			if st.dllSeen[d.arg] {
+				return nil, &LexError{File: display, Line: i + 1, Column: 1, Msg: fmt.Sprintf("#dlldef %q は既に定義されています", d.arg)}
+			}
+			if st.dllPath == "" {
+				return nil, &LexError{File: display, Line: i + 1, Column: 1, Msg: fmt.Sprintf("#dlldef %q の対象 DLL がありません（先に #dll \"path\" で指定してください）", d.arg)}
+			}
+			st.dllSeen[d.arg] = true
+			// def msgbox(__a0,__a1){return dllcall(dlload("user32.dll"),"MessageBoxA","int(int,str)",__a0,__a1)}
+			params := make([]string, d.argc)
+			for k := range params {
+				params[k] = "__a" + strconv.Itoa(k)
+			}
+			call := "dllcall(dlload(" + st.dllPath + ")," + d.sym + "," + d.sig
+			if len(params) > 0 {
+				call += "," + strings.Join(params, ",")
+			}
+			call += ")"
+			blanked[i] = "def " + d.arg + "(" + strings.Join(params, ",") + "){return " + call + "}"
 		}
 	}
 	if len(st.conds) != condDepth {
@@ -408,15 +442,22 @@ const (
 	dirEndif
 	dirError
 	dirMode
+	dirDll
+	dirDlldef
 )
 
 // directive は解析された `#...` 行1つ: arg は include パス、
-// define/ifdef 名、または #error メッセージを保持し、rest は
-// #define の値を保持する。
+// define/ifdef 名、#error メッセージ、#dlldef 名を保持し、rest は
+// #define の値・#dlldef のパス（引用符つき原文）を保持する。
+// #dlldef では sym/sig にシンボル名・署名（引用符つき原文）、
+// argc に関数定義の引数個数を持つ。
 type directive struct {
 	kind dirKind
 	arg  string
 	rest string
+	sym  string
+	sig  string
+	argc int
 }
 
 // parseDirective は行全体のディレクティブを認識する。行が通常のコードを
@@ -445,7 +486,7 @@ func parseDirective(line string) (*directive, error) {
 				// `#` 単体はそのまま。
 			}
 		}
-		return nil, fmt.Errorf("不明なディレクティブ %q です（#include/#define/#ifdef/#ifndef/#else/#endif/#error/#mode を使用してください）", got)
+		return nil, fmt.Errorf("不明なディレクティブ %q です（#include/#define/#ifdef/#ifndef/#else/#endif/#error/#mode/#dll/#dlldef を使用してください）", got)
 	}
 	switch word {
 	case "include":
@@ -502,6 +543,32 @@ func parseDirective(line string) (*directive, error) {
 			return nil, fmt.Errorf("不正な #mode ディレクティブです（#mode cli または #mode gui が必要です）")
 		}
 		return &directive{kind: dirMode, arg: name}, nil
+	case "dll":
+		// #dll "path"（対象 DLL の指定。以降の #dlldef が対象にする）
+		raw, extra, ok := scanQuoted(tail)
+		if !ok || strings.TrimSpace(extra) != "" {
+			return nil, fmt.Errorf("不正な #dll ディレクティブです（#dll \"path\" が必要です）")
+		}
+		return &directive{kind: dirDll, rest: raw}, nil
+	case "dlldef":
+		// #dlldef NAME "symbol" "sig"（DLL 関数の定義。対象は直近の #dll）
+		name, rest := splitDirectiveArg(tail)
+		if err := dllResName("dlldef", name); err != nil {
+			return nil, err
+		}
+		sym, rest, ok := scanQuoted(rest)
+		if !ok {
+			return nil, fmt.Errorf("不正な #dlldef ディレクティブです（#dlldef NAME \"symbol\" \"sig\" が必要です）")
+		}
+		sig, extra, ok := scanQuoted(rest)
+		if !ok || strings.TrimSpace(extra) != "" {
+			return nil, fmt.Errorf("不正な #dlldef ディレクティブです（#dlldef NAME \"symbol\" \"sig\" が必要です）")
+		}
+		parsed, err := parseDllSig(sig[1 : len(sig)-1])
+		if err != nil {
+			return nil, fmt.Errorf("不正な #dlldef の署名です: %s", err.Error())
+		}
+		return &directive{kind: dirDlldef, arg: name, sym: sym, sig: sig, argc: len(parsed.args)}, nil
 	}
 	return unknown()
 }
@@ -516,6 +583,39 @@ func splitDirectiveArg(s string) (name, rest string) {
 		return s[:i], s[i+1:]
 	}
 	return s, ""
+}
+
+// scanQuoted は s の先頭から "..." を原文のまま切り出す。
+// バックスラッシュ直後の文字は引用符でも終端にしない。
+// 戻り値は引用符つき原文と残り。原文を使うためエスケープの
+// 解釈は字句解析器に任せられる（パスの円記号などが化けない）。
+func scanQuoted(s string) (raw, rest string, ok bool) {
+	if len(s) == 0 || s[0] != '"' {
+		return "", s, false
+	}
+	i := 1
+	for i < len(s) {
+		if s[i] == '\\' {
+			i += 2
+			continue
+		}
+		if s[i] == '"' {
+			return s[:i+1], strings.TrimLeft(s[i+1:], " \t"), true
+		}
+		i++
+	}
+	return "", s, false
+}
+
+// dllResName は #dll/#dlldef の名前を検査する。
+func dllResName(word, name string) error {
+	if !isDefineName(name) {
+		return fmt.Errorf("不正な #%s ディレクティブです", word)
+	}
+	if _, isKw := keywords[name]; isKw || isBuiltin(name) {
+		return fmt.Errorf("#%s %q は使用できません：キーワード・真偽値・組み込み関数と同名です", word, name)
+	}
+	return nil
 }
 
 // isDefineName は s が有効なプリプロセッサ名かを返す。

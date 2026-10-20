@@ -36,7 +36,7 @@ import (
 // ldflags を与えない通常ビルドではこの既定値（= VERSION と同値）が
 // 使われます。コメント・コード内に版リテラルは書かないこと (同テストが
 // 検出する)。バンドル形式の codecVersion とは独立した番号です。
-var golashVersion = "0.8.1"
+var golashVersion = "0.8.2"
 
 // runProgram はレジスタVM上で prog を実行します。
 func runProgram(in *Interp, prog *Program) error {
@@ -115,6 +115,10 @@ func cmdRun(args []string) {
 		if a == "--" {
 			verbatim = true
 			continue
+		}
+		if file == "" && (a == "--fast" || a == "-fast") {
+			fmt.Fprintf(os.Stderr, "gsh run: --fast は廃止しました（DLL呼び出しを使ってください）\n")
+			os.Exit(2)
 		}
 		if file == "" && strings.HasPrefix(a, "-") {
 			fmt.Fprintf(os.Stderr, "不明なフラグ %q です\n", a)

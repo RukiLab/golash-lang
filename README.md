@@ -5,8 +5,8 @@
 > 仕様・文法・組み込み関数・CLI・GUI API などは変更される場合があります。  
 > 最新の変更内容は `CHANGELOG.md` を確認してください。
 
-Golash は、HSPに影響を受けた、ツリーウォーク型のスクリプト言語処理系です。
-同一ランタイムで CUI と GUI（Ebiten ウィンドウ）が動作します。v0.8.1（テスト段階）。
+Golash は、HSPに影響を受けた、レジスタ型VMで動作するスクリプト言語処理系です。
+同一ランタイムで CUI と GUI（Ebiten ウィンドウ）が動作します。v0.8.2（テスト段階）。
 
 ## 必要環境
 
@@ -53,12 +53,12 @@ go test ./...
 ## バージョン管理
 
 版は [SemVer](https://semver.org/lang/ja/) の `MAJOR.MINOR.PATCH` です。
-現在の版は `VERSION` ファイルが唯一の正本で、`v0.8.1`（0.x はテスト段階のため
+現在の版は `VERSION` ファイルが唯一の正本で、`v0.8.2`（0.x はテスト段階のため
 破壊的変更がありえます）。
 
 ```sh
-gsh version          # 処理系の版（Golash v0.8.1 (SemVer)）
-gsh version -json    # {"name":"Golash","version":"0.8.0","semver":true}
+gsh version          # 処理系の版（Golash v0.8.2 (SemVer)）
+gsh version -json    # {"name":"Golash","version":"0.8.2","semver":true}
 ```
 
 ### 版を上げる
@@ -68,9 +68,9 @@ gsh version -json    # {"name":"Golash","version":"0.8.0","semver":true}
 
 ```sh
 go run ./tools/bumpver.go -show            # 現在の版を表示
-go run ./tools/bumpver.go -bump minor      # 0.8.0 → 0.9.0
-go run ./tools/bumpver.go -bump patch      # 0.8.0 → 0.8.1
-go run ./tools/bumpver.go -bump major      # 0.8.0 → 1.0.0
+go run ./tools/bumpver.go -bump minor      # 0.8.2 → 0.9.0
+go run ./tools/bumpver.go -bump patch      # 0.8.2 → 0.8.3
+go run ./tools/bumpver.go -bump major      # 0.8.2 → 1.0.0
 go run ./tools/bumpver.go -set 0.9.0       # 任意の版へ
 ```
 
@@ -95,8 +95,8 @@ go run ./tools/bumpver.go -set 0.9.0       # 任意の版へ
 ```sh
 go run ./tools/bumpver.go -bump minor
 # CHANGELOG.md を編集
-git commit -am "release: v0.8.1"
-git tag -a v0.8.1 -m "v0.8.1"
+git commit -am "release: v0.8.2"
+git tag -a v0.8.2 -m "v0.8.2"
 git push origin main --tags
 ```
 

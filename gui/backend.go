@@ -121,6 +121,9 @@ type WindowBackend struct {
 	// 再試行せずアフィン・フォールバックを取るようにする。
 	persp    *ebiten.Shader
 	perspErr error
+	// flat は gflat() 用の1px白画像（単色塗りの転送元。flat.go を参照。
+	// ゲームスレッドのみ）。
+	flat *ebiten.Image
 	queue    []func()
 	// pending はフレーム構築中の canvas コマンド置き場。yieldedOnce 以後は
 	// enqueue がここへ溜め、await()/sleep()/end のフレーム境界で queue へ
@@ -132,11 +135,17 @@ type WindowBackend struct {
 	// そのまま画面に出て裏バッファの描きかけが見えるのを防ぐ。
 	drawSel int
 	// 入力ラッチ＋音声（G2）。マウスボタンは 0 左、1 中央、2 右で
-	// 番号付けされる（clicked() の番号付け）。
+	// 番号付けされる（getkey 0-2 の番号付け）。
 	mouseDown  [3]bool
 	clickFlag  [3]bool
 	wheelAccum float64 // 未消費の垂直ホイールのデテント
-	audio      *audioState
+	// keyPrev/keyHit は getkey(code, 1) の立上り検出用（mu で保護）。
+	// pumpInput が Update ごとに立上りをラッチし、KeyHit が消費する
+	//（getkey(code, 1) と同じ消費型）。getkey(code, 0) のレベル検出は
+	// ラッチを使わず ebiten を直接読む。
+	keyPrev map[int]bool
+	keyHit  map[int]bool
+	audio   *audioState
 	// 描画全体のアルファ 0-255（galpha。図形とブリット）。
 	alpha uint8
 	// await()/tick() 用のフレームカウンタ（mu で保護）。
@@ -185,7 +194,9 @@ func New(w, h int) (*WindowBackend, error) {
 	}
 	b := &WindowBackend{
 		w: w, h: h,
-		ctrlSt: make([]ctrlState, len(ctrlKeys)),
+		ctrlSt:  make([]ctrlState, len(ctrlKeys)),
+		keyPrev: make(map[int]bool),
+		keyHit:  make(map[int]bool),
 		// 白いウィンドウ: 既定のフェイスは白地に黒文字で、
 		// Windows 標準のウィジェットテーマに合わせている。
 		fg:       color.NRGBA{0x00, 0x00, 0x00, 0xFF},

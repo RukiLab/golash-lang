@@ -1,19 +1,19 @@
-# Golash v0.8.1 レジスタ型VM 設計書
+# Golash v0.8.2 レジスタ型VM 設計書
 
-`runtime.go`（ツリーウォーク）を正解（Ground Truth）とし、観測可能動作を
+移行前のツリーウォーク実装を正解（Ground Truth）とし、観測可能動作を
 1文字単位で維持したまま、実行系を「AST → バイトコード・コンパイラ +
 レジスタ型VM」へ移行した記録である。
 
 実装：`opcode.go`（命令）・`program.go`（Proto/Program）・`compile.go`
 （コンパイラ）・`vm.go`（実行ループ）・`disasm.go`（逆アセンブラ）・
 `program_codec.go`（直列化・exe連結）。
-VM が既定（`GOULASH_BACKEND=tree` でツリーウォークに戻せる）。
+VM が既定。
 検証：`parity_test.go`、`vm_bench_test.go`、`compile_test.go`、
 `vm_test.go`、`program_codec_test.go`。
 
 ---
 
-## 1. `runtime.go` セマンティクス確認結果（§4 チェックリスト回答）
+## 1. 移行前のツリーウォーク実装のセマンティクス確認結果（§4 チェックリスト回答）
 
 ### 1.1 算術・演算エッジケース
 
@@ -22,8 +22,8 @@ VM が既定（`GOULASH_BACKEND=tree` でツリーウォークに戻せる）。
 - 0 除算：int・float とも `0 による除算です`（`arith`）。`%` の
   ゼロ剰余は `0 による剰余演算です`。
 - `abs(MinInt64)` のオーバーフロー、`sqrt` の負数、`exp`/`pow` の溢れ、
-  `float("nan"/"inf")`、範囲外の `int()` は `runtime.go` の管轄外
-  （`builtin_math.go`・値生成側で拒否）。VM は組込をそのまま呼ぶため
+  `float("nan"/"inf")`、範囲外の `int()` は値生成側で拒否する
+  （`builtin_math.go` など）。VM は組込をそのまま呼ぶため
   自動的に一致する。
 
 ### 1.2 関数登録・前方参照
@@ -85,7 +85,7 @@ VM が既定（`GOULASH_BACKEND=tree` でツリーウォークに戻せる）。
 64bit 固定長：`[op:8][A:8][B:8][C:8][D:32]`。D は Bx（定数・名前・
 プロトタイプ・組込ID・個数）または sBx（`pc+1` 相対ジャンプ）。
 
-各命令は高々1つのソース位置を持つ。`runtime.go` が複数位置を
+各命令は高々1つのソース位置を持つ。旧実装が複数位置を
 使い分ける箇所は、コンパイラが検査命令を正しい位置で先行発行する
 ことで再現し、VM 側に副位置テーブルは持たない。
 
@@ -129,10 +129,10 @@ VM が既定（`GOULASH_BACKEND=tree` でツリーウォークに戻せる）。
   フレーム内ループスタックへ push し、`SAVEVAR` が旧束縛を退避する。
 - 本体脱出（正常・`break`）では `POPLOOP` で復元する。
   `return`・実行時エラー時は全フレームを巻戻し復元する
-  （`interp.go` の `defer` 復元と対応。REPL 継続で観測可能）。
+  （旧実装の `defer` 復元と対応。REPL 継続で観測可能）。
 - `break` は最も内側のループ／switch を対象とし、repeat のみ pop する
   （`while`・`switch` は pop なし）。`continue` は復元なしで継続点へ。
-- カウンタ書込は無検査の `PUTN`/`PUTG` で行う（`interp.go` の直接代入と対応）。
+- カウンタ書込は無検査の `PUTN`/`PUTG` で行う（旧実装の直接代入と対応）。
 
 ### 2.6 呼出の lowering
 
@@ -142,7 +142,7 @@ VM が既定（`GOULASH_BACKEND=tree` でツリーウォークに戻せる）。
   `mes`/`print`/`logmes` のみ素通し）。
 - 非変数 callee は callee のみ評価し `CALLV` でエラーにする（引数不評価）。
 - `def` 本体はコンパイル時に Proto 化するが登録は実行時（`FUNCDEF`）。
-- `end()` の `endSignal` panic は最上位で回収する（tree の `Run` と対応）。
+- `end()` の `endSignal` panic は最上位で回収する（旧実装の `Run` と対応）。
 
 ---
 
@@ -210,7 +210,7 @@ BRKTOP CONTTOP RETTOP HALT`
   100万回 `while` 加算 約3.7～4.3倍。
 - `gsh disasm`：定数・名前・レジスタ数・位置付き逆アセンブル。
   `GOULASH_TRACE=1`：命令トレース（stderr）。
-- 既存全テスト（tree 系）は無修正で全緑（VM は追加経路）。
+- 既存全テストは無修正で全緑（VM は追加経路）。
 
 ---
 
@@ -233,4 +233,28 @@ BRKTOP CONTTOP RETTOP HALT`
 - 1呼出あたり引数255。配列リテラルの要素数は無制限（`APPEND` 方式）。
 - `VMProgram` は実行した機械に帰属する（`addProg` が G系の D を書換えるため）。
   プログラムの機械間共有はしない（毎回 `Compile` する）。
-- GUI のイベントループ・Backend・組込は tree/VM 共通（振舞い差なし）。
+- GUI のイベントループ・Backend・組込は VM から共通に利用する（旧実装との振舞い差なし）。
+
+## 8. #fast / fastgen（廃止。DLL呼び出しへ移行）
+
+`#fast` / `#endfast` 領域・`gsh fastgen`・`*.nat.gsh`・`gsh run --fast`・
+`GOULASH_FAST` は廃止した。高速化は DLL呼び出し（`dlload`/`dllcall`＋`buf`。
+MANUAL の DLL呼び出し節を参照）で行う。`#fast` を含むスクリプトは
+「不明なディレクティブ」エラーになる（0.8.x はテスト段階のため破壊的変更あり）。
+
+## 9. ネイティブ実行の担い手（DLL呼び出し）
+
+fastgen の静的埋め込み（段階2）は廃止し、DLL呼び出しが担う。
+`dlload` で開いた C ABI の DLL を `dllcall(h, name, sig, args...)` で呼ぶ。
+purego 経由で CGO 不要（Windows/Linux/macOS 共通）。呼び出しは one-way。
+
+- 署名は `"戻り値(引数1,引数2,...)"`。型は int(32bit)/float(64bit)/
+  string(UTF-8+NUL)/bool/buf(ポインタ。長さは別引数)/void(戻り値のみ)。
+  15引数まで。不一致は日本語エラー
+- 連続バッファ（`bufnewf`/`bufnewi`/`buflen`/`bufget`/`bufset`/
+  `bufpackf`/`bufpacki`/`bufunpack`）で境界を一括で越える。
+  DLL 側はポインタを呼び出し中だけ使える（保持しない）
+- g3d の収集は外部 DLL（`GolashProjects/g3d/g3daccel`）＋包み
+  （`g3daccel.gsh`）が行う。VM 実装との全要素一致は `zz_parity.gsh` で検証
+
+検証は `builtin_dll_test.go`（buf 往復・署名・エラー・OS 別 live 呼び出し）。

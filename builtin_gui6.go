@@ -17,7 +17,7 @@ func init() {
 	// 元画像画素を並べる。lightsは角ごとに1つの0xRRGGBB色を持ち、
 	// 面内でグーロー補間される（4角同色ならフラットシェーディング）。
 	// 4N要素の配列でN面を1命令で描画する（上限65536）。
-	// 面積のない面は何も描画しない。
+	// 空・折り返し・特異な面は何も描画しない（裏で捨てる）。
 	register("gquad", 6, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "gquad")
 		if err != nil {

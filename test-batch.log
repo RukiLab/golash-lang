@@ -1,8 +1,0 @@
-=== RUN   TestTextBatchMergesBurst
---- PASS: TestTextBatchMergesBurst (0.19s)
-=== RUN   TestTextBatchFlushesBeforeShapes
-    backend_test.go:829: batched text went straight to the game queue: 2
---- FAIL: TestTextBatchFlushesBeforeShapes (0.00s)
-FAIL
-FAIL	gsh/gui	0.445s
-FAIL

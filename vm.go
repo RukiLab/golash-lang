@@ -81,6 +81,9 @@ type vmachine struct {
 	depth   int
 	argsBuf []Value
 	trace   bool
+	// fastOK はネイティブ検証の機械ごとの覚え (名前→一致したか)。
+	// ハッシュ計算は初回呼出しの1回だけ。以後はここを見る。
+	fastOK map[string]bool
 	// フレームプール：呼出毎の make を避ける（再帰の高速化）。
 	// サイズ別に保持し、返却時は参照解放のためクリアする。
 	// 添字はサイズそのもの（map 検索を避けるためスライス化）。
@@ -175,7 +178,7 @@ func (m *vmachine) giveRO(ro []bool) {
 }
 
 func newVmachine(in *Interp) *vmachine {
-	m := &vmachine{in: in, funcs: map[string]*VMProto{}}
+	m := &vmachine{in: in, funcs: map[string]*VMProto{}, fastOK: map[string]bool{}}
 	if os.Getenv("GOULASH_TRACE") == "1" {
 		m.trace = true
 	}

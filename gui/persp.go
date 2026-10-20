@@ -205,8 +205,8 @@ func (q Quad) finite() bool {
 // DrawQuads はすべての四角形のソースの隅を遠近補正で変換先の隅に
 // 写像する: ホモグラフィは四角形ごとに解かれるため、呼出し側が w を
 // 与えることはない（アフィンな写像はすべての重みが 1 になる場合に
-// すぎない）。空の四角形は何も描かない。ホモグラフィが特異な四角形、
-// または重みがすべて正でない四角形はエラーである。
+// すぎない）。空・折り返し・特異な四角形は何も描かない（カード裏返し
+// 途中の潰れなど。裏で捨てる）。
 //
 // まとまりはアトミックで、他のあらゆるキャンバス命令と同じくフレームに
 // 乗る: すべての四角形は何かが準備される前に検証され、面は1つの命令と
@@ -230,7 +230,7 @@ func (b *WindowBackend) DrawQuads(src int, quads []Quad) error {
 		light         [4][3]float32
 	}
 	faces := make([]face, 0, len(quads))
-	for i, q := range quads {
+	for _, q := range quads {
 		if !q.finite() {
 			return fmt.Errorf("%s：座標は有限の数値である必要があります", name)
 		}
@@ -241,14 +241,19 @@ func (b *WindowBackend) DrawQuads(src int, quads []Quad) error {
 		}
 		h, ok := solveHomography(q.U, q.V, q.X, q.Y)
 		if !ok {
-			return fmt.Errorf("%s：%d 面目の変換先の四角形が縮退しています（頂点の順序を確認してください）", name, i+1)
+			continue // 特異な写像: 参照元・変換先の潰れ。裏で捨てる
 		}
-		w := quadWs(h, q.U, q.V)
-		for _, wv := range w {
+		folded := false
+		for _, wv := range quadWs(h, q.U, q.V) {
 			if !(wv > 0) {
-				return fmt.Errorf("%s：%d 面目の変換先の四角形は描画できません（頂点の順序を確認してください）", name, i+1)
+				folded = true
+				break
 			}
 		}
+		if folded {
+			continue // 折り返す四角形: 真横からの面など、描画するものはない
+		}
+		w := quadWs(h, q.U, q.V)
 		f := face{x: q.X, y: q.Y, u: q.U, v: q.V, w: w}
 		for c := 0; c < 4; c++ {
 			f.light[c] = [3]float32{float32(q.Light[c][0]), float32(q.Light[c][1]), float32(q.Light[c][2])}

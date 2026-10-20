@@ -5,13 +5,16 @@ package main
 var guiBuiltinNames = []string{
 	"screen", "gsel", "buffer",
 	"pset", "pget", "line", "rect", "ellipse",
-	"gcopy", "gquad", "gmode", "picload",
+	"gcopy", "gquad", "gflat", "gmode", "picload",
 	"pngsave", "galpha", "paint", "font",
-	"getkey", "mousex", "mousey", "clicked", "mousedown", "mousewheel", "fullscreen", "closing", "screensize", "cursor",
+	"getkey", "mousex", "mousey", "mousewheel", "fullscreen", "closing", "screensize", "cursor",
 	"padcount", "padbtn", "padaxis", "padname", "resizable",
 	"touchcount", "touchx", "touchy", "winmove", "dropfiles", "dropload",
 	"mmload", "mmplay", "mmstop", "mmvol",
 	"button", "inputbox", "ime",
 	"listbox", "clrobj", "dialog",
 	"chkbox", "combox", "mesbox", "objset", "objget", "objenable",
+	"dlload", "dllcall", "dllfree",
+	"bufnewf", "bufnewi", "buflen", "bufget", "bufset",
+	"bufpackf", "bufpacki", "bufunpack",
 }

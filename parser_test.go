@@ -227,10 +227,10 @@ func TestParseMultilineArray(t *testing.T) {
 }
 
 func TestParseMapAbolished(t *testing.T) {
-	mustFailParse(t, "m = {\"a\": 1}\n", "廃止")
-	mustFailParse(t, "m = {}\n", "廃止")
-	mustFailParse(t, "x = m.a\n", "廃止")
-	mustFailParse(t, "m.a = 2\n", "廃止")
+	mustFailParse(t, "m = {\"a\": 1}\n", "'{' はブロック")
+	mustFailParse(t, "m = {}\n", "'{' はブロック")
+	mustFailParse(t, "x = m.a\n", "'.' は使用できません")
+	mustFailParse(t, "m.a = 2\n", "'.' は使用できません")
 	mustFailParse(t, "p = Person{\nname: \"A\",\n}\n", "予期しない '{'")
 }
 

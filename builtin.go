@@ -7,7 +7,7 @@
 // GUI ワードは builtin_gui*.go（G1-G6）にある：
 // screen, gsel, pset, pget, line, rect, ellipse, gcopy, gquad, gmode,
 // picload, pngsave, paint, font,
-// getkey, mousex, mousey, clicked,
+// getkey, mousex, mousey,
 // mmload, mmplay, mmstop, mmvol, button, inputbox,
 // listbox, clrobj, dialog,
 // chkbox, combox, mesbox, objset, objget, objenable。
