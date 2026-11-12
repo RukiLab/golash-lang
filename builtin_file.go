@@ -15,13 +15,24 @@ import (
 )
 
 func init() {
-	// getcwd(): 現在の作業ディレクトリ。
-	register("getcwd", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return Null(), rtErrf(at, "getcwd：%s", err.Error())
+	// cwd([path])：カレントディレクトリの取得・変更を統合する。val が
+	// あれば変更し、なければ取得する。
+	register("cwd", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		if len(args) == 0 {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return Null(), rtErrf(at, "cwd：%s", err.Error())
+			}
+			return Str(cwd), nil
 		}
-		return Str(cwd), nil
+		p, err := needString("cwd", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		if err := os.Chdir(in.resolvePath(p)); err != nil {
+			return Null(), rtErrf(at, "cwd：%s", err.Error())
+		}
+		return Null(), nil
 	})
 
 	// direxe(): 実行中ファイルのあるディレクトリ。
@@ -140,18 +151,6 @@ func init() {
 		}
 		if err := os.Mkdir(in.resolvePath(p), 0o777); err != nil {
 			return Null(), rtErrf(at, "mkdir：%s", err.Error())
-		}
-		return Null(), nil
-	})
-
-	// chdir(path): 作業ディレクトリを変更する。
-	register("chdir", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		p, err := needString("chdir", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		if err := os.Chdir(in.resolvePath(p)); err != nil {
-			return Null(), rtErrf(at, "chdir：%s", err.Error())
 		}
 		return Null(), nil
 	})

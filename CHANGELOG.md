@@ -1,9 +1,24 @@
 # CHANGELOG
 
-Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）で、git の
-タグ（`v0.8.2`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
+Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで、git の
+タグ（`v0.9`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
 入る予定の変更で、版上げは README の「バージョン管理」または
 `go run ./tools/bumpver.go` を参照してください。
+なお 0.8 以前は SemVer（`MAJOR.MINOR.PATCH`）で管理していました。
+
+## [Unreleased]
+
+### 変更
+- 描画関数のサイズに負値を許容。`rect(x,y,w,h)` は従来通り逆向きに正規化、`ellipse(x,y,w,h)` は中心基準のため絶対値と同じ形（`0` は無描画）。`gcopy` はコピー元を逆向きに正規化し、コピー先サイズの負は逆向きに正規化＋反転描画（等倍時は `w`・`h` の負が反転）。`gblit` は `w`・`h` の負を絶対値で解釈し、コピー先サイズの負は反転描画。いずれも `0` はエラー（`ellipse` の `0` は無描画のまま）。
+- `screensize([id])`：引数なしは従来通り OS ウィンドウのサイズを返し、`id` を指定するとその描画バッファの `[幅, 高さ]` を返すように拡張。`0` はメインキャンバス、`buffer(id,w,h)` は指定サイズ、`picload()`/`dropload()` の画像は自身のサイズになる。未確保・範囲外の id はエラー。
+- get/set 系を `val` の有無で統合：`clip([s])`・`env(name [, val])`・`http(url [, val])`・`cwd([path])` に一本化。`val`（`s`・`val`・`path`）があれば set（設定・送信・変更）、なければ get（取得）になる。旧 `clipget` / `clipset`・`getenv` / `setenv`・`httpget` / `httppost`・`getcwd` / `chdir` は廃止し、未定義関数になる。`http` の送信は `application/json` 固定で、`val` が文字列ならそのまま、配列・数値・真偽値・void なら JSON 符号化して送る。応答は JSON オブジェクト・配列なら配列形式（オブジェクトは `[[キー, 値], ...]` のキー昇順）で返し、それ以外は文字列のまま返す。ファイル保存（`path`）・`contentType` 指定は廃止し、文字列の保存は `notesave(path, http(url))` を使うこと。
+- 版管理を SemVer（`MAJOR.MINOR.PATCH`）から `MAJOR.MINOR` のドット1つに変更し、`0.9` を採用。`VERSION`・処理系の `golashVersion`・ルート `package.json`・VS Code 拡張の `package.json`・各ドキュメントの `v<X.Y>` 表記を `TestVersionPinnedEverywhere` が検査します。`tools/bumpver.go` は `-bump major|minor` のみ（`-bump patch` 廃止）。`gsh version` の出力から `(SemVer)` 表示と `-json` の `"semver"` 欄を廃止（例 `Golash v0.9`・`{"name":"Golash","version":"0.9"}`）。0.8 以前の `## [0.8.x]` 見出しは履歴として残します。
+- 二値引数を真偽値方式に統一。対象は `cursor([v])`・`fullscreen([v])`・`resizable([v])`・`ime([v])`・`getkey(code [, mode])`・`ellipse(x, y, w, h [, fill])`・`mmplay(id [, loop])` と `objset(id, val)` の `chkbox` 状態変更（真偽値のみ。文字列でのラベル変更は維持）。いずれも引数なしは状態を `true`/`false` で返し（`getkey` は押下状態）、ありは真偽値で指定する（`getkey` の `mode` は省略・`false` = レベル検出、`true` = 立上り検出）。従来の整数（例 `cursor(1)`・`ime(1)`・`getkey(90, 1)`・`ellipse(..., 1)`・`mmplay(id, 1)`・`objset(id, 1)`）や数値はエラーになる（`objenable`/`chkbox` と同じ厳密な真偽値）。`cursor` のコメントの IME 誤記も修正（実体はマウスカーソル表示切替のまま）。`dialog` の `mode`（`0`/`1`/`3`/`4`）など多値の引数は整数のまま。
+- `srcanalyze(src)` を廃止し、エディタ支援は字句解析の `lextokens(src)`（`[エラー文字列, トークン列]` を値で返す）に一本化。構文木の返却は行わず、エディタのアウトライン・診断はトークン列から組み立てる。旧名の呼出しは未定義エラーになる。
+- ブロックコメント（`/* */`、入れ子可）を廃止。`/*` はコメントではなく `SLASH` + `STAR` の2トークンとして扱う。`lextokens(src)` 組込も廃止し、字句解析は Golash 自体で書く（`GolashProjects/golash-editor/lex.gsh` の `lx_lex`）。エディタは Go 側の字句解析器を使わず、すべて `lx_lex` で解析する。
+- エディタの再解析は画面に表示されている行のみ字句解析するように変更（`hl_vis_rows` 行の窓解析。スクロール・リサイズは即時再解析）。アウトラインは全行走査の `hl_scan_defs` で保つため表示外の定義も消えず、保存・実行時の診断（`hl_check_mem`）も従来通り全文で行う。
+- エディタの include行走査を版数キャッシュ化（`hl_buffer_includes`）。`hl_build_funcs` が毎回全行を走査していたのを同タブ・同版・同パスなら使い回し、スクロール時の再解析を軽くする。
+- エディタの再解析はスクロール・リサイズだけなら構造（アウトライン・関数・変数）を作り直さず窓のハイライトだけ更新するように変更。版数不変では定義が変わり得ないため。併せてアウトライン走査（`hl_scan_defs`）は `"def "/"def\t"` を含む行だけ精査する事前絞り込みを追加。画面内ハイライトは 8ms 以内（1585行で実測 5ms）。
 
 ## [0.8.2] - 2026-10-20
 
@@ -160,7 +175,7 @@ Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）�
 - GUI実行時エラーでプロセスを終了するように変更（従来は検査用にウィンドウを開いたままにしていた。メッセージは標準エラー出力へ出し、終了コード `1`。正常終了時は開いたまま）
 - `mes()` / `print()` の末尾が装飾キーワードと完全一致する場合は印刷されず装飾指定になります（例：`mes("a", "bold")` は `a` を太字表示）
 - `getpath()` のビットマスク数値を廃止し、部位キーワードの複数引数に変更（`getpath(p, "dir", "base")` 等。数値指定はエラー）
-- 表面nullの排除：void値の使用（代入・引数・配列要素・`==`・switch値）はエラー。`mes()` / `print()` / `logmes()` は黙って飛ばす。`input()` のEOF・ダイアログcancel・未設定`getenv()` は `""`。`parsetree` の欠落部も `""`（`== ""` で判定可）
+- 表面nullの排除：void値の使用（代入・引数・配列要素・`==`・switch値）はエラー。`mes()` / `print()` / `logmes()` は黙って飛ばす。`input()` のEOF・ダイアログcancel・未設定`env()` は `""`。`parsetree` の欠落部も `""`（`== ""` で判定可）
 - `map` 型を完全削除（リテラル・ドット/`[]`アクセス・`keys`/`has`/`del`・比較・`vartype`）。`{"a":1}`・`m.a` はパースエラー。`lextokens` は `[type, text, line, col]` 配列に、`parsetree` は位置タプル配列に変更
 - ネスト関数を廃止（`def` はトップレベルのみ）。クロージャも廃止し、呼び出しはグローバル変数を参照
 - 関数は値として扱えなくなり、`KFunc` 型を削除（関数名の参照・代入・`vartype` は未定義変数エラー）

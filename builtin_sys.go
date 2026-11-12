@@ -6,14 +6,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +24,7 @@ import (
 	"golang.design/x/clipboard"
 )
 
-// httpMaxBytes は httpget の本文上限（16MB）。
+// httpMaxBytes は http の本文上限（16MB）。
 const httpMaxBytes = 16 << 20
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -38,13 +40,108 @@ func httpFetch(url string) ([]byte, error) {
 }
 
 // httpPost は body を url に共通の制限付きで送信する。
-func httpPost(url, body, contentType string) ([]byte, error) {
-	resp, err := httpClient.Post(url, contentType, strings.NewReader(body))
+// contentType は application/json 固定（JSON API 向けの単純化）。
+func httpPost(url, body string) ([]byte, error) {
+	resp, err := httpClient.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	return drainResp(resp)
+}
+
+// httpDecode は応答本文を値に変換する：先頭が { または [ で JSON として
+// 読めれば配列形式で返し、そうでなければ文字列のまま返す。map がない言語
+// のため JSON オブジェクトは [[キー, 値], ...]（キー昇順）の配列になる。
+// 数値は整数なら int、小数なら float、null は void、真偽値・文字列・配列は
+// そのまま写す。空や壊れた JSON は文字列にフォールバックする。
+func httpDecode(body []byte) Value {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return Str(string(body))
+	}
+	if trimmed[0] != '{' && trimmed[0] != '[' {
+		return Str(string(body))
+	}
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return Str(string(body))
+	}
+	// 余分な末尾（例 `{...} garbage`）は生文字列扱いにする。
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return Str(string(body))
+	}
+	switch v.(type) {
+	case map[string]any, []any:
+		return jsonToGolash(v)
+	default:
+		return Str(string(body))
+	}
+}
+
+// jsonToGolash は encoding/json の値を Golash 値へ写す。
+func jsonToGolash(v any) Value {
+	switch t := v.(type) {
+	case nil:
+		return Null()
+	case bool:
+		// Golash に bool 型はない。JSON の true/false は 1/0 になる。
+		return IntOfBool(t)
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return Int(i)
+		}
+		if f, err := t.Float64(); err == nil {
+			return Float(f)
+		}
+		return Str(t.String())
+	case string:
+		return Str(t)
+	case []any:
+		elems := make([]Value, len(t))
+		for i, e := range t {
+			elems[i] = jsonToGolash(e)
+		}
+		return ArrayOf(elems)
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		pairs := make([]Value, len(keys))
+		for i, k := range keys {
+			pairs[i] = ArrayOf([]Value{Str(k), jsonToGolash(t[k])})
+		}
+		return ArrayOf(pairs)
+	}
+	return Null()
+}
+
+// golashToJSONable は Golash 値を JSON へ符号化できる any へ写す。
+// 配列は JSON 配列になる（受信時の [[キー, 値], ...] も配列として送る。
+// オブジェクトとして送りたい場合は JSON 文字列を直接渡すこと）。
+func golashToJSONable(v Value) any {
+	switch v.K {
+	case KNull:
+		return nil
+	case KInt:
+		return v.I
+	case KFloat:
+		return v.F
+	case KString:
+		return v.S
+	case KArray:
+		out := make([]any, len(v.Arr.Elems))
+		for i, e := range v.Arr.Elems {
+			out[i] = golashToJSONable(e)
+		}
+		return out
+	}
+	return nil
 }
 
 // drainResp はステータスを確認し、上限付きで本文を読み込む。
@@ -116,19 +213,31 @@ func clipEnsure() error {
 }
 
 func init() {
-	// getenv(name)：環境変数の値。未設定時は「」
-	//（未設定と空文字設定のどちらも「」として読む；存在しない変数で
-	// 中断すると任意設定が使い物にならなくなるため）。
-	register("getenv", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		name, err := needString("getenv", args, 0, at)
+	// env(name [, val])：環境変数の取得・設定を統合する。val があれば
+	// 設定し、なければ取得する。取得は未設定時に「」を返す（未設定と
+	// 空文字設定のどちらも「」として読む；存在しない変数で中断すると
+	// 任意設定が使い物にならなくなるため）。設定はこのプロセス用に
+	// 行う（exec 経由で子にも継承）。
+	register("env", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		name, err := needString("env", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		v, ok := os.LookupEnv(name)
-		if !ok {
-			return Str(""), nil
+		if len(args) == 1 {
+			v, ok := os.LookupEnv(name)
+			if !ok {
+				return Str(""), nil
+			}
+			return Str(v), nil
 		}
-		return Str(v), nil
+		value, err := needString("env", args, 1, at)
+		if err != nil {
+			return Null(), err
+		}
+		if err := os.Setenv(name, value); err != nil {
+			return Null(), rtErrf(at, "env：%s", err.Error())
+		}
+		return Null(), nil
 	})
 
 	// open(target)：関連付けアプリでファイル・フォルダ・URL を開く
@@ -163,19 +272,20 @@ func init() {
 		return Null(), nil
 	})
 
-	// クリップボード（テキストのみ）：clipget は溜めたテキストを読み、
-	// clipset は書き込む。外部からのコピーは裏の監視経由で反映され、
+	// clip([s])：クリップボード（テキストのみ）の取得・設定を統合する。
+	// val があれば設定し、なければ取得する。取得は溜めたテキストを読み、
+	// 設定は書き込む。外部からのコピーは裏の監視経由で反映され、
 	// 自身の書き込みはキャッシュに即時反映される。
-	register("clipget", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		if err := clipEnsure(); err != nil {
-			return Null(), rtErrf(at, "clipboard：%s", err.Error())
+	register("clip", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		if len(args) == 0 {
+			if err := clipEnsure(); err != nil {
+				return Null(), rtErrf(at, "clipboard：%s", err.Error())
+			}
+			clipMu.Lock()
+			defer clipMu.Unlock()
+			return Str(clipText), nil
 		}
-		clipMu.Lock()
-		defer clipMu.Unlock()
-		return Str(clipText), nil
-	})
-	register("clipset", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("clipset", args, 0, at)
+		s, err := needString("clip", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
@@ -191,142 +301,41 @@ func init() {
 		return Null(), nil
 	})
 
-	// dlgopen([filter])：ファイルを開くダイアログ。キャンセル時は「」（空の
-	// パスは実際の選択になり得ないため、番兵として兼ねる）。
-	// filter は「名前|*.png;*.jpg」（1グループ）。
-	register("dlgopen", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		filter := ""
-		if len(args) == 1 {
-			var err error
-			filter, err = needString("dlgopen", args, 0, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		path, err := dlgFileBuilder(in, "開く", filter, "").Load()
-		if err != nil {
-			if errors.Is(err, dialog.ErrCancelled) {
-				return Str(""), nil
-			}
-			return Null(), rtErrf(at, "dlgopen：%s", err.Error())
-		}
-		return Str(path), nil
-	})
-
-	// dlgsave([filter] [, name])：ファイル保存ダイアログ。キャンセル時は「」。
-	// filter は「名前|*.png;*.jpg」（1グループ；不要なら「」）で、name は
-	// ファイル名欄の初期値。上書き確認はダイアログ自体が行う（OS の問い合わせ）
-	// ため、返ってきたパスは常に利用者の確認済みになる。
-	register("dlgsave", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		filter, name := "", ""
-		var err error
-		if len(args) >= 1 {
-			filter, err = needString("dlgsave", args, 0, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		if len(args) == 2 {
-			name, err = needString("dlgsave", args, 1, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		path, err := dlgFileBuilder(in, "保存", filter, name).Save()
-		if err != nil {
-			if errors.Is(err, dialog.ErrCancelled) {
-				return Str(""), nil
-			}
-			return Null(), rtErrf(at, "dlgsave：%s", err.Error())
-		}
-		return Str(path), nil
-	})
-
-	// httpget(url [, path])：HTTP(S) で取得する（10秒タイムアウト・16MB上限）。
-	// 引数1個では本文を文字列で返し、path 付きでは保存してバイト数を返す。
-	register("httpget", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		url, err := needString("httpget", args, 0, at)
+	// http(url [, val])：HTTP(S) の取得・送信を統合する。val があれば
+	// POST し、なければ GET する（10秒タイムアウト・16MB上限）。
+	// 送信の contentType は application/json 固定。val が文字列なら
+	// そのまま送り、配列・数値・真偽値・void なら JSON に符号化して送る
+	// （オブジェクトとして送りたい場合は JSON 文字列を直接渡すこと）。
+	// 応答は JSON オブジェクト・配列なら配列形式で返し、それ以外は
+	// 文字列のまま返す。オブジェクトは [[キー, 値], ...]（キー昇順）に
+	// なり、map がない言語での連想配列の代わりになる。2xx 以外はエラー。
+	register("http", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		url, err := needString("http", args, 0, at)
 		if err != nil {
 			return Null(), err
-		}
-		// ネットワーク I/O より先に全引数を検証する（型エラー時に
-		// 無駄な fetch・サーバ側副作用を起こさないため）。
-		var path string
-		if len(args) == 2 {
-			path, err = needString("httpget", args, 1, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		body, err := httpFetch(url)
-		if err != nil {
-			return Null(), rtErrf(at, "httpget：%s", err.Error())
 		}
 		if len(args) == 1 {
-			return Str(string(body)), nil
-		}
-		if err := os.WriteFile(in.resolvePath(path), body, 0o666); err != nil {
-			return Null(), rtErrf(at, "httpget：%s", err.Error())
-		}
-		return Int(int64(len(body))), nil
-	})
-
-	// httppost(url, body [, contentType [, path]])：httpget と同じ
-	// 10秒タイムアウト・16MB上限で POST する。contentType の既定は
-	// application/json。path なしでは応答本文を文字列で返し、
-	// path 付きでは保存してバイト数を返す。
-	register("httppost", 2, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
-		url, err := needString("httppost", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		reqBody, err := needString("httppost", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		contentType := "application/json"
-		if len(args) >= 3 {
-			contentType, err = needString("httppost", args, 2, at)
+			body, err := httpFetch(url)
 			if err != nil {
-				return Null(), err
+				return Null(), rtErrf(at, "http：%s", err.Error())
 			}
+			return httpDecode(body), nil
 		}
-		// POST 前に path の型も検証する（httpget と同様、副作用前の失敗を優先）。
-		var path string
-		hasPath := len(args) == 4
-		if hasPath {
-			path, err = needString("httppost", args, 3, at)
+		var reqBody string
+		if args[1].K == KString {
+			reqBody = args[1].S
+		} else {
+			jb, err := json.Marshal(golashToJSONable(args[1]))
 			if err != nil {
-				return Null(), err
+				return Null(), rtErrf(at, "http：%s", err.Error())
 			}
+			reqBody = string(jb)
 		}
-		body, err := httpPost(url, reqBody, contentType)
+		body, err := httpPost(url, reqBody)
 		if err != nil {
-			return Null(), rtErrf(at, "httppost：%s", err.Error())
+			return Null(), rtErrf(at, "http：%s", err.Error())
 		}
-		if hasPath {
-			if err := os.WriteFile(in.resolvePath(path), body, 0o666); err != nil {
-				return Null(), rtErrf(at, "httppost：%s", err.Error())
-			}
-			return Int(int64(len(body))), nil
-		}
-		return Str(string(body)), nil
-	})
-
-	// setenv(name, value)：このプロセス用に設定する（exec 経由で子にも継承）。
-	register("setenv", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		name, err := needString("setenv", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		value, err := needString("setenv", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		if err := os.Setenv(name, value); err != nil {
-			return Null(), rtErrf(at, "setenv：%s", err.Error())
-		}
-		return Null(), nil
+		return httpDecode(body), nil
 	})
 }
 
@@ -346,7 +355,7 @@ func dlgStartDir(in *Interp) string {
 }
 
 // dlgFileBuilder は共通のファイルダイアログを整える：開始フォルダ
-//（dlgStartDir）、任意フィルタ（「名前|*.png;*.jpg」、1グループ）、保存時は
+// （dlgStartDir）、任意フィルタ（「名前|*.png;*.jpg」、1グループ）、保存時は
 // 初期ファイル名。Load()／Save() までは OS 画面を開かないため、
 // セッションなしでも設定部分を試験できる。
 func dlgFileBuilder(in *Interp, title, filter, name string) *dialog.FileBuilder {

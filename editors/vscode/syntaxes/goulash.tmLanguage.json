@@ -39,11 +39,6 @@
         {
           "name": "comment.line.double-slash.goulash",
           "match": "//.*$"
-        },
-        {
-          "name": "comment.block.goulash",
-          "begin": "/\\*",
-          "end": "\\*/"
         }
       ]
     },
@@ -51,7 +46,11 @@
       "patterns": [
         {
           "name": "keyword.control.directive.goulash",
-          "match": "^\\s*(#)(include|define|ifdef|ifndef|else|endif|error)\\b"
+          "match": "^\\s*(include|dll|dlldef)\\b"
+        },
+        {
+          "name": "invalid.deprecated.directive.goulash",
+          "match": "^\\s*#.*$"
         }
       ]
     },
@@ -98,7 +97,7 @@
       "patterns": [
         {
           "name": "keyword.control.goulash",
-          "match": "\\b(def|if|else|repeat|while|switch|case|default|as|break|continue|return)\\b"
+          "match": "\\b(def|if|elseif|else|end|repeat|while|switch|case|default|as|break|continue|return|local)\\b"
         }
       ]
     },
@@ -114,7 +113,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.goulash",
-          "match": "\\b(abs|args|asc|assert|atan|await|bcopy|bload|bsave|buffer|button|chdir|checksrc|chkbox|chr|clipget|clipset|closing|clrobj|cls|color|combox|cursor|delete|dialog|dim|direxe|dirlist|dlgopen|dlgsave|dropfiles|dropload|ellipse|end|exec|exp|find|float|font|fullscreen|galpha|gcopy|gquad|getcwd|getenv|getkey|getpath|gettime|gmode|gsel|homedir|httpget|httppost|ime|input|inputbox|insert|instr|int|join|length|lextokens|limit|line|listbox|log|logmes|lower|lpeek|lpoke|max|mes|mesbox|mkdir|min|mmload|mmplay|mmstop|mmvol|mousewheel|mousex|mousey|nanotime|noteadd|notedel|noteget|noteload|notemax|notesave|objenable|objget|objset|open|padaxis|padbtn|padcount|padname|paint|parsetree|peek|picload|pipeexec|pngsave|poke|pop|pos|pow|print|pget|pset|push|randomize|rect|remove|replace|resizable|reverse|rnd|screen|screensize|setenv|sleep|slice|sort|split|sqrt|str|strf|strlen|strmid|strtrim|strwidth|tick|title|tmpdir|touchcount|touchx|touchy|upper|vartype|winmove|wpeek|wpoke)\\b"
+          "match": "\\b(abs|args|asc|assert|atan|await|bcopy|bload|bsave|buffer|button|chkbox|chr|clip|closing|clrobj|cls|color|combox|cursor|cwd|delete|dialog|dim|direxe|dirlist|dropfiles|dropload|ellipse|env|exec|exit|exp|find|float|font|fullscreen|galpha|gblit|gcopy|gquad|getkey|getpath|gettime|gmode|gsel|homedir|http|ime|input|inputbox|insert|instr|int|join|length|limit|line|listbox|log|logmes|lower|max|mes|mesbox|mkdir|min|mmload|mmplay|mmpitch|mmstop|mmvol|mousewheel|mousex|mousey|nanotime|noteadd|notedel|noteget|noteload|notemax|notesave|objenable|objget|objset|open|padaxis|padbtn|padcount|padname|picload|pipeexec|pngsave|pop|pos|pow|print|pget|pset|push|randomize|rect|remove|replace|resizable|reverse|rnd|screen|screensize|sleep|slice|sort|split|sqrt|str|strf|strlen|strmid|strtrim|strwidth|tick|title|tri|tmpdir|touchcount|touchx|touchy|upper|vartype|winmove)\\b"
         }
       ]
     },
@@ -134,7 +133,7 @@
         },
         {
           "name": "punctuation.goulash",
-          "match": "[.,;:(){}\\[\\]]"
+          "match": "[.,;:()\\[\\]]"
         }
       ]
     }

@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"gsh/gui"
 )
 
 // runIO は与えられた標準入力で src を実行し、標準出力と logmes の出力を
@@ -359,18 +357,24 @@ func TestFileDialogBuilder(t *testing.T) {
 }
 
 func TestEnv(t *testing.T) {
-	mustOutIO(t, "setenv(\"GOU_TEST\", \"42\")\nmes(getenv(\"GOU_TEST\"))\nmes(getenv(\"GOU_NO_SUCH_VAR_XYZ\") == \"\")\n", "", "42\ntrue\n")
-	mustErrIO(t, "getenv(1)\n", "文字列である必要があります")
-	mustErrIO(t, "setenv(\"a\")\n", "2 個必要")
+	mustOutIO(t, "env(\"GOU_TEST\", \"42\")\nmes(env(\"GOU_TEST\"))\nmes(env(\"GOU_NO_SUCH_VAR_XYZ\") == \"\")\n", "", "42\ntrue\n")
+	mustErrIO(t, "env(1)\n", "文字列である必要があります")
+	mustErrIO(t, "env(\"a\", 1)\n", "文字列である必要があります")
+	mustErrIO(t, "env()\n", "1 から 2 個")
+	mustErrIO(t, "env(\"a\", \"b\", \"c\")\n", "1 から 2 個")
+	mustErrIO(t, "getenv(\"a\")\n", "未定義の関数")
+	mustErrIO(t, "setenv(\"a\", \"b\")\n", "未定義の関数")
 	mustErrIO(t, "open(1)\n", "文字列である必要があります")
 	mustErrIO(t, "open(\"\")\n", "空にすることはできません")
-	mustErrIO(t, "dlgopen(1)\n", "文字列である必要があります")
-	mustErrIO(t, "dlgsave(1)\n", "文字列である必要があります")
-	mustErrIO(t, "dlgsave(\"\", 2)\n", "文字列である必要があります")
-	mustErrIO(t, "dlgsave(\"a\", \"b\", \"c\")\n", "0 から 2 個")
-	mustErrIO(t, "httpget(1)\n", "文字列である必要があります")
-	mustOutIO(t, "clipset(\"gsh\")\nmes(clipget())\n", "", "gsh\n")
-	mustErrIO(t, "clipset(1)\n", "文字列である必要があります")
+	mustErrIO(t, "dialog(1)\n", "文字列である必要があります")
+	mustErrIO(t, "dialog(\"x\", \"y\")\n", "整数である必要があります")
+	mustErrIO(t, "dialog(\"x\", 2)\n", "0・1・3・4")
+	mustErrIO(t, "dialog(\"x\", 3, \"y\")\n", "1 から 2 個")
+	mustErrIO(t, "http(1)\n", "文字列である必要があります")
+	mustOutIO(t, "clip(\"gsh\")\nmes(clip())\n", "", "gsh\n")
+	mustErrIO(t, "clip(1)\n", "文字列である必要があります")
+	mustErrIO(t, "clipget()\n", "未定義の関数")
+	mustErrIO(t, "clipset(\"x\")\n", "未定義の関数")
 }
 
 func TestHttpget(t *testing.T) {
@@ -535,27 +539,6 @@ func TestConsoleIO(t *testing.T) {
 	mustErrIO(t, "color(-1)\n", "0x000000")
 }
 
-func TestSplitStyleArgs(t *testing.T) {
-	rest, st := splitStyleArgs([]Value{Str("a"), Str("b"), Str("bold"), Str("underline")})
-	if len(rest) != 2 || st != gui.StyleBold|gui.StyleUnderline {
-		t.Fatalf("got %v, %v", rest, st)
-	}
-	rest, st = splitStyleArgs([]Value{Str("bolditalic")})
-	if len(rest) != 0 || st != gui.StyleBold|gui.StyleItalic {
-		t.Fatalf("got %v, %v", rest, st)
-	}
-	// 末尾のキーワードは非文字列の後でも消費される。非文字列自体は
-	// 印字可能なまま。ニアミスも印字可能なまま。
-	rest, st = splitStyleArgs([]Value{Str("a"), Int(1), Str("bold")})
-	if len(rest) != 2 || st != gui.StyleBold {
-		t.Fatalf("got %v, %v", rest, st)
-	}
-	rest, st = splitStyleArgs([]Value{Str("a"), Str("Bold")})
-	if len(rest) != 2 || st != 0 {
-		t.Fatalf("got %v, %v", rest, st)
-	}
-}
-
 func TestInput(t *testing.T) {
 	mustOutIO(t, "s = input()\nmes(s)\n", "hello\n", "hello\n")
 	mustOutIO(t, "s = input(\"name? \")\nmes(s)\n", "bob\n", "name? bob\n")
@@ -700,8 +683,14 @@ func TestFileinfo(t *testing.T) {
 }
 
 func TestDirs(t *testing.T) {
-	mustOutIO(t, "mes(strlen(getcwd()) > 0)\nmes(strlen(direxe()) > 0)\nmes(strlen(homedir()) > 0)\nmes(strlen(tmpdir()) > 0)\n", "", "true\ntrue\ntrue\ntrue\n")
-	mustOutIO(t, "mes(fileinfo(getcwd())[2])\n", "", "true\n")
+	mustOutIO(t, "mes(strlen(cwd()) > 0)\nmes(strlen(direxe()) > 0)\nmes(strlen(homedir()) > 0)\nmes(strlen(tmpdir()) > 0)\n", "", "true\ntrue\ntrue\ntrue\n")
+	mustOutIO(t, "mes(fileinfo(cwd())[2])\n", "", "true\n")
+	// cwd(path)：変更後は cwd() で反映され、旧 cwd に戻せる。
+	mustOutIO(t, "qold = cwd()\ncwd(\".\")\nmes(cwd() != \"\")\ncwd(qold)\nmes(cwd() == qold)\n", "", "true\ntrue\n")
+	mustErrIO(t, "mes(cwd(1))\n", "文字列である必要があります")
+	mustErrIO(t, "mes(cwd(\"a\", \"b\"))\n", "0 から 1 個")
+	mustErrIO(t, "mes(getcwd())\n", "未定義の関数")
+	mustErrIO(t, "mes(chdir(\".\"))\n", "未定義の関数")
 }
 
 func TestNotes(t *testing.T) {
