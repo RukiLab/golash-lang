@@ -2,14 +2,22 @@
 // ウィンドウ（GUI バックエンド）が必要で、なければエラーを報告する。
 package main
 
+import (
+	"errors"
+
+	"github.com/sqweek/dialog"
+	"gsh/gui"
+)
+
 func init() {
-	// button(id, label, w, h [, imgIdle [, imgHover
-	// [, imgPressed [, imgDisabled]]]]): pos() の位置にボタンを配置する。
-	// 画像は picload/dropload のバッファ id で、状態ごと
-	// （通常/ホバー/押下/無効）にアイコンとして表示される。
-	// 省略された状態は通常の画像を再利用する（無効は暗くした複製に
-	// フォールバックする）。
-	register("button", 4, 8, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// button(id, label, w, h [, buf, sx, sy
+	// [, buf, sx, sy [, buf, sx, sy [, buf, sx, sy]]]]): pos() の位置に
+	// ボタンを配置する。配置後は自動で改行する (x=0, y+h)。画像は最大4状態 (通常/ホバー/押下/無効) で、各状態は
+	// (buf, sx, sy) の3つ組で指定する。buf は picload/dropload のバッファ id
+	// (0 は空き)、sx/sy は切出し左上。切出しサイズはボタンの w/h で原寸コピー
+	// する (拡縮しない)。省略されたホバー・押下は通常画像、省略された無効は
+	// 通常画像の減光コピーになる。
+	register("button", 4, 16, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "button")
 		if err != nil {
 			return Null(), err
@@ -30,13 +38,20 @@ func init() {
 			}
 			size[i] = int(v)
 		}
-		var imgs []int
-		for i := 4; i < len(args); i++ {
-			v, err := needInt("button", args, i, at)
-			if err != nil {
-				return Null(), err
+		if (len(args)-4)%3 != 0 {
+			return Null(), argErr("button", len(args)-1, at, "画像は (buf, sx, sy) の組で指定してください。引数が %d 個余分です", len(args)-4)
+		}
+		var imgs []gui.ButtonImage
+		for i := 4; i < len(args); i += 3 {
+			vals := make([]int, 3)
+			for k := 0; k < 3; k++ {
+				v, err := needInt("button", args, i+k, at)
+				if err != nil {
+					return Null(), err
+				}
+				vals[k] = int(v)
 			}
-			imgs = append(imgs, int(v))
+			imgs = append(imgs, gui.ButtonImage{Buf: vals[0], SX: vals[1], SY: vals[2]})
 		}
 		x, y := wb.CursorPixels()
 		if err := wb.AddButton(int(id), label, x, y, size[0], size[1], imgs...); err != nil {
@@ -45,7 +60,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// inputbox(id, w, h [, text]): pos() の位置にテキスト入力を配置する。
+	// inputbox(id, w, h [, text]): pos() の位置にテキスト入力を配置する。配置後は自動で改行する (x=0, y+h)。
 	register("inputbox", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "inputbox")
 		if err != nil {
@@ -74,24 +89,24 @@ func init() {
 		return Null(), nil
 	})
 
-	// ime([mode]): IME 入力を照会（引数なし）または設定（非ゼロ=オン）
-	// する。フォーカスがあれば 1、なければ 0 を返す。
+	// ime([v]): IME 入力を照会（引数なし）または設定（0=オフ、
+	// 非0=オン）する。フォーカスがあれば 1、なければ 0 を返す。
 	register("ime", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "ime")
 		if err != nil {
 			return Null(), err
 		}
 		if len(args) == 1 {
-			v, err := needInt("ime", args, 0, at)
+			v, err := needTruthy("ime", args, 0, at)
 			if err != nil {
 				return Null(), err
 			}
-			return Int(int64(wb.IMESet(v != 0))), nil
+			return IntOfBool(wb.IMESet(v)), nil
 		}
-		return Int(int64(wb.IMEState())), nil
+		return IntOfBool(wb.IMEState()), nil
 	})
 
-	// listbox(id, w, h, items): pos() の位置にリストを配置する。
+	// listbox(id, w, h, items): pos() の位置にリストを配置する。配置後は自動で改行する (x=0, y+h)。
 	// items は配列。リスト幅より広い項目はバックエンドが短縮する。
 	// 項目の差し替えは objset(id, 配列)、選択は objset(id, 整数) で行う。
 	register("listbox", 4, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
@@ -126,6 +141,7 @@ func init() {
 	})
 
 	// clrobj([id]): 1つのウィジェットを削除する。引数なしならすべて。
+	// 結び付け（wbind/wbind_items）も同時に外す。
 	register("clrobj", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "clrobj")
 		if err != nil {
@@ -133,6 +149,10 @@ func init() {
 		}
 		if len(args) == 0 {
 			wb.ClearWidgets()
+			in.wbinds = map[int]string{}
+			in.wbindItems = map[int]string{}
+			in.wlast = map[int]Value{}
+			in.wlastItems = map[int][]string{}
 			return Null(), nil
 		}
 		id, err := needInt("clrobj", args, 0, at)
@@ -142,30 +162,64 @@ func init() {
 		if err := wb.RemoveWidget(int(id)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
+		if in.wbinds != nil {
+			delete(in.wbinds, int(id))
+		}
+		if in.wbindItems != nil {
+			delete(in.wbindItems, int(id))
+		}
+		if in.wlast != nil {
+			delete(in.wlast, int(id))
+		}
+		if in.wlastItems != nil {
+			delete(in.wlastItems, int(id))
+		}
 		return Null(), nil
 	})
 
-	// dialog(msg [, mode]): モーダルな選択。mode は ok/okcancel/yesno。
+	// dialog(text [, mode]): mode は 0=OK、1=はい・いいえ、3=開く、4=保存（省略時は 0）。
+	// 0/1 は選択結果を 1/0（OK=1、Yes=1/No=0）で、3/4 は OS のファイルダイアログを開いて
+	// 選ばれたパスを文字列で返す（キャンセル時は ""）。3/4 は CUI でも動く。
 	register("dialog", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "dialog")
+		text, err := needString("dialog", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		msg, err := needString("dialog", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		mode := "ok"
+		mode := int64(0)
 		if len(args) == 2 {
-			mode, err = needString("dialog", args, 1, at)
+			mode, err = needInt("dialog", args, 1, at)
 			if err != nil {
 				return Null(), err
 			}
 		}
-		v, err := wb.Dialog(msg, mode)
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
+		switch mode {
+		case 0, 1:
+			wb, err := guiBE(in, at, "dialog")
+			if err != nil {
+				return Null(), err
+			}
+			v, err := wb.Dialog(text, int(mode))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return IntOfBool(v), nil
+		case 3, 4:
+			// text は「名前|*.png;*.jpg」形式のフィルタ（"" なら無指定）。
+			var path string
+			if mode == 3 {
+				path, err = dlgFileBuilder(in, "開く", text, "").Load()
+			} else {
+				path, err = dlgFileBuilder(in, "保存", text, "").Save()
+			}
+			if err != nil {
+				if errors.Is(err, dialog.ErrCancelled) {
+					return Str(""), nil
+				}
+				return Null(), rtErrf(at, "dialog：%s", err.Error())
+			}
+			return Str(path), nil
+		default:
+			return Null(), argErr("dialog", 1, at, "0・1・3・4 である必要があります。%d が指定されました", mode)
 		}
-		return Int(int64(v)), nil
 	})
 }

@@ -4,27 +4,12 @@ package main
 import "strings"
 
 func init() {
-	// print(args...): 末尾の改行なしで表示する。末尾の
-	// スタイル指定 ("bold", "italic", "bolditalic", "underline")
-	// は装飾として消費され表示されない。Void 引数
-	// は黙って無視される。
-	register("print", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		rest, st := splitStyleArgs(args)
-		parts := make([]string, 0, len(rest))
-		for _, a := range rest {
-			if a.K == KNull {
-				continue
-			}
-			parts = append(parts, Stringify(a))
+	// print(s): 末尾の改行なしで表示する。void は黙って無視される。
+	register("print", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		if args[0].K == KNull {
+			return Null(), nil
 		}
-		out := ""
-		for i, p := range parts {
-			if i > 0 {
-				out += " "
-			}
-			out += p
-		}
-		in.be.Print(out, st)
+		in.be.Print(Stringify(args[0]))
 		return Null(), nil
 	})
 

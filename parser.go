@@ -31,30 +31,33 @@ func Parse(src string) (*Program, error) {
 }
 
 // ParseTokens は明示的なトークン列を構文解析する（ParseFile 後の
-// #include 展開済みトークン用）。
+// include 展開済みトークン用）。
 func ParseTokens(toks []Token) (*Program, error) {
 	p := &parser{toks: toks}
 	return p.parseProgram()
 }
 
-// ParseFile はスクリプトファイルを読み込み、#include ツリーを展開して構文解析する。
+// ParseFile はスクリプトファイルを読み込み、include ツリーを展開して構文解析する。
 func ParseFile(path string) (*Program, error) {
 	prog, _, err := ParseFileMode(path)
 	return prog, err
 }
 
-// ParseFileMode は ParseFile に実行モードを加えたもの：ツリー内の最後に有効な
-// `#mode cli|gui`、存在しなければ "gui"。
+// ParseFileMode は ParseFile に実行モードを加えたものです。mode 宣言が
+// なければ、main から到達可能な GUI 組込みの有無で cli / gui を判定します。
 func ParseFileMode(path string) (*Program, string, error) {
-	toks, mode, err := CombineFileMode(path)
+	toks, err := LoadFile(path)
 	if err != nil {
-		return nil, "gui", err
+		// 読み込み・字句解析の失敗。GUI ダイアログで固まらないよう、
+		// 端末へエラーを出す側を既定にする（エディタは Golash 側の字句解析 lex.gsh で先に診断する）。
+		return nil, "cli", err
 	}
 	prog, err := ParseTokens(toks)
 	if err != nil {
-		return nil, mode, err
+		// 構文エラー時は自動判定できないため、端末へエラーを出す。
+		return nil, "cli", err
 	}
-	return prog, mode, nil
+	return prog, DetectRunMode(prog), nil
 }
 
 type parser struct {
@@ -66,8 +69,8 @@ type parser struct {
 	depth int
 }
 
-// maxParseDepth は `{...}` ブロックのネストと式のネスト
-//（括弧・配列/呼び出しのネスト・単項演算子の連鎖）の上限。
+// maxParseDepth はブロック（改行〜end）のネストと式のネスト
+// （括弧・配列/呼び出しのネスト・単項演算子の連鎖）の上限。
 const maxParseDepth = 1000
 
 func (p *parser) enter() error {
@@ -150,6 +153,10 @@ func tokName(t TokenType) string {
 		return "'if'"
 	case TokElse:
 		return "'else'"
+	case TokElseIf:
+		return "'elseif'"
+	case TokEnd:
+		return "'end'"
 	case TokRepeat:
 		return "'repeat'"
 	case TokWhile:
@@ -168,6 +175,8 @@ func tokName(t TokenType) string {
 		return "'continue'"
 	case TokReturn:
 		return "'return'"
+	case TokLocal:
+		return "'local'"
 	case TokPlus:
 		return "'+'"
 	case TokMinus:
@@ -272,6 +281,13 @@ func (p *parser) parseProgram() (*Program, error) {
 			t := p.peek()
 			return nil, p.errAt(t, "セミコロンは使用できません。文は改行で区切ってください")
 		}
+		if t := p.peek(); t.Type == TokEnd || t.Type == TokElse || t.Type == TokElseIf ||
+			t.Type == TokCase || t.Type == TokDefault {
+			return nil, p.errAt(t, "予期しない %s です", tokName(t.Type))
+		}
+		if t := p.peek(); t.Type == TokLBrace || t.Type == TokRBrace {
+			return nil, p.errAt(t, "'%s' は使用できません。改行と end を使用してください", t.Lit)
+		}
 		s, err := p.parseStmt(true)
 		if err != nil {
 			return nil, err
@@ -283,8 +299,6 @@ func (p *parser) parseProgram() (*Program, error) {
 		case TokNewline:
 			p.skipNewlines()
 		case TokEOF:
-		case TokRBrace:
-			// 外側のブロックに消費させる（'}' 前の改行欠落も許容される）。
 		case TokSemicolon:
 			return nil, p.errAt(t, "セミコロンは使用できません。文は改行で区切ってください")
 		default:
@@ -300,9 +314,7 @@ func (p *parser) parseStmt(top bool) (Stmt, error) {
 	t := p.peek()
 	switch t.Type {
 	case TokDef:
-		// 入れ子関数は廃止された: def はトップレベルにのみ存在する
-		// （関数本体は他のすべてのブロックと同様、top=false の
-		// parseBlock を通る）。
+		// 入れ子関数は廃止された: def はトップレベルにのみ存在する。
 		if !top {
 			return nil, p.errAt(t, "def はトップレベルにのみ記述できます")
 		}
@@ -323,13 +335,24 @@ func (p *parser) parseStmt(top bool) (Stmt, error) {
 		return &ContinueStmt{At: posOf(t)}, nil
 	case TokReturn:
 		return p.parseReturn()
-	case TokRBrace:
-		return nil, p.errAt(t, "予期しない '}' です")
+	case TokLocal:
+		if top {
+			return nil, p.errAt(t, "local は関数内でのみ使用できます")
+		}
+		return p.parseVar()
+	case TokEnd, TokElse, TokElseIf, TokCase, TokDefault:
+		return nil, p.errAt(t, "予期しない %s です", tokName(t.Type))
+	case TokLBrace, TokRBrace:
+		return nil, p.errAt(t, "'%s' は使用できません。改行と end を使用してください", t.Lit)
 	case TokStar:
 		return nil, p.errAt(t, "予期しない '*' です")
 	case TokIdent:
-		// `enum` は通常の識別子である（enum 文は廃止された。連番定数は
-		// 値なしの #define を使う）。
+		// mode / include / dll は文脈キーワードとして扱う。
+		// 例えば `include = 5` のような同名変数への代入は従来通り動く。
+		// const / enum は廃止され、通常の識別子として扱う。
+		if s, ok, err := p.parseDecl(top); ok {
+			return s, err
+		}
 		return p.parseAssignOrExpr()
 	default:
 		// 式文はリテラル、'('、'['、'-'、'!'、true/false で始まりうる。
@@ -337,46 +360,103 @@ func (p *parser) parseStmt(top bool) (Stmt, error) {
 	}
 }
 
-func (p *parser) parseBlock() (*BlockStmt, error) {
-	open, err := p.expect(TokLBrace)
-	if err != nil {
-		return nil, err
+// expectNewlinesAfter はブロック開始ヘッダの後に改行が必須であることを検査し、
+// 改行群を消費する。'{' が来た場合は移行エラーを返す。
+func (p *parser) expectNewlinesAfter(header string) error {
+	if p.peek().Type == TokLBrace {
+		t := p.peek()
+		return p.errAt(t, "'{' は使用できません。改行と end を使用してください")
 	}
+	if !p.skipNewlines() {
+		t := p.peek()
+		if t.Type == TokLBrace || t.Type == TokRBrace {
+			return p.errAt(t, "'%s' は使用できません。改行と end を使用してください", t.Lit)
+		}
+		if t.Type == TokEOF {
+			return p.errAt(t, "ブロックが閉じられていません。'end' が必要です")
+		}
+		return p.errAt(t, "%s の後に改行が必要です。%s が見つかりました", header, tokName(t.Type))
+	}
+	return nil
+}
+
+func (p *parser) expectEnd() (Token, error) {
+	t := p.peek()
+	if t.Type != TokEnd {
+		if t.Type == TokLBrace || t.Type == TokRBrace {
+			return Token{}, p.errAt(t, "'%s' は使用できません。end を使用してください", t.Lit)
+		}
+		if t.Type == TokEOF {
+			return Token{}, p.errAt(t, "ブロックが閉じられていません。'end' が必要です")
+		}
+		return Token{}, p.errAt(t, "'end' が必要です。%s が見つかりました", tokName(t.Type))
+	}
+	return p.next(), nil
+}
+
+// parseBody は改行〜end 形式の本体文列を、終端子を消費せずに解析する。
+// stopElse が真なら else/elseif で停止し、stopCase が真なら case/default で停止する。
+// 許可されていない位置の終端子や波括弧はエラーになる。
+func (p *parser) parseBody(stopElse, stopCase bool) ([]Stmt, error) {
 	if err := p.enter(); err != nil {
 		return nil, err
 	}
 	defer p.leave()
-	b := &BlockStmt{At: posOf(open)}
+	var stmts []Stmt
 	p.skipNewlines()
-	for p.peek().Type != TokRBrace {
-		if p.peek().Type == TokEOF {
-			return nil, p.errAt(p.peek(), "ブロックが閉じられていません。'}' が必要です")
-		}
-		if p.peek().Type == TokSemicolon {
-			t := p.peek()
+	for {
+		t := p.peek()
+		switch t.Type {
+		case TokEOF:
+			return nil, p.errAt(t, "ブロックが閉じられていません。'end' が必要です")
+		case TokEnd:
+			return stmts, nil
+		case TokElse, TokElseIf:
+			if stopElse {
+				return stmts, nil
+			}
+			return nil, p.errAt(t, "予期しない %s です", tokName(t.Type))
+		case TokCase, TokDefault:
+			if stopCase {
+				return stmts, nil
+			}
+			return nil, p.errAt(t, "予期しない %s です", tokName(t.Type))
+		case TokSemicolon:
 			return nil, p.errAt(t, "セミコロンは使用できません。文は改行で区切ってください")
+		case TokLBrace, TokRBrace:
+			return nil, p.errAt(t, "'%s' は使用できません。改行と end を使用してください", t.Lit)
 		}
 		s, err := p.parseStmt(false)
 		if err != nil {
 			return nil, err
 		}
-		b.Stmts = append(b.Stmts, s)
-		t := p.peek()
+		stmts = append(stmts, s)
+		t = p.peek()
 		switch t.Type {
 		case TokNewline:
 			p.skipNewlines()
-		case TokRBrace:
-			// '}' 前の改行欠落を許容する。
+		case TokEnd:
+			return nil, p.errAt(t, "文の後に改行が必要です。'end' の前に改行してください")
+		case TokElse, TokElseIf:
+			if stopElse {
+				return nil, p.errAt(t, "文の後に改行が必要です。%s の前に改行してください", tokName(t.Type))
+			}
+			return nil, p.errAt(t, "文の後に改行が必要です。%s が見つかりました", tokName(t.Type))
+		case TokCase, TokDefault:
+			if stopCase {
+				return nil, p.errAt(t, "文の後に改行が必要です。%s の前に改行してください", tokName(t.Type))
+			}
+			return nil, p.errAt(t, "文の後に改行が必要です。%s が見つかりました", tokName(t.Type))
 		case TokEOF:
-			return nil, p.errAt(t, "ブロックが閉じられていません。'}' が必要です")
+			return nil, p.errAt(t, "ブロックが閉じられていません。'end' が必要です")
 		case TokSemicolon:
 			return nil, p.errAt(t, "セミコロンは使用できません。文は改行で区切ってください")
+		case TokLBrace, TokRBrace:
+			return nil, p.errAt(t, "'%s' は使用できません。改行と end を使用してください", t.Lit)
 		default:
 			return nil, p.errAt(t, "文の後に改行が必要です。%s が見つかりました", tokName(t.Type))
 		}
 	}
-	p.next() // '}'
-	return b, nil
 }
 
 func (p *parser) parseDef() (Stmt, error) {
@@ -418,10 +498,17 @@ func (p *parser) parseDef() (Stmt, error) {
 	if _, err := p.expect(TokRParen); err != nil {
 		return nil, err
 	}
-	body, err := p.parseBlock()
+	if err := p.expectNewlinesAfter("def"); err != nil {
+		return nil, err
+	}
+	stmts, err := p.parseBody(false, false)
 	if err != nil {
 		return nil, err
 	}
+	if _, err := p.expectEnd(); err != nil {
+		return nil, err
+	}
+	body := &BlockStmt{Stmts: stmts, At: posOf(kw)}
 	return &DefStmt{Name: name.Lit, Params: params, Body: body, At: posOf(kw)}, nil
 }
 
@@ -431,34 +518,56 @@ func (p *parser) parseIf() (Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	then, err := p.parseBlock()
+	if err := p.expectNewlinesAfter("if"); err != nil {
+		return nil, err
+	}
+	thenStmts, err := p.parseBody(true, false)
 	if err != nil {
 		return nil, err
 	}
-	stmt := &IfStmt{Cond: cond, Then: then, At: posOf(kw)}
-	// `} else {` を1行で、または改行を挟んで書けるようにするか？ サンプルは
-	// `} else {` を1行に置いている。else の前の改行も許容する。
-	save := p.pos
-	p.skipNewlines()
-	if p.peek().Type != TokElse {
-		p.pos = save
-		return stmt, nil
-	}
-	p.next() // else
-	p.skipNewlines()
-	if p.peek().Type == TokIf {
-		chained, err := p.parseIf()
+	stmt := &IfStmt{Cond: cond, Then: &BlockStmt{Stmts: thenStmts, At: posOf(kw)}, At: posOf(kw)}
+	cur := stmt
+	for {
+		t := p.peek()
+		if t.Type == TokElseIf {
+			// elseif cond: 単一 end で連結する。
+			eTok := p.next()
+			cond2, err := p.parseOr(false)
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectNewlinesAfter("elseif"); err != nil {
+				return nil, err
+			}
+			body2, err := p.parseBody(true, false)
+			if err != nil {
+				return nil, err
+			}
+			nextIf := &IfStmt{Cond: cond2, Then: &BlockStmt{Stmts: body2, At: posOf(eTok)}, At: posOf(eTok)}
+			cur.Else = nextIf
+			cur = nextIf
+			continue
+		}
+		if t.Type != TokElse {
+			break
+		}
+		elseTok := p.next() // else
+		// 素の else のみ（`else if` との連結は廃止し、`elseif` のみ受け付ける）。
+		// `else` の後に `if` が続いた場合は expectNewlinesAfter が
+		// "else の後に改行が必要です" として拒否する。
+		if err := p.expectNewlinesAfter("else"); err != nil {
+			return nil, err
+		}
+		elseStmts, err := p.parseBody(false, false)
 		if err != nil {
 			return nil, err
 		}
-		stmt.Else = chained
-		return stmt, nil
+		cur.Else = &BlockStmt{Stmts: elseStmts, At: posOf(elseTok)}
+		break
 	}
-	blk, err := p.parseBlock()
-	if err != nil {
+	if _, err := p.expectEnd(); err != nil {
 		return nil, err
 	}
-	stmt.Else = blk
 	return stmt, nil
 }
 
@@ -494,11 +603,17 @@ func (p *parser) parseRepeat() (Stmt, error) {
 			stmt.HasItem = true
 		}
 	}
-	body, err := p.parseBlock()
+	if err := p.expectNewlinesAfter("repeat"); err != nil {
+		return nil, err
+	}
+	stmts, err := p.parseBody(false, false)
 	if err != nil {
 		return nil, err
 	}
-	stmt.Body = body
+	if _, err := p.expectEnd(); err != nil {
+		return nil, err
+	}
+	stmt.Body = &BlockStmt{Stmts: stmts, At: posOf(kw)}
 	return stmt, nil
 }
 
@@ -508,11 +623,17 @@ func (p *parser) parseWhile() (Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	body, err := p.parseBlock()
+	if err := p.expectNewlinesAfter("while"); err != nil {
+		return nil, err
+	}
+	stmts, err := p.parseBody(false, false)
 	if err != nil {
 		return nil, err
 	}
-	return &WhileStmt{Cond: cond, Body: body, At: posOf(kw)}, nil
+	if _, err := p.expectEnd(); err != nil {
+		return nil, err
+	}
+	return &WhileStmt{Cond: cond, Body: &BlockStmt{Stmts: stmts, At: posOf(kw)}, At: posOf(kw)}, nil
 }
 
 func (p *parser) parseSwitch() (Stmt, error) {
@@ -521,23 +642,35 @@ func (p *parser) parseSwitch() (Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	stmt := &SwitchStmt{Value: val, At: posOf(kw)}
-	open, err := p.expect(TokLBrace)
-	if err != nil {
+	if err := p.expectNewlinesAfter("switch"); err != nil {
 		return nil, err
 	}
-	_ = open
+	stmt := &SwitchStmt{Value: val, At: posOf(kw)}
 	p.skipNewlines()
 	seenDefault := false
-	for p.peek().Type != TokRBrace {
-		if p.peek().Type == TokEOF {
-			return nil, p.errAt(p.peek(), "switch 文が閉じられていません。'}' が必要です")
+	for {
+		t := p.peek()
+		if t.Type == TokEnd {
+			p.next()
+			break
+		}
+		if t.Type == TokEOF {
+			return nil, p.errAt(t, "switch 文が閉じられていません。'end' が必要です")
+		}
+		if t.Type == TokLBrace || t.Type == TokRBrace {
+			return nil, p.errAt(t, "'%s' は使用できません。改行と end を使用してください", t.Lit)
+		}
+		if t.Type == TokSemicolon {
+			return nil, p.errAt(t, "セミコロンは使用できません。文は改行で区切ってください")
+		}
+		if t.Type == TokElse || t.Type == TokElseIf {
+			return nil, p.errAt(t, "予期しない %s です", tokName(t.Type))
 		}
 		var c SwitchCase
 		switch p.peek().Type {
 		case TokCase:
-			t := p.next()
-			c.At = posOf(t)
+			ct := p.next()
+			c.At = posOf(ct)
 			p.skipNewlines()
 			for {
 				v, err := p.parseOr(false)
@@ -551,33 +684,40 @@ func (p *parser) parseSwitch() (Stmt, error) {
 				p.next()
 				p.skipNewlines()
 			}
+			if err := p.expectNewlinesAfter("case"); err != nil {
+				return nil, err
+			}
 		case TokDefault:
-			t := p.next()
+			dt := p.next()
 			if seenDefault {
-				return nil, p.errAt(t, "switch 文に default が重複しています")
+				return nil, p.errAt(dt, "switch 文に default が重複しています")
 			}
 			seenDefault = true
-			c.At = posOf(t)
+			c.At = posOf(dt)
 			c.Default = true
+			if err := p.expectNewlinesAfter("default"); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, p.errAt(p.peek(), "switch 文では case または default が必要です。%s が見つかりました", tokName(p.peek().Type))
 		}
-		body, err := p.parseBlock()
+		bodyStmts, err := p.parseBody(false, true)
 		if err != nil {
 			return nil, err
 		}
-		c.Body = body
+		c.Body = &BlockStmt{Stmts: bodyStmts, At: c.At}
 		stmt.Cases = append(stmt.Cases, c)
-		p.skipNewlines()
 	}
-	p.next() // '}'
 	return stmt, nil
 }
 
 func (p *parser) parseReturn() (Stmt, error) {
 	kw := p.next() // return
 	switch p.peek().Type {
-	case TokNewline, TokEOF, TokRBrace, TokSemicolon:
+	case TokNewline, TokEOF, TokEnd, TokElse, TokElseIf, TokCase, TokDefault, TokSemicolon:
+		return &ReturnStmt{At: posOf(kw)}, nil
+	}
+	if p.peek().Type == TokLBrace || p.peek().Type == TokRBrace {
 		return &ReturnStmt{At: posOf(kw)}, nil
 	}
 	v, err := p.parseOr(true)
@@ -587,10 +727,82 @@ func (p *parser) parseReturn() (Stmt, error) {
 	return &ReturnStmt{Value: v, At: posOf(kw)}, nil
 }
 
+// parseVar は `local name = value` を解析する。初期値は必須。
+func (p *parser) parseVar() (Stmt, error) {
+	kw := p.next() // local
+	name, err := p.expect(TokIdent)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(TokAssign); err != nil {
+		return nil, err
+	}
+	v, err := p.parseOr(true)
+	if err != nil {
+		return nil, err
+	}
+	return &VarStmt{Name: name.Lit, Value: v, At: posOf(kw)}, nil
+}
+
+// parseDecl は文脈キーワードの宣言（mode / include / dll）を
+// 解析します。宣言でなければ ok=false を返します。同名の変数への代入
+// （`include = 5` など）は従来通り式文として扱われます。
+// const / enum は廃止され、通常の識別子として扱います（変数への代入で代用）。
+func (p *parser) parseDecl(top bool) (Stmt, bool, error) {
+	t := p.peek()
+	switch t.Lit {
+	case "mode":
+		n := p.peekAt(1)
+		if n.Type != TokIdent {
+			return nil, false, nil
+		}
+		return nil, true, p.errAt(t, "mode は廃止されました。実行モードは自動判定です")
+
+	case "include":
+		if p.peekAt(1).Type != TokString {
+			return nil, false, nil
+		}
+		if !top {
+			return nil, true, p.errAt(t, "include はトップレベルにのみ記述できます")
+		}
+		kw := p.next()
+		path, err := p.expect(TokString)
+		if err != nil {
+			return nil, true, err
+		}
+		if path.Lit == "" {
+			return nil, true, p.errAt(path, "include のパスが空です")
+		}
+		return &IncludeStmt{Path: path.Lit, At: posOf(kw)}, true, nil
+
+	case "dll":
+		if p.peekAt(1).Type != TokString {
+			return nil, false, nil
+		}
+		if !top {
+			return nil, true, p.errAt(t, "dll はトップレベルにのみ記述できます")
+		}
+		kw := p.next()
+		path, err := p.expect(TokString)
+		if err != nil {
+			return nil, true, err
+		}
+		if path.Lit == "" {
+			return nil, true, p.errAt(path, "dll のパスが空です")
+		}
+		return &DllStmt{Path: path.Lit, At: posOf(kw)}, true, nil
+
+	case "dlldef":
+		if p.peekAt(1).Type == TokIdent {
+			return nil, true, p.errAt(t, "dlldef はファイル実行時のみ使用できます（include と同じローダ宣言です）")
+		}
+	}
+	return nil, false, nil
+}
+
 // parseAssignOrExpr は `target = value` または裸の式のいずれかを解析する。
-// 単純な `=` は可視のものがないときに宣言となる（トップレベル: グローバル、
-// 関数内: ローカルスロット）。`let` は廃止されたため、シャドーイング宣言は
-// もう存在しない。
+// 単純な `=` は既存の変数の更新で、新しい関数ローカルを作るには
+// `local name = value` が必要。トップレベルでは `=` もグローバルを宣言する。
 func (p *parser) parseAssignOrExpr() (Stmt, error) {
 	x, err := p.parseOr(true)
 	if err != nil {
@@ -666,10 +878,8 @@ func assignable(x Expr) bool {
 }
 
 // ---------- 式（優先度クライミング） ----------
-// litOK は値の位置をマークする: そこで裸の `Name{...}` はエラーだが、
-// 条件（`if` の条件、`repeat` の回数）では false を渡すため `if x {` は
-// 条件＋ブロックとして読まれる。括弧で囲まれた文脈（呼出、添字、
-// グループ、配列リテラル）は常に true にリセットされる。
+// litOK は互換のための残存引数である。旧 `{...}` ブロックは廃止され、
+// '{' はいずれの位置でもエラーになる。条件位置でも改行〜end を用いる。
 
 func (p *parser) parseOr(litOK bool) (Expr, error) {
 	if err := p.enter(); err != nil {
@@ -966,19 +1176,18 @@ func (p *parser) parsePrimary(litOK bool) (Expr, error) {
 		p.next()
 		return &StringLit{Value: t.Lit, At: posOf(t)}, nil
 	case TokTrue:
+		// true は整数 1 のシンタックスシュガー。
 		p.next()
-		return &BoolLit{Value: true, At: posOf(t)}, nil
+		return &IntLit{Raw: "1", Value: 1, At: posOf(t)}, nil
 	case TokFalse:
+		// false は整数 0 のシンタックスシュガー。
 		p.next()
-		return &BoolLit{Value: false, At: posOf(t)}, nil
+		return &IntLit{Raw: "0", Value: 0, At: posOf(t)}, nil
 	case TokIdent:
 		p.next()
 		if p.peek().Type == TokLBrace {
-			// `Name{...}` はリテラルではない。値の位置ではこれはエラー、
-			// 条件の位置（`if x {`）ではブロックが続く。
-			if litOK {
-				return nil, p.errAt(p.peek(), "%q の後に予期しない '{' があります", t.Lit)
-			}
+			// `{...}` ブロックは廃止された。改行〜end を使用する。
+			return nil, p.errAt(p.peek(), "'{' は使用できません。改行と end を使用してください")
 		}
 		return &VarExpr{Name: t.Lit, At: posOf(t)}, nil
 	case TokLBracket:
@@ -1005,9 +1214,8 @@ func (p *parser) parsePrimary(litOK bool) (Expr, error) {
 		}
 		return x, nil
 	case TokLBrace:
-		// 式の位置の `{...}` はエラー
-		// （ブロックは if/while/def/... 文に属する）。
-		return nil, p.errAt(t, "'{' はブロックにのみ使用できます")
+		// `{...}` は廃止された。改行〜end を使用する。
+		return nil, p.errAt(t, "'{' は使用できません。改行と end を使用してください")
 	default:
 		return nil, p.errAt(t, "予期しない %s です。式が必要です", describeToken(t))
 	}

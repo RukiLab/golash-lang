@@ -5,7 +5,7 @@
 package main
 
 func init() {
-	// chkbox(id, label [, checked])：pos() の位置にチェックボックスを配置する。
+	// chkbox(id, label [, checked])：pos() の位置にチェックボックスを配置する。配置後は自動で改行する (x=0, y+h)。
 	// 大きさはフォントとラベルから自動決定される。
 	register("chkbox", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "chkbox")
@@ -22,11 +22,11 @@ func init() {
 		}
 		checked := false
 		if len(args) == 3 {
-			f, err := needInt("chkbox", args, 2, at)
+			var err error
+			checked, err = needTruthy("chkbox", args, 2, at)
 			if err != nil {
 				return Null(), err
 			}
-			checked = f != 0
 		}
 		x, y := wb.CursorPixels()
 		if err := wb.AddCheck(int(id), label, x, y, 0, 0, checked); err != nil {
@@ -35,7 +35,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// combox(id, w, h, items [, sel])：pos() の位置にドロップダウンリストを配置する。
+	// combox(id, w, h, items [, sel])：pos() の位置にドロップダウンリストを配置する。配置後は自動で改行する (x=0, y+h)。
 	register("combox", 4, 5, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "combox")
 		if err != nil {
@@ -78,7 +78,7 @@ func init() {
 		return Null(), nil
 	})
 
-	// mesbox(id, w, h [, text])：pos() の位置に複数行テキストボックスを配置する。
+	// mesbox(id, w, h [, text])：pos() の位置に複数行テキストボックスを配置する。配置後は自動で改行する (x=0, y+h)。
 	register("mesbox", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mesbox")
 		if err != nil {

@@ -1,7 +1,7 @@
 // 配列の組込: スタック/キューと形状変更の操作。
 //
 // 配列は参照値である: push/pop/insert/remove/sort/reverse は
-// （poke と同じく）その場で変更する。問い合わせ系の関数
+// その場で変更する。問い合わせ系の関数
 // （join/slice）は新しい値を返す。
 package main
 
@@ -101,17 +101,20 @@ func init() {
 		return Str(strings.Join(parts, delim)), nil
 	})
 
-	// sort(arr): その場でソート（整数か文字列。混合はエラー）。
-	// 連鎖のため配列を返す。
+	// sort(arr): その場でソートし、元インデックスの配列を返す
+	// （整数か文字列。混合はエラー）。
+	// 例: a = [30, 10, 20]; idx = sort(a) -> a は [10, 20, 30]、
+	// idx は [1, 2, 0]。
 	register("sort", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("sort", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		if err := sortElems(arr.Elems); err != nil {
+		idx, err := sortWithIndices(arr.Elems)
+		if err != nil {
 			return Null(), argErr("sort", 0, at, "%s", err.Error())
 		}
-		return args[0], nil
+		return ArrayOf(idx), nil
 	})
 
 	// reverse(arr): その場で反転。連鎖のため配列を返す。
@@ -221,11 +224,12 @@ func init() {
 	})
 }
 
-// sortElems は数値（int/float 混合）またはすべて文字列の要素を
-// （安定）ソートする。それ以外はエラー。
-func sortElems(elems []Value) error {
+// sortWithIndices は数値（int/float 混合）またはすべて文字列の要素を
+// （安定）ソートし、ソート後の各位置に対応する元インデックスの配列を
+// 返す。elems 自体はその場で並べ替えられる。それ以外はエラー。
+func sortWithIndices(elems []Value) ([]Value, error) {
 	if len(elems) == 0 {
-		return nil
+		return []Value{}, nil
 	}
 	allInt, allNum, allString := true, true, true
 	for _, e := range elems {
@@ -239,15 +243,28 @@ func sortElems(elems []Value) error {
 			allString = false
 		}
 	}
+	var less func(a, b Value) bool
 	switch {
 	case allInt:
-		sort.SliceStable(elems, func(i, j int) bool { return elems[i].I < elems[j].I })
+		less = func(a, b Value) bool { return a.I < b.I }
 	case allNum:
-		sort.SliceStable(elems, func(i, j int) bool { return toFloat(elems[i]) < toFloat(elems[j]) })
+		less = func(a, b Value) bool { return toFloat(a) < toFloat(b) }
 	case allString:
-		sort.SliceStable(elems, func(i, j int) bool { return elems[i].S < elems[j].S })
+		less = func(a, b Value) bool { return a.S < b.S }
 	default:
-		return fmt.Errorf("要素はすべて数値かすべて文字列である必要があります")
+		return nil, fmt.Errorf("要素はすべて数値かすべて文字列である必要があります")
 	}
-	return nil
+	idx := make([]int, len(elems))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(i, j int) bool { return less(elems[idx[i]], elems[idx[j]]) })
+	sorted := make([]Value, len(elems))
+	idxVals := make([]Value, len(elems))
+	for newPos, oldPos := range idx {
+		sorted[newPos] = elems[oldPos]
+		idxVals[newPos] = Int(int64(oldPos))
+	}
+	copy(elems, sorted)
+	return idxVals, nil
 }

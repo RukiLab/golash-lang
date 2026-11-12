@@ -1,4 +1,3 @@
-#mode cli
 a = [[[[[1, 2]]]]]
 mes(a[0][0][0][0][1])
 a[0][0][0][0][0] = 99
@@ -9,18 +8,18 @@ mes(data[0][0])
 mes(data[0][1])
 
 total = 0
-repeat 5 {
+repeat 5
     total = total + 1
-}
+end
 mes(total)
 
-def mymax(a, b) {
-    if a > b {
+def mymax(a, b)
+    if a > b
         return a
-    } else {
+    else
         return b
-    }
-}
+    end
+end
 mes(mymax(3, 7))
 mes(mymax(9, 2))
 

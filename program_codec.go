@@ -20,9 +20,11 @@ import (
 const (
 	// codecMagic はペイロード先頭の識別子。
 	codecMagic = "GSHBC01\x00"
-	// codecVersion はペイロード形式の版（`let` 廃止による
-	// DEFG/DEFN 撤去で 1→2。旧バンドルは版エラーで拒否）。
-	codecVersion = 2
+	// codecVersion はペイロード形式の版（`let` 廃止による DEFG/DEFN
+	// 撤去で 1→2。local 宣言の DEFN 追加で命令番号が変わるため 2→3。dlload/dllcall/dllfree廃止で組込ID表が変わるため 3→4。
+	// bool 型廃止で値タグから bool が消えたため 4→5。
+	// 旧バンドルは版エラーで拒否）。
+	codecVersion = 5
 	// bundleMagic は exe 末尾 trailer の識別子。
 	bundleMagic = "GSHBNDL\x00"
 )
@@ -83,13 +85,6 @@ func (w *codecWriter) value(v Value) {
 	case KString:
 		w.raw([]byte{3})
 		w.str(v.S)
-	case KBool:
-		w.raw([]byte{4})
-		if v.B {
-			w.raw([]byte{1})
-		} else {
-			w.raw([]byte{0})
-		}
 	default:
 		if w.err == nil {
 			w.err = fmt.Errorf("内部エラー：定数化できない値です")
@@ -272,12 +267,6 @@ func (r *codecReader) value() Value {
 		return Float(math.Float64frombits(r.u64()))
 	case 3:
 		return Str(r.str())
-	case 4:
-		b := r.raw(1)
-		if r.err != nil {
-			return Null()
-		}
-		return Bool(b[0] == 1)
 	}
 	r.err = fmt.Errorf("バンドルの読み込みに失敗しました（壊れています）")
 	return Null()

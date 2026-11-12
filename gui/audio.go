@@ -2,6 +2,7 @@ package gui
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -23,12 +24,14 @@ const audioRate = 44100
 type sound struct {
 	pcm []byte
 	vol float64 // 0..1、再生時にプレイヤーへ適用する
+	pitch float64 // 再生速度兼ピッチ倍率（1.0 = 原速）。mmpitch で 0.25..4.0 に設定する
 }
 
 type audioState struct {
 	mu      sync.Mutex
 	sounds  map[int]*sound
 	players map[int]*audio.Player
+	loops   map[int]bool
 	nextID  int
 }
 
@@ -52,7 +55,7 @@ func (b *WindowBackend) audioState() *audioState {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.audio == nil {
-		b.audio = &audioState{sounds: map[int]*sound{}, players: map[int]*audio.Player{}}
+		b.audio = &audioState{sounds: map[int]*sound{}, players: map[int]*audio.Player{}, loops: map[int]bool{}}
 	}
 	return b.audio
 }
@@ -85,11 +88,53 @@ func (b *WindowBackend) MmLoad(path string) (int, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.nextID++
-	st.sounds[st.nextID] = &sound{pcm: pcm, vol: 1}
+	st.sounds[st.nextID] = &sound{pcm: pcm, vol: 1, pitch: 1}
 	return st.nextID, nil
 }
 
+// pitchedPCM は原速 PCM を rate 倍速（高ピッチ）にリサンプルする。
+// ebiten のストリーム形式は 16ビットLE・2ch（1フレーム4バイト）のため、
+// フレーム単位で線形補間する。rate == 1 は複写なしで原 PCM を返す。
+func pitchedPCM(pcm []byte, rate float64) []byte {
+	if rate == 1 {
+		return pcm
+	}
+	const frameSize = 4
+	nFrames := len(pcm) / frameSize
+	if nFrames == 0 {
+		return pcm
+	}
+	outFrames := int(float64(nFrames) / rate)
+	if outFrames < 1 {
+		outFrames = 1
+	}
+	out := make([]byte, outFrames*frameSize)
+	for i := 0; i < outFrames; i++ {
+		pos := float64(i) * rate
+		i0 := int(pos)
+		if i0 >= nFrames-1 {
+			copy(out[i*frameSize:(i+1)*frameSize], pcm[(nFrames-1)*frameSize:nFrames*frameSize])
+			continue
+		}
+		frac := pos - float64(i0)
+		i1 := i0 + 1
+		for ch := 0; ch < 2; ch++ {
+			s0 := int16(binary.LittleEndian.Uint16(pcm[i0*frameSize+ch*2:]))
+			s1 := int16(binary.LittleEndian.Uint16(pcm[i1*frameSize+ch*2:]))
+			v := float64(s0)*(1-frac) + float64(s1)*frac
+			if v > 32767 {
+				v = 32767
+			} else if v < -32768 {
+				v = -32768
+			}
+			binary.LittleEndian.PutUint16(out[i*frameSize+ch*2:], uint16(int16(v)))
+		}
+	}
+	return out
+}
+
 // MmPlayはサウンドを再生する（loop指定で無限に繰り返す）。再生中のものは再開する。
+// mmpitch で設定されたピッチ（再生速度）を適用する。
 func (b *WindowBackend) MmPlay(id int, loop bool) error {
 	st := b.audioState()
 	st.mu.Lock()
@@ -104,9 +149,10 @@ func (b *WindowBackend) MmPlay(id int, loop bool) error {
 		p.Close()
 		st.mu.Lock()
 	}
-	var src io.Reader = bytes.NewReader(s.pcm)
+	pcm := pitchedPCM(s.pcm, s.pitch)
+	var src io.Reader = bytes.NewReader(pcm)
 	if loop {
-		src = audio.NewInfiniteLoop(bytes.NewReader(s.pcm), int64(len(s.pcm)))
+		src = audio.NewInfiniteLoop(bytes.NewReader(pcm), int64(len(pcm)))
 	}
 	p, err := audio.NewPlayer(ctx, src)
 	if err != nil {
@@ -115,6 +161,10 @@ func (b *WindowBackend) MmPlay(id int, loop bool) error {
 	}
 	p.SetVolume(s.vol)
 	st.players[id] = p
+	if st.loops == nil {
+		st.loops = map[int]bool{}
+	}
+	st.loops[id] = loop
 	st.mu.Unlock()
 	p.Play()
 	return nil
@@ -140,6 +190,60 @@ func (b *WindowBackend) MmVolume(id, vol int) error {
 	return nil
 }
 
+// MmPitchはサウンドのピッチ（再生速度）を設定する（25..400パーセント、既定 100 = 原速）。
+// 50 で1オクターブ低く半分の速さ、200 で1オクターブ高く倍速になる。
+// 次回以降の再生用に保存し、再生中のプレイヤーがあれば新しいピッチで最初から再生し直す。
+func (b *WindowBackend) MmPitch(id, pitch int) error {
+	if pitch < 25 || pitch > 400 {
+		return fmt.Errorf("mmpitch：ピッチは 25 から 400 の範囲で指定してください。%d が指定されました", pitch)
+	}
+	st := b.audioState()
+	st.mu.Lock()
+	s, ok := st.sounds[id]
+	if !ok {
+		st.mu.Unlock()
+		return fmt.Errorf("mmpitch：不明なサウンド %d です", id)
+	}
+	s.pitch = float64(pitch) / 100
+	_, playing := st.players[id]
+	loop := false
+	if st.loops != nil {
+		loop = st.loops[id]
+	}
+	if !playing {
+		st.mu.Unlock()
+		return nil
+	}
+	ctx := sharedContext()
+	if p, ok := st.players[id]; ok {
+		st.mu.Unlock()
+		p.Close()
+		st.mu.Lock()
+		// s は st.mu 配下のポインタのため再取得する。
+		s = st.sounds[id]
+		if s == nil {
+			st.mu.Unlock()
+			return fmt.Errorf("mmpitch：不明なサウンド %d です", id)
+		}
+		loop = st.loops[id]
+	}
+	pcm := pitchedPCM(s.pcm, s.pitch)
+	var src io.Reader = bytes.NewReader(pcm)
+	if loop {
+		src = audio.NewInfiniteLoop(bytes.NewReader(pcm), int64(len(pcm)))
+	}
+	p, err := audio.NewPlayer(ctx, src)
+	if err != nil {
+		st.mu.Unlock()
+		return fmt.Errorf("mmpitch：%s", err.Error())
+	}
+	p.SetVolume(s.vol)
+	st.players[id] = p
+	st.mu.Unlock()
+	p.Play()
+	return nil
+}
+
 // MmStopは1つのサウンドを停止する（nilは全停止）。不明なIDは黙って何もしない。
 func (b *WindowBackend) MmStop(id *int) {
 	st := b.audioState()
@@ -151,10 +255,14 @@ func (b *WindowBackend) MmStop(id *int) {
 			stop(p)
 			delete(st.players, sid)
 		}
+		for sid := range st.loops {
+			delete(st.loops, sid)
+		}
 		return
 	}
 	if p, ok := st.players[*id]; ok {
 		stop(p)
 		delete(st.players, *id)
 	}
+	delete(st.loops, *id)
 }

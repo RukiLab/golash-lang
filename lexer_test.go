@@ -32,21 +32,21 @@ func TestLexBasic(t *testing.T) {
 }
 
 func TestLexKeywordsAndOps(t *testing.T) {
-	types := lexTypes(t, "def if else repeat while switch case default as break continue return == != <= >= && || & | ^ ~ << >> += -= *= /= %= &= |= ^= <<= >>= ! < > + - * / % = , : . ( ) [ ] { }")
+	types := lexTypes(t, "def if else elseif end repeat while switch case default as break continue return local == != <= >= && || & | ^ ~ << >> += -= *= /= %= &= |= ^= <<= >>= ! < > + - * / % = , : . ( ) [ ] { }")
 	found := map[TokenType]bool{}
 	for _, ty := range types {
 		found[ty] = true
 	}
 	// try/catch は通常の識別子として扱われる（goto/gosub/elif と同様）。
-	// `let` も廃止され通常の識別子である。
+	// 旧 `let` も通常の識別子のまま（宣言キーワードは `local`）。
 	for _, word := range []string{"try", "catch", "goto", "let"} {
 		types := lexTypes(t, word)
 		if len(types) == 0 || types[0] != TokIdent {
 			t.Fatalf("%s should lex as IDENT, got %v", word, types)
 		}
 	}
-	for _, want := range []TokenType{TokDef, TokIf, TokElse, TokRepeat, TokWhile, TokSwitch, TokCase, TokDefault, TokAs, TokBreak,
-		TokContinue, TokReturn, TokEq, TokNotEq, TokLtEq, TokGtEq, TokAnd, TokOr,
+	for _, want := range []TokenType{TokDef, TokIf, TokElse, TokElseIf, TokEnd, TokRepeat, TokWhile, TokSwitch, TokCase, TokDefault, TokAs, TokBreak,
+		TokContinue, TokReturn, TokLocal, TokEq, TokNotEq, TokLtEq, TokGtEq, TokAnd, TokOr,
 		TokBitAnd, TokBitOr, TokBitXor, TokBitNot, TokShl, TokShr,
 		TokPlusAssign, TokMinusAssign, TokStarAssign, TokSlashAssign, TokModAssign,
 		TokBitAndAssign, TokBitOrAssign, TokBitXorAssign, TokShlAssign, TokShrAssign,
@@ -60,7 +60,7 @@ func TestLexKeywordsAndOps(t *testing.T) {
 }
 
 func TestLexComments(t *testing.T) {
-	toks, err := Lex("// line comment\nx = 1 /* block */ + /* multi\nline */ 2\n")
+	toks, err := Lex("// line comment\nx = 1 + 2\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +73,17 @@ func TestLexComments(t *testing.T) {
 	want := []string{"x", "=", "1", "+", "2"}
 	if strings.Join(lits, " ") != strings.Join(want, " ") {
 		t.Fatalf("got %v, want %v", lits, want)
+	}
+	// ブロックコメントは廃止: "/*" は SLASH + STAR の2トークンになる。
+	toks, err = Lex("x /* y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(toks) != 5 { // IDENT SLASH STAR IDENT EOF
+		t.Fatalf("block abolished: got %v", toks)
+	}
+	if toks[1].Type != TokSlash || toks[2].Type != TokStar {
+		t.Fatalf("block abolished: got %v", toks)
 	}
 }
 
@@ -135,7 +146,7 @@ func TestLexErrors(t *testing.T) {
 	for _, src := range []string{
 		// 注意：`a & b` / `a | b` は以前ここでエラーでしたが、現在はビット演算子です
 		// （TestParseBitwisePrecedence を参照）。
-		"'x'", "\"unterminated", "/* nope",
+		"'x'", "\"unterminated",
 		"\"bad \\q escape\"", "x = 1e",
 		// 不正な数値：末尾のドット、文字やアンダースコアの貼り付き。
 		"3.", "1_000", "123abc", "0d5", "3.14x", "10else",
@@ -153,7 +164,6 @@ func TestLexNulRejected(t *testing.T) {
 		"x = 1\x00\n",
 		"\"ab\x00cd\"",
 		"// com\x00ment\n",
-		"/* bl\x00ock */",
 	} {
 		if _, err := Lex(src); err == nil {
 			t.Errorf("Lex(%q): expected NUL error, got nil", src)

@@ -238,7 +238,11 @@ func clickButton(btn int) (ebiten.MouseButton, bool) {
 // （アイドル時は 0）を報告するため、単純な蓄積で動きを失わない。
 // キーの立上り（getkey(code, 1) 用）もここでラッチする: スクリプトが
 // ポーリングしていなくても Update が見た押下は失われず、KeyHit が
-// 消費するまで残る（getkey(0, 1) と同じ消費型）。
+// 消費するまで残る（getkey(0, true) と同じ消費型）。
+// モーダルダイアログ表示中はラッチしない: その間のクリック・キー・
+// ホイールは破棄し、閉じた後に背後へ流れ込ませない。ただし押下レベル
+// (mouseDown/keyPrev) は追従させ、ダイアログ中の押下が閉じた後の
+// 立上りとして誤検出されないようにする。
 func (b *WindowBackend) pumpInput() {
 	pressed := [3]bool{
 		ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft),
@@ -258,6 +262,25 @@ func (b *WindowBackend) pumpInput() {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.dialogActiveLocked() {
+		for i := range pressed {
+			b.mouseDown[i] = pressed[i]
+			// 既存のラッチも含めて捨てる (ダイアログ前の分も背後に残さない)。
+			b.clickFlag[i] = false
+		}
+		// ホイールは蓄積せず捨てる。
+		for _, s := range samples {
+			if b.keyPrev == nil {
+				b.keyPrev = make(map[int]bool)
+			}
+			b.keyPrev[s.code] = s.down
+			if b.keyHit == nil {
+				b.keyHit = make(map[int]bool)
+			}
+			b.keyHit[s.code] = false
+		}
+		return
+	}
 	for i := range pressed {
 		if pressed[i] && !b.mouseDown[i] {
 			b.clickFlag[i] = true
@@ -470,7 +493,7 @@ func (b *WindowBackend) KeyDown(code int) (bool, bool) {
 // （消費される）。押している間 true を返し続ける KeyDown と違い、
 // 1回の押下で1度だけ true になる。pumpInput が Update ごとに
 // 立上りをラッチするため、同一ティック内の複数回ポーリングで
-// 二重に true になることはない（getkey(0, 1) と同じ消費型）。
+// 二重に true になることはない（getkey(0, true) と同じ消費型）。
 func (b *WindowBackend) KeyHit(code int) (bool, bool) {
 	if _, ok := keyDownNow(code); !ok {
 		return false, false

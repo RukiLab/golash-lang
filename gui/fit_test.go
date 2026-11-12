@@ -81,7 +81,8 @@ func TestFitItemsUniqueness(t *testing.T) {
 }
 
 // TestFitItemsReservesPaddingOnly は幅の予算を固定する。リストボックスは
-// 垂直スライダーを保持する（水平スライダーのみ非表示）ため、スライダー幅は呼び出し側が別に確保する。残りの枠に収まる項目は短縮してはならない。
+// あふれたときだけ垂直スライダーを確保し (水平スライダーは非表示)、
+// あふれないときは枠いっぱいを使う。残りの枠に収まる項目は短縮してはならない。
 func TestFitItemsReservesPaddingOnly(t *testing.T) {
 	w := 104
 	maxw := w - listPadX

@@ -12,8 +12,12 @@ import (
 // dropfiles() がそれを取り出す。スナップショットは dropload 用に保持される。
 
 // pumpDrops は新しくドロップされたファイル名のスナップショットを取る。Update から呼ばれる。
+// モーダルダイアログ表示中は破棄する (閉じた後に背後へ流れ込ませない)。
 func (b *WindowBackend) pumpDrops() {
 	fsys := ebiten.DroppedFiles()
+	if b.isDialogActive() {
+		return
+	}
 	if fsys == nil {
 		return
 	}

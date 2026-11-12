@@ -23,7 +23,3 @@ func dllSym(h *dllHandle, name string) (uintptr, error) {
 	return purego.Dlsym(h.handle, name)
 }
 
-// dllClose は DLL を閉じる。
-func dllClose(h *dllHandle) error {
-	return purego.Dlclose(h.handle)
-}

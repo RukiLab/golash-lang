@@ -1,4 +1,4 @@
-// GUI 組込（G4 描画拡張: pngsave, paint, font）。
+// GUI 組込（G4 描画拡張: pngsave, font）。
 // 常に登録される。GUI 呼出にはウィンドウ（GUI バックエンド）が必要で、
 // なければエラーを報告する。
 package main
@@ -26,19 +26,6 @@ func init() {
 			}
 		}
 		if err := wb.SavePNG(p, int(id)); err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Null(), nil
-	})
-
-	// paint(): pos() の位置をシードに現在の色で塗りつぶす（ flood-fill ）。
-	register("paint", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "paint")
-		if err != nil {
-			return Null(), err
-		}
-		x, y := wb.CursorPixels()
-		if err := wb.FloodFill(x, y, wb.Foreground()); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil

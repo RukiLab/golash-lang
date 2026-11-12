@@ -2,7 +2,7 @@ name: test
 
 # push / PR でビルドと全テストを実行します。TestVersionPinnedEverywhere が
 # 版の整合（VERSION・golashVersion・package.json・ドキュメントの一致と
-# SemVer 形式）を検査するため、版の取りこぼしはここで落ちます。
+# MAJOR.MINOR 形式）を検査するため、版の取りこぼしはここで落ちます。
 
 on:
   push:

@@ -46,11 +46,12 @@ const (
 	OpStoreG              // STOREG A,Bx     global[Names[Bx]] = R[A]
 	OpLoadN               // LOADN A,Bx,C    動的読出（C:スロット、voidならグローバル）
 	OpStoreN              // STOREN A,Bx,C   動的書込（C:スロット、voidならグローバル）
+	OpDefN                // DEFN A,Bx,C     local 宣言（C:スロットへ常にローカル束縛）
 	OpCkVal               // CKVAL A         void 検査
-	OpTest                // TEST A          requireBool（値は保持）
+	OpTest                // TEST A          整数条件検査（0=false、非0=true）し 1/0 へ正規化
 	OpJmp                 // JMP sBx         無条件ジャンプ
-	OpJmpT                // JMPT A,sBx      R[A].B == true でジャンプ
-	OpJmpF                // JMPF A,sBx      R[A].B == false でジャンプ
+	OpJmpT                // JMPT A,sBx      R[A] が非0ならジャンプ
+	OpJmpF                // JMPF A,sBx      R[A] が0ならジャンプ
 	OpCkInt               // CKINT A         整数検査（添字用）
 	OpCkNeg               // CKNEG A         非負検査（添字用）
 	OpCkArr               // CKARR A         配列検査（書込基底用）
@@ -75,7 +76,7 @@ const (
 	OpLe                  // LE A,B,C        compare(<=)
 	OpGt                  // GT A,B,C        compare(>)
 	OpGe                  // GE A,B,C        compare(>=)
-	OpNot                 // NOT A,B         !（requireBool 内蔵）
+	OpNot                 // NOT A,B         !（整数条件を検査し 1/0 を返す）
 	OpNeg                 // NEG A,B         単項 -（型分岐内蔵、void は負数化エラー）
 	OpBitNot              // BITNOT A,B      ~（整数のみ）
 	OpRepDisp             // REPDISP A,sBx   配列ならジャンプ・整数なら継続・他はエラー

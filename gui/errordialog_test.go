@@ -71,7 +71,7 @@ func TestErrorDialogStaysInWindow(t *testing.T) {
 	msg := `C:\Users\kocha\Desktop\Dev\GolashProjects\golash-editor\無題.gsh:1:6: 0 による除算です`
 	go func() {
 		// ヘッドレスでは応答されない。計測後にゲームが終了する。
-		_, _ = b.Dialog(msg, "ok")
+		_, _ = b.Dialog(msg, 0)
 	}()
 	ebiten.SetWindowSize(640, 480)
 	ebiten.SetWindowTitle("Golash test")

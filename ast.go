@@ -62,20 +62,16 @@ type BlockStmt struct {
 func (n *BlockStmt) Pos() Pos  { return n.At }
 func (n *BlockStmt) stmtNode() {}
 func (n *BlockStmt) String() string {
-	var sb strings.Builder
-	sb.WriteString("{")
-	if len(n.Stmts) > 0 {
-		sb.WriteString("\n")
-		for _, s := range n.Stmts {
-			for _, line := range strings.Split(strings.TrimSuffix(s.String(), "\n"), "\n") {
-				sb.WriteString("  " + line + "\n")
-			}
-		}
-		sb.WriteString("}")
-	} else {
-		sb.WriteString("}")
+	if len(n.Stmts) == 0 {
+		return ""
 	}
-	return sb.String()
+	var sb strings.Builder
+	for _, s := range n.Stmts {
+		for _, line := range strings.Split(strings.TrimSuffix(s.String(), "\n"), "\n") {
+			sb.WriteString("  " + line + "\n")
+		}
+	}
+	return strings.TrimSuffix(sb.String(), "\n")
 }
 
 type AssignStmt struct {
@@ -88,6 +84,46 @@ func (n *AssignStmt) Pos() Pos  { return n.At }
 func (n *AssignStmt) stmtNode() {}
 func (n *AssignStmt) String() string {
 	return fmt.Sprintf("%s = %s", n.Target.String(), n.Value.String())
+}
+
+// VarStmt は `local name = value`。変数を現在のスコープに宣言する。
+// 関数内では常に関数ローカルになり、同名グローバルを隠す。初期値は必須.
+type VarStmt struct {
+	Name  string
+	Value Expr
+	At    Pos
+}
+
+func (n *VarStmt) Pos() Pos  { return n.At }
+func (n *VarStmt) stmtNode() {}
+func (n *VarStmt) String() string {
+	return fmt.Sprintf("local %s = %s", n.Name, n.Value.String())
+}
+
+// IncludeStmt はソース文字列中の include 宣言（ファイル実行時はローダが
+// 展開するため AST には残らない）。コンパイル時は何もしない。
+type IncludeStmt struct {
+	Path string
+	At   Pos
+}
+
+func (n *IncludeStmt) Pos() Pos  { return n.At }
+func (n *IncludeStmt) stmtNode() {}
+func (n *IncludeStmt) String() string {
+	return fmt.Sprintf("include %q", n.Path)
+}
+
+// DllStmt は `dll "path"`。ソース文字列ではコンパイル時に何もしない
+// （ファイル実行時はローダが後続の dlldef の対象として扱う）。
+type DllStmt struct {
+	Path string
+	At   Pos
+}
+
+func (n *DllStmt) Pos() Pos  { return n.At }
+func (n *DllStmt) stmtNode() {}
+func (n *DllStmt) String() string {
+	return fmt.Sprintf("dll %q", n.Path)
 }
 
 // CompoundAssignStmtは `target op= value`（例 `x += 1`）。旧来の
@@ -119,7 +155,7 @@ func (n *ExprStmt) String() string {
 type IfStmt struct {
 	Cond Expr
 	Then *BlockStmt
-	Else Stmt // nil、*BlockStmt、または*IfStmt（else if用）
+	Else Stmt // nil、*BlockStmt、または*IfStmt（elseif用）
 	At   Pos
 }
 
@@ -127,12 +163,33 @@ func (n *IfStmt) Pos() Pos  { return n.At }
 func (n *IfStmt) stmtNode() {}
 func (n *IfStmt) String() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("if %s %s", n.Cond.String(), n.Then.String()))
-	if e, ok := n.Else.(*IfStmt); ok {
-		sb.WriteString(" else " + e.String())
-	} else if n.Else != nil {
-		sb.WriteString(" else " + n.Else.String())
+	sb.WriteString(fmt.Sprintf("if %s", n.Cond.String()))
+	if n.Then != nil && len(n.Then.Stmts) > 0 {
+		sb.WriteString("\n" + n.Then.String())
 	}
+	curElse := n.Else
+	for {
+		chained, ok := curElse.(*IfStmt)
+		if !ok {
+			break
+		}
+		sb.WriteString(fmt.Sprintf("\nelseif %s", chained.Cond.String()))
+		if chained.Then != nil && len(chained.Then.Stmts) > 0 {
+			sb.WriteString("\n" + chained.Then.String())
+		}
+		curElse = chained.Else
+	}
+	if curElse != nil {
+		if blk, ok := curElse.(*BlockStmt); ok {
+			sb.WriteString("\nelse")
+			if len(blk.Stmts) > 0 {
+				sb.WriteString("\n" + blk.String())
+			}
+		} else {
+			sb.WriteString("\nelse\n  " + curElse.String())
+		}
+	}
+	sb.WriteString("\nend")
 	return sb.String()
 }
 
@@ -149,13 +206,20 @@ type RepeatStmt struct {
 func (n *RepeatStmt) Pos() Pos  { return n.At }
 func (n *RepeatStmt) stmtNode() {}
 func (n *RepeatStmt) String() string {
+	var head string
 	if n.HasVar {
 		if n.HasItem {
-			return fmt.Sprintf("repeat %s as %s, %s %s", n.Count.String(), n.Var, n.Item, n.Body.String())
+			head = fmt.Sprintf("repeat %s as %s, %s", n.Count.String(), n.Var, n.Item)
+		} else {
+			head = fmt.Sprintf("repeat %s as %s", n.Count.String(), n.Var)
 		}
-		return fmt.Sprintf("repeat %s as %s %s", n.Count.String(), n.Var, n.Body.String())
+	} else {
+		head = fmt.Sprintf("repeat %s", n.Count.String())
 	}
-	return fmt.Sprintf("repeat %s %s", n.Count.String(), n.Body.String())
+	if n.Body == nil || len(n.Body.Stmts) == 0 {
+		return head + "\nend"
+	}
+	return head + "\n" + n.Body.String() + "\nend"
 }
 
 type WhileStmt struct {
@@ -167,10 +231,14 @@ type WhileStmt struct {
 func (n *WhileStmt) Pos() Pos  { return n.At }
 func (n *WhileStmt) stmtNode() {}
 func (n *WhileStmt) String() string {
-	return fmt.Sprintf("while %s %s", n.Cond.String(), n.Body.String())
+	head := fmt.Sprintf("while %s", n.Cond.String())
+	if n.Body == nil || len(n.Body.Stmts) == 0 {
+		return head + "\nend"
+	}
+	return head + "\n" + n.Body.String() + "\nend"
 }
 
-// SwitchCaseは `case v, ... { }` または `default { }` の1分岐。
+// SwitchCaseは `case v, ...` または `default` の1分岐（本体は改行〜次の case/default/end まで）。
 // default分岐はValuesを持たない。
 type SwitchCase struct {
 	Values  []Expr
@@ -189,21 +257,23 @@ func (n *SwitchStmt) Pos() Pos  { return n.At }
 func (n *SwitchStmt) stmtNode() {}
 func (n *SwitchStmt) String() string {
 	var sb strings.Builder
-	sb.WriteString("switch " + n.Value.String() + " {")
+	sb.WriteString("switch " + n.Value.String())
 	for _, c := range n.Cases {
 		sb.WriteString("\n")
 		if c.Default {
-			sb.WriteString("default ")
+			sb.WriteString("default")
 		} else {
 			vs := make([]string, len(c.Values))
 			for i, v := range c.Values {
 				vs[i] = v.String()
 			}
-			sb.WriteString("case " + strings.Join(vs, ", ") + " ")
+			sb.WriteString("case " + strings.Join(vs, ", "))
 		}
-		sb.WriteString(c.Body.String())
+		if c.Body != nil && len(c.Body.Stmts) > 0 {
+			sb.WriteString("\n" + c.Body.String())
+		}
 	}
-	sb.WriteString("\n}")
+	sb.WriteString("\nend")
 	return sb.String()
 }
 
@@ -256,7 +326,11 @@ func (n *DefStmt) String() string {
 	for i, p := range n.Params {
 		names[i] = p.Name
 	}
-	return fmt.Sprintf("def %s(%s) %s", n.Name, strings.Join(names, ", "), n.Body.String())
+	head := fmt.Sprintf("def %s(%s)", n.Name, strings.Join(names, ", "))
+	if n.Body == nil || len(n.Body.Stmts) == 0 {
+		return head + "\nend"
+	}
+	return head + "\n" + n.Body.String() + "\nend"
 }
 
 // ---------- 式 ----------
@@ -290,20 +364,6 @@ func (n *StringLit) Pos() Pos  { return n.At }
 func (n *StringLit) exprNode() {}
 func (n *StringLit) String() string {
 	return fmt.Sprintf("%q", n.Value)
-}
-
-type BoolLit struct {
-	Value bool
-	At    Pos
-}
-
-func (n *BoolLit) Pos() Pos  { return n.At }
-func (n *BoolLit) exprNode() {}
-func (n *BoolLit) String() string {
-	if n.Value {
-		return "true"
-	}
-	return "false"
 }
 
 // NullLitはnull値。リテラル構文はなく、パーサーが

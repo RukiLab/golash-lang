@@ -101,6 +101,7 @@ func init() {
 
 	// await([n])：n フレーム待つ（既定は 1）。GUI は Update の
 	// 刻み（vsync）を待ち、CUI は1フレーム約16ms 待つ。
+	// GUI では前後で wbind 変数を同期する（変数→前、変数←後）。
 	register("await", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		n := int64(1)
 		if len(args) == 1 {
@@ -118,7 +119,17 @@ func init() {
 				return Null(), argErr("await", 0, at, "待機tick数が大きすぎます。%d が指定されました", n)
 			}
 		}
+		if len(in.wbinds) > 0 || len(in.wbindItems) > 0 {
+			if err := syncBoundWidgets(in, at); err != nil {
+				return Null(), err
+			}
+		}
 		in.be.Await(n)
+		if len(in.wbinds) > 0 || len(in.wbindItems) > 0 {
+			if err := syncBoundWidgets(in, at); err != nil {
+				return Null(), err
+			}
+		}
 		return Null(), nil
 	})
 
@@ -127,19 +138,19 @@ func init() {
 		return Int(in.be.Tick()), nil
 	})
 
-	// end([code])：終了コード付きでプログラムを止める（既定は 0）。
-	register("end", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// exit([code])：終了コード付きでプログラムを止める（既定は 0）。
+	register("exit", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		code := int64(0)
 		if len(args) == 1 {
 			var err error
-			code, err = needInt("end", args, 0, at)
+			code, err = needInt("exit", args, 0, at)
 			if err != nil {
 				return Null(), err
 			}
 		}
 		c := int(code)
 		in.exitCode.Store(&c)
-		// GUI バックエンドは end() でウィンドウを閉じる。コンソールは
+		// GUI バックエンドは exit() でウィンドウを閉じる。コンソールは
 		// 単に巻き戻るだけ。
 		if closer, ok := in.be.(interface{ RequestClose() }); ok {
 			closer.RequestClose()
@@ -149,10 +160,11 @@ func init() {
 
 	// assert(cond [, msg]): cond が偽のときエラーで中断する。
 	register("assert", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		if args[0].K != KBool {
-			return Null(), argErr("assert", 0, at, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(args[0]))
+		cond, err := needTruthy("assert", args, 0, at)
+		if err != nil {
+			return Null(), err
 		}
-		if !args[0].B {
+		if !cond {
 			msg := "assertion failed"
 			if len(args) == 2 {
 				m, err := needString("assert", args, 1, at)

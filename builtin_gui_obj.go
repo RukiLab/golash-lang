@@ -7,9 +7,9 @@ import "strconv"
 func init() {
 	// objset(id, val)：ウィジェットの内容を変える。val の型で動作が決まる。
 	// button: 文字列/数値→表示文字列の変更
-	// chkbox: 整数/真偽値→チェックのオン・オフ、文字列→表示文字列の変更
+	// chkbox: 整数→チェックのオン・オフ（0=オフ、非0=オン）、文字列→表示文字列の変更
 	// inputbox/mesbox: 文字列/数値→内容の変更
-	// listbox/combox: 整数→選択項目の変更、配列→項目全体の変更
+	// listbox/combox: 整数→選択項目の変更（-1 は未選択）、配列→項目全体の変更
 	register("objset", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objset")
 		if err != nil {
@@ -48,23 +48,13 @@ func init() {
 					return Null(), rtErrf(at, "%s", err.Error())
 				}
 				return Null(), nil
-			case KBool:
-				if err := wb.SetChecked(int(id), v.B); err != nil {
-					return Null(), rtErrf(at, "%s", err.Error())
-				}
-				return Null(), nil
-			case KFloat:
-				if err := wb.SetChecked(int(id), v.F != 0); err != nil {
-					return Null(), rtErrf(at, "%s", err.Error())
-				}
-				return Null(), nil
 			case KString:
 				if err := wb.SetCheckLabel(int(id), v.S); err != nil {
 					return Null(), rtErrf(at, "%s", err.Error())
 				}
 				return Null(), nil
 			default:
-				return Null(), argErr("objset", 1, at, "chkbox には整数・真偽値・文字列が必要です。%s が指定されました", typeNameOf(v))
+				return Null(), argErr("objset", 1, at, "chkbox には整数（0=false、非0=true）・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
 		case "inputbox", "mesbox":
 			var s string
@@ -75,12 +65,6 @@ func init() {
 				s = strconv.FormatInt(v.I, 10)
 			case KFloat:
 				s = strconv.FormatFloat(v.F, 'f', -1, 64)
-			case KBool:
-				if v.B {
-					s = "1"
-				} else {
-					s = "0"
-				}
 			default:
 				return Null(), argErr("objset", 1, at, "%s には文字列か数値が必要です。%s が指定されました", kind, typeNameOf(v))
 			}
@@ -133,7 +117,7 @@ func init() {
 	})
 
 	// objget(id)：ウィジェットの内容を返す。
-	// button: 押下イベント（呼び出しで消費）、chkbox: チェック状態、
+	// button: 押下イベント（呼び出しで消費、1/0）、chkbox: チェック状態（1/0）、
 	// inputbox/mesbox: 内容文字列、listbox/combox: 選択インデックス。
 	register("objget", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objget")
@@ -154,13 +138,13 @@ func init() {
 			if err != nil {
 				return Null(), rtErrf(at, "%s", err.Error())
 			}
-			return Bool(p), nil
+			return IntOfBool(p), nil
 		case "chkbox":
 			p, err := wb.Checked(int(id))
 			if err != nil {
 				return Null(), rtErrf(at, "%s", err.Error())
 			}
-			return Bool(p), nil
+			return IntOfBool(p), nil
 		case "inputbox":
 			s, err := wb.InputText(int(id))
 			if err != nil {
@@ -184,7 +168,7 @@ func init() {
 	})
 
 	// objenable(id, flag)：ウィジェットの有効・無効を切り替える。
-	// flag は 0 で無効、0 以外で有効。真偽値も受け付ける。
+	// flag は整数。0 で無効、非0 で有効。
 	register("objenable", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objenable")
 		if err != nil {
@@ -194,14 +178,9 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		var on bool
-		switch args[1].K {
-		case KInt:
-			on = args[1].I != 0
-		case KBool:
-			on = args[1].B
-		default:
-			return Null(), argErr("objenable", 1, at, "整数か真偽値が必要です。%s が指定されました", typeNameOf(args[1]))
+		on, err := needTruthy("objenable", args, 1, at)
+		if err != nil {
+			return Null(), err
 		}
 		if err := wb.SetEnabled(int(id), on); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())

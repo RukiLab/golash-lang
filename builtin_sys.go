@@ -6,16 +6,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -48,100 +45,6 @@ func httpPost(url, body string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	return drainResp(resp)
-}
-
-// httpDecode は応答本文を値に変換する：先頭が { または [ で JSON として
-// 読めれば配列形式で返し、そうでなければ文字列のまま返す。map がない言語
-// のため JSON オブジェクトは [[キー, 値], ...]（キー昇順）の配列になる。
-// 数値は整数なら int、小数なら float、null は void、真偽値・文字列・配列は
-// そのまま写す。空や壊れた JSON は文字列にフォールバックする。
-func httpDecode(body []byte) Value {
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 {
-		return Str(string(body))
-	}
-	if trimmed[0] != '{' && trimmed[0] != '[' {
-		return Str(string(body))
-	}
-	dec := json.NewDecoder(bytes.NewReader(trimmed))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return Str(string(body))
-	}
-	// 余分な末尾（例 `{...} garbage`）は生文字列扱いにする。
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return Str(string(body))
-	}
-	switch v.(type) {
-	case map[string]any, []any:
-		return jsonToGolash(v)
-	default:
-		return Str(string(body))
-	}
-}
-
-// jsonToGolash は encoding/json の値を Golash 値へ写す。
-func jsonToGolash(v any) Value {
-	switch t := v.(type) {
-	case nil:
-		return Null()
-	case bool:
-		// Golash に bool 型はない。JSON の true/false は 1/0 になる。
-		return IntOfBool(t)
-	case json.Number:
-		if i, err := t.Int64(); err == nil {
-			return Int(i)
-		}
-		if f, err := t.Float64(); err == nil {
-			return Float(f)
-		}
-		return Str(t.String())
-	case string:
-		return Str(t)
-	case []any:
-		elems := make([]Value, len(t))
-		for i, e := range t {
-			elems[i] = jsonToGolash(e)
-		}
-		return ArrayOf(elems)
-	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		pairs := make([]Value, len(keys))
-		for i, k := range keys {
-			pairs[i] = ArrayOf([]Value{Str(k), jsonToGolash(t[k])})
-		}
-		return ArrayOf(pairs)
-	}
-	return Null()
-}
-
-// golashToJSONable は Golash 値を JSON へ符号化できる any へ写す。
-// 配列は JSON 配列になる（受信時の [[キー, 値], ...] も配列として送る。
-// オブジェクトとして送りたい場合は JSON 文字列を直接渡すこと）。
-func golashToJSONable(v Value) any {
-	switch v.K {
-	case KNull:
-		return nil
-	case KInt:
-		return v.I
-	case KFloat:
-		return v.F
-	case KString:
-		return v.S
-	case KArray:
-		out := make([]any, len(v.Arr.Elems))
-		for i, e := range v.Arr.Elems {
-			out[i] = golashToJSONable(e)
-		}
-		return out
-	}
-	return nil
 }
 
 // drainResp はステータスを確認し、上限付きで本文を読み込む。
@@ -303,12 +206,10 @@ func init() {
 
 	// http(url [, val])：HTTP(S) の取得・送信を統合する。val があれば
 	// POST し、なければ GET する（10秒タイムアウト・16MB上限）。
-	// 送信の contentType は application/json 固定。val が文字列なら
-	// そのまま送り、配列・数値・真偽値・void なら JSON に符号化して送る
-	// （オブジェクトとして送りたい場合は JSON 文字列を直接渡すこと）。
-	// 応答は JSON オブジェクト・配列なら配列形式で返し、それ以外は
-	// 文字列のまま返す。オブジェクトは [[キー, 値], ...]（キー昇順）に
-	// なり、map がない言語での連想配列の代わりになる。2xx 以外はエラー。
+	// 送信の contentType は application/json 固定。val は文字列で
+	// 渡す（オブジェクトとして送りたい場合は JSON 文字列を直接渡すこと）。
+	// 応答は常に本文を文字列で返す（JSON の解釈はしない）。
+	// 2xx 以外はエラー。
 	register("http", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		url, err := needString("http", args, 0, at)
 		if err != nil {
@@ -319,23 +220,17 @@ func init() {
 			if err != nil {
 				return Null(), rtErrf(at, "http：%s", err.Error())
 			}
-			return httpDecode(body), nil
+			return Str(string(body)), nil
 		}
-		var reqBody string
-		if args[1].K == KString {
-			reqBody = args[1].S
-		} else {
-			jb, err := json.Marshal(golashToJSONable(args[1]))
-			if err != nil {
-				return Null(), rtErrf(at, "http：%s", err.Error())
-			}
-			reqBody = string(jb)
+		reqBody, err := needString("http", args, 1, at)
+		if err != nil {
+			return Null(), err
 		}
 		body, err := httpPost(url, reqBody)
 		if err != nil {
 			return Null(), rtErrf(at, "http：%s", err.Error())
 		}
-		return httpDecode(body), nil
+		return Str(string(body)), nil
 	})
 }
 

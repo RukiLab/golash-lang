@@ -41,7 +41,7 @@ func showErrorInWindow(wb *gui.WindowBackend, msg string) {
 	restoreIfMinimized()
 	ebiten.SetWindowFloating(true)
 	defer ebiten.SetWindowFloating(false)
-	_, _ = wb.Dialog(msg, "ok")
+	_, _ = wb.Dialog(msg, 0)
 }
 
 // reportGUIError は GUI モードの失敗を標準エラー出力とネイティブ

@@ -63,7 +63,7 @@ func init() {
 	// Unix ミリ秒、isdir はディレクトリ判別用。旧 filetime(path) 相当は
 	// fileinfo(path)[1]（存在しなければ 0）、旧 exist(path) 相当は
 	// fileinfo(path)[0] != -1。
-	// 存在しない場合はエラーの代わりに [-1, 0, false] を返す
+	// 存在しない場合はエラーの代わりに [-1, 0, 0] を返す
 	// (言語に try/catch がないため、エディタは例外なしでポーリングする)。
 	// ディレクトリのサイズはOS 依存; 別に stat せず 3 項目を組み合わせること。
 	register("fileinfo", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
@@ -74,11 +74,11 @@ func init() {
 		fi, err := os.Stat(in.resolvePath(p))
 		if err != nil {
 			if os.IsNotExist(err) {
-				return ArrayOf([]Value{Int(-1), Int(0), Bool(false)}), nil
+				return ArrayOf([]Value{Int(-1), Int(0), Int(0)}), nil
 			}
 			return Null(), rtErrf(at, "fileinfo：%s", err.Error())
 		}
-		return ArrayOf([]Value{Int(fi.Size()), Int(fi.ModTime().UnixMilli()), Bool(fi.IsDir())}), nil
+		return ArrayOf([]Value{Int(fi.Size()), Int(fi.ModTime().UnixMilli()), IntOfBool(fi.IsDir())}), nil
 	})
 
 	// dirlist([mask]): スクリプト用ディレクトリ内の名前一覧 (REPL では作業

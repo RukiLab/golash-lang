@@ -5,9 +5,10 @@ package gui
 // ここで省略記号付きに短縮する。描画と同じフェイスで測る。
 
 const (
-	// listSliderW は表示される垂直スライダーの幅
-	// (MinHandleSize 12 + トラック余白ゼロ)。水平スライダーは
-	// 非表示のため予約しない。Win11 風の細身 (12px) に寄せる。
+	// listSliderW はあふれたときに表示される垂直スライダーの幅
+	// (MinHandleSize 12 + トラック余白ゼロ)。あふれないときは確保せず、
+	// 枠横幅いっぱいを使う (listTextMaxW/areaWrapLocked が切替える)。
+	// 水平スライダーは非表示のため予約しない。Win11 風の細身 (12px) に寄せる。
 	listSliderW = 12
 
 	// listPadX はリストボックス内の水平余白:

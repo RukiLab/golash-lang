@@ -43,9 +43,9 @@ func runUnmarshaled(t *testing.T, payload []byte) (string, string, error) {
 func TestCodecRoundtrip(t *testing.T) {
 	cases := []string{
 		"x = 10 + 2 * 3\nmes(x)\nmes(\"s\" + 1.5)\n",
-		"def fib(n) {\nif n < 2 {\nreturn n\n}\nreturn fib(n - 1) + fib(n - 2)\n}\nmes(fib(15))\n",
-		"a = [1, [2, 3], \"x\", true]\nrepeat a as i, x {\nmes(i)\nmes(x)\n}\n",
-		"switch 2 {\ncase 1 {\nmes(1)\n}\ncase 2, 3 {\nmes(23)\n}\ndefault {\nmes(\"d\")\n}\n}\n",
+		"def fib(n)\nif n < 2\nreturn n\nend\nreturn fib(n - 1) + fib(n - 2)\nend\nmes(fib(15))\n",
+		"a = [1, [2, 3], \"x\", true]\nrepeat a as i, x\nmes(i)\nmes(x)\nend\n",
+		"switch 2\ncase 1\nmes(1)\ncase 2, 3\nmes(23)\ndefault\nmes(\"d\")\nend\n",
 		"mes(1 / 0)\n",
 		"mes(zzz)\n",
 	}

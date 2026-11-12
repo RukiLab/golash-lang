@@ -14,7 +14,6 @@ const (
 	KInt
 	KFloat
 	KString
-	KBool
 	KArray
 )
 
@@ -30,8 +29,6 @@ func (k Kind) String() string {
 		return "float"
 	case KString:
 		return "string"
-	case KBool:
-		return "bool"
 	case KArray:
 		return "array"
 	}
@@ -46,7 +43,6 @@ type Value struct {
 	I   int64
 	F   float64
 	S   string
-	B   bool
 	Arr *Array
 }
 
@@ -67,8 +63,16 @@ func Null() Value             { return Value{K: KNull} }
 func Int(v int64) Value       { return Value{K: KInt, I: v} }
 func Float(v float64) Value   { return Value{K: KFloat, F: v} }
 func Str(v string) Value      { return Value{K: KString, S: v} }
-func Bool(v bool) Value       { return Value{K: KBool, B: v} }
 func ArrayOf(e []Value) Value { return Value{K: KArray, Arr: &Array{Elems: e}} }
+
+// IntOfBool は Go の真偽値を Golash の整数（true=1、false=0）へ写す。
+// Golash に bool 型はないため、真偽を返す組込はこれを使う。
+func IntOfBool(v bool) Value {
+	if v {
+		return Int(1)
+	}
+	return Int(0)
+}
 
 // Stringify は値を mes() 出力やエラーメッセージ用に描画する。
 // 文字列はそのまま印字され、浮動小数点は最短のラウンドトリップ形式を使う。
@@ -82,11 +86,6 @@ func Stringify(v Value) string {
 		return strconv.FormatFloat(v.F, 'g', -1, 64)
 	case KString:
 		return v.S
-	case KBool:
-		if v.B {
-			return "true"
-		}
-		return "false"
 	case KArray:
 		parts := make([]string, len(v.Arr.Elems))
 		for i, e := range v.Arr.Elems {
@@ -123,8 +122,6 @@ func valuesEqual(a, b Value) bool {
 		return a.F == b.F
 	case KString:
 		return a.S == b.S
-	case KBool:
-		return a.B == b.B
 	case KArray:
 		return a.Arr == b.Arr
 	}

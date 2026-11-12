@@ -1,4 +1,4 @@
-# Golash v0.8.2 レジスタ型VM 設計書
+# Golash v0.9 レジスタ型VM 設計書
 
 移行前のツリーウォーク実装を正解（Ground Truth）とし、観測可能動作を
 1文字単位で維持したまま、実行系を「AST → バイトコード・コンパイラ +
@@ -110,13 +110,15 @@ VM が既定。
   REPL の継続性（追加入力で蓄積）は共有の機械＋グローバル表で実現する。
 - 関数：仮引数＋静的収集名にスロットを割当て、未作成状態＝`void` で
   突入する。`LOADN` は「スロット作成済み→直接／未作成→グローバル／
-  不在→未定義エラー」、読出は従来通り。`STOREN` は「スロット作成済み→
-  直接／未作成→グローバル（あれば更新）／不在→スロットに作成」
- （`let` 廃止後の宣言兼用。通常代入は見える定義の更新、なければ作成）。
+  不在→未定義エラー」。`STOREN` は「スロット作成済み→直接／未作成→
+  既存グローバルを更新／不在→未定義エラー」で、新しいローカルは作らない。
+- `local name = 式` は `DEFN` を発行し、同名グローバルがあっても常に
+  ローカルスロットへ束縛する（宣言以降グローバルを隠す）。
+  トップレベルの `local` はエラー（関数内でのみ使用できる）。
 - main：全変数はグローバル（`LOADG`／作成兼用の `STOREG`）。
 - グローバルはロード時に intern され、G系命令の D は `addProg` で
   直接の gidx へ書換える（実行時ハッシュ検索なし＝インラインキャッシュ相当）。
-- 組込名への代入は実行時に拒否する（`STOREG`/`STOREN` 内検査）。
+- 組込名への代入は実行時に拒否する（`STOREG`/`STOREN`/`DEFN` 内検査）。
   静的に弾くと `mes("hi"); mes = 1` の出力順序が変わるためである。
 - フレーム・レジスタ・readonly ビットはサイズ別プールで再利用する
   （返却時は参照クリア）。
@@ -142,7 +144,7 @@ VM が既定。
   `mes`/`print`/`logmes` のみ素通し）。
 - 非変数 callee は callee のみ評価し `CALLV` でエラーにする（引数不評価）。
 - `def` 本体はコンパイル時に Proto 化するが登録は実行時（`FUNCDEF`）。
-- `end()` の `endSignal` panic は最上位で回収する（旧実装の `Run` と対応）。
+- `exit()` の `endSignal` panic は最上位で回収する（旧実装の `Run` と対応）。
 
 ---
 
@@ -157,7 +159,7 @@ PUTN PUTG POPLOOP FUNCDEF CKCALL CALLF CALLB CALLV RET
 BRKTOP CONTTOP RETTOP HALT`
 
 純粋演算は `runtime.go` の関数（`add`/`arith`/`bitwise`/`shift`/`compare`/
-`valuesEqual`/`applyBinary`/`setIndex`/`requireValue`/`requireBool`）を
+`valuesEqual`/`applyBinary`/`setIndex`/`requireValue`/`truthy`）を
 直接呼ぶか、検証済みの等価式でインライン化する（整数高速パス）。
 インライン化した分岐の文言・条件は `parity_test.go` で両系一致を検証する。
 
@@ -216,7 +218,7 @@ BRKTOP CONTTOP RETTOP HALT`
 
 ## 6. 単一exe化（`gsh build`）
 
-- `MarshalVMProgram` で Proto 群＋`#mode` をバイト列化し（版・CRC付き）、
+- `MarshalVMProgram` で Proto 群＋解決済み `mode` をバイト列化し（版・CRC付き）、
   ランタイム exe の末尾に連結する（`AppendBundle`）。
   識別子＋長さの 16B trailer で検出する（`ExtractBundle`）。
 - 起動時は自 exe 末尾だけ見てバンドル判定し、有れば CLI の代わりに
@@ -238,23 +240,24 @@ BRKTOP CONTTOP RETTOP HALT`
 ## 8. #fast / fastgen（廃止。DLL呼び出しへ移行）
 
 `#fast` / `#endfast` 領域・`gsh fastgen`・`*.nat.gsh`・`gsh run --fast`・
-`GOULASH_FAST` は廃止した。高速化は DLL呼び出し（`dlload`/`dllcall`＋`buf`。
-MANUAL の DLL呼び出し節を参照）で行う。`#fast` を含むスクリプトは
-「不明なディレクティブ」エラーになる（0.8.x はテスト段階のため破壊的変更あり）。
+`GOULASH_FAST` は廃止した。高速化は DLL呼び出し（`dll`/`dlldef`＋直接配列
+`int[]`/`float[]`。MANUAL の DLL呼び出し節を参照）で行う。`#fast` を含むスクリプトは
+「不明なディレクティブ」エラーになる（0.8 はテスト段階のため破壊的変更あり）。
 
 ## 9. ネイティブ実行の担い手（DLL呼び出し）
 
 fastgen の静的埋め込み（段階2）は廃止し、DLL呼び出しが担う。
-`dlload` で開いた C ABI の DLL を `dllcall(h, name, sig, args...)` で呼ぶ。
+`dll` で指定した C ABI の DLL を `dlldef NAME "symbol" "sig"` で呼ぶ。
 purego 経由で CGO 不要（Windows/Linux/macOS 共通）。呼び出しは one-way。
 
 - 署名は `"戻り値(引数1,引数2,...)"`。型は int(32bit)/float(64bit)/
-  string(UTF-8+NUL)/bool/buf(ポインタ。長さは別引数)/void(戻り値のみ)。
+  string(UTF-8+NUL)/int[](i32 配列)/float[](f64 配列)/void(戻り値のみ)。
+  bool は互換のため int の別名として受理する。
   15引数まで。不一致は日本語エラー
-- 連続バッファ（`bufnewf`/`bufnewi`/`buflen`/`bufget`/`bufset`/
-  `bufpackf`/`bufpacki`/`bufunpack`）で境界を一括で越える。
+- 直接配列引数（`int[]`/`float[]`）で境界を越える。Golash の配列を連続
+  バッファへ写してポインタを渡し、呼び出し後に書き戻す。
   DLL 側はポインタを呼び出し中だけ使える（保持しない）
 - g3d の収集は外部 DLL（`GolashProjects/g3d/g3daccel`）＋包み
   （`g3daccel.gsh`）が行う。VM 実装との全要素一致は `zz_parity.gsh` で検証
 
-検証は `builtin_dll_test.go`（buf 往復・署名・エラー・OS 別 live 呼び出し）。
+検証は `builtin_dll_test.go`（配列変換・署名・エラー・OS 別 live 呼び出し）。

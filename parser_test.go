@@ -73,6 +73,33 @@ func TestParsePrecedence(t *testing.T) {
 	}
 }
 
+func TestParseVarDecl(t *testing.T) {
+	prog := mustParse(t, "def f()\nlocal x = 1 + 2\nend\n")
+	ds, ok := prog.Stmts[0].(*DefStmt)
+	if !ok {
+		t.Fatalf("want DefStmt, got %T", prog.Stmts[0])
+	}
+	vs, ok := ds.Body.Stmts[0].(*VarStmt)
+	if !ok {
+		t.Fatalf("want VarStmt, got %T", ds.Body.Stmts[0])
+	}
+	if vs.Name != "x" || vs.Value == nil {
+		t.Fatalf("bad var node: %+v", vs)
+	}
+	if got := vs.String(); got != "local x = (1 + 2)" {
+		t.Fatalf("bad rendering: %q", got)
+	}
+	mustFailParse(t, "local x = 1\n", "関数内でのみ")
+	mustFailParse(t, "def f()\nlocal x\nend\n", "'=' が必要")
+	mustFailParse(t, "def f()\nlocal 1 = 2\nend\n", "識別子")
+	mustFailParse(t, "def f()\nlocal a[0] = 1\nend\n", "'=' が必要")
+	// 旧 let は通常の識別子のまま。
+	prog = mustParse(t, "let = 5\n")
+	if _, ok := prog.Stmts[0].(*AssignStmt); !ok {
+		t.Fatalf("let assignment: got %T", prog.Stmts[0])
+	}
+}
+
 func TestParseParens(t *testing.T) {
 	prog := mustParse(t, "x = (10 + 2) * 3\n")
 	as := prog.Stmts[0].(*AssignStmt)
@@ -82,19 +109,17 @@ func TestParseParens(t *testing.T) {
 }
 
 func TestParseElseIfChain(t *testing.T) {
-	prog := mustParse(t, "if x > 10 {\nmes(1)\n} else if x > 5 {\nmes(2)\n} else {\nmes(3)\n}\n")
+	// elseif 単語のみ連結する（単一 end）。`else if`（スペース区切り）は拒否する。
+	prog := mustParse(t, "if x > 10\nmes(1)\nelseif x > 5\nmes(2)\nelse\nmes(3)\nend\n")
 	ifs := prog.Stmts[0].(*IfStmt)
-	chained, ok := ifs.Else.(*IfStmt)
-	if !ok {
-		t.Fatalf("else-if should chain, got %T", ifs.Else)
+	if _, ok := ifs.Else.(*IfStmt); !ok {
+		t.Fatalf("elseif should chain, got %T", ifs.Else)
 	}
-	if _, ok := chained.Else.(*BlockStmt); !ok {
-		t.Fatalf("final else should be block, got %T", chained.Else)
-	}
+	mustFailParse(t, "if x > 10\nmes(1)\nelse if x > 5\nmes(2)\nelse\nmes(3)\nend\n", "else の後に改行が必要")
 }
 
 func TestParseRepeatForms(t *testing.T) {
-	prog := mustParse(t, "repeat 10 {\nmes(1)\n}\nrepeat 10 as i {\nmes(i)\n}\n")
+	prog := mustParse(t, "repeat 10\nmes(1)\nend\nrepeat 10 as i\nmes(i)\nend\n")
 	r1 := prog.Stmts[0].(*RepeatStmt)
 	if r1.HasVar {
 		t.Fatal("first repeat should have no counter")
@@ -103,29 +128,29 @@ func TestParseRepeatForms(t *testing.T) {
 	if !r2.HasVar || r2.Var != "i" {
 		t.Fatalf("second repeat should have counter i: %+v", r2)
 	}
-	prog = mustParse(t, "repeat a as i, x {\nmes(x)\n}\n")
+	prog = mustParse(t, "repeat a as i, x\nmes(x)\nend\n")
 	r3 := prog.Stmts[0].(*RepeatStmt)
 	if !r3.HasVar || !r3.HasItem || r3.Var != "i" || r3.Item != "x" {
 		t.Fatalf("index+item repeat: %+v", r3)
 	}
-	if got := r3.String(); got != "repeat a as i, x {\n  mes(x)\n}" {
+	if got := r3.String(); got != "repeat a as i, x\n  mes(x)\nend" {
 		t.Fatalf("bad rendering: %q", got)
 	}
 }
 
 func TestParseWhile(t *testing.T) {
-	prog := mustParse(t, "while x < 10 {\nmes(x)\n}\n")
+	prog := mustParse(t, "while x < 10\nmes(x)\nend\n")
 	w := prog.Stmts[0].(*WhileStmt)
 	if w.Cond == nil || w.Body == nil || len(w.Body.Stmts) != 1 {
 		t.Fatalf("bad while node: %+v", w)
 	}
-	if w.String() != "while (x < 10) {\n  mes(x)\n}" {
+	if w.String() != "while (x < 10)\n  mes(x)\nend" {
 		t.Fatalf("bad while rendering: %q", w.String())
 	}
 }
 
 func TestParseSwitch(t *testing.T) {
-	prog := mustParse(t, "switch x {\ncase 1, 2 {\nmes(1)\n}\ndefault {\nmes(0)\n}\n}\n")
+	prog := mustParse(t, "switch x\ncase 1, 2\nmes(1)\ndefault\nmes(0)\nend\n")
 	sw := prog.Stmts[0].(*SwitchStmt)
 	if len(sw.Cases) != 2 {
 		t.Fatalf("want 2 cases, got %+v", sw)
@@ -136,7 +161,7 @@ func TestParseSwitch(t *testing.T) {
 	if !sw.Cases[1].Default {
 		t.Fatalf("second case should be default: %+v", sw.Cases[1])
 	}
-	want := "switch x {\ncase 1, 2 {\n  mes(1)\n}\ndefault {\n  mes(0)\n}\n}"
+	want := "switch x\ncase 1, 2\n  mes(1)\ndefault\n  mes(0)\nend"
 	if sw.String() != want {
 		t.Fatalf("bad switch rendering: %q", sw.String())
 	}
@@ -192,29 +217,40 @@ func TestParseCompoundAssign(t *testing.T) {
 	mustFailParse(t, "1 += 2\n", "代入できません")
 	mustFailParse(t, "x += \n", "式が必要です")
 	// 組込み名は束縛できない（代入、引数、ループ変数）。
-	mustFailParse(t, "def f(mes) {\n}\n", "組み込み関数と同名")
-	mustFailParse(t, "repeat 3 as length {\n}\n", "組み込み関数と同名")
-	mustFailParse(t, "repeat [1] as i, push {\n}\n", "組み込み関数と同名")
+	mustFailParse(t, "def f(mes)\nend\n", "組み込み関数と同名")
+	mustFailParse(t, "repeat 3 as length\nend\n", "組み込み関数と同名")
+	mustFailParse(t, "repeat [1] as i, push\nend\n", "組み込み関数と同名")
 }
 
 func TestParseTryAbolished(t *testing.T) {
-	// try/catch は今や通常の識別子である: try ブロックは変数の後に
-	// ブロックらしき波括弧が続くものとして解析される。
-	mustFailParse(t, "try {\nmes(1)\n} catch(e) {\nmes(e)\n}\n", "予期しない '{'")
+	// try/catch は今や通常の識別子である: 波括弧は廃止され、改行〜end を使う。
+	mustFailParse(t, "try\nmes(1)\nend\ncatch(e)\nmes(e)\nend\n", "予期しない")
 	prog := mustParse(t, "try = 5\n")
 	if got := prog.Stmts[0].String(); got != "try = 5" {
 		t.Fatalf("try as ident: %q", got)
 	}
 }
 
+func TestParseConstEnumAbolished(t *testing.T) {
+	// const / enum は廃止され、通常の識別子である。
+	prog := mustParse(t, "const = 5\n")
+	if got := prog.Stmts[0].String(); got != "const = 5" {
+		t.Fatalf("const as ident: %q", got)
+	}
+	prog = mustParse(t, "enum = 5\n")
+	if got := prog.Stmts[0].String(); got != "enum = 5" {
+		t.Fatalf("enum as ident: %q", got)
+	}
+}
+
 func TestParseTopLevelDef(t *testing.T) {
-	prog := mustParse(t, "def f() {\nmes(1)\n}\n")
+	prog := mustParse(t, "def f()\nmes(1)\nend\n")
 	if _, ok := prog.Stmts[0].(*DefStmt); !ok {
 		t.Fatalf("top def: %T", prog.Stmts[0])
 	}
-	mustFailParse(t, "if true {\ndef f() {\n}\n}\n", "トップレベル")
-	mustFailParse(t, "def f() {\ndef g() {\n}\n}\n", "トップレベル")
-	mustFailParse(t, "def f(a=1) {\n}\n", "デフォルト引数")
+	mustFailParse(t, "if true\ndef f()\nend\nend\n", "トップレベル")
+	mustFailParse(t, "def f()\ndef g()\nend\nend\n", "トップレベル")
+	mustFailParse(t, "def f(a=1)\nend\n", "デフォルト引数")
 }
 
 func TestParseMultilineArray(t *testing.T) {
@@ -227,16 +263,16 @@ func TestParseMultilineArray(t *testing.T) {
 }
 
 func TestParseMapAbolished(t *testing.T) {
-	mustFailParse(t, "m = {\"a\": 1}\n", "'{' はブロック")
-	mustFailParse(t, "m = {}\n", "'{' はブロック")
+	mustFailParse(t, "m = {\"a\": 1}\n", "'{' は使用できません")
+	mustFailParse(t, "m = {}\n", "'{' は使用できません")
 	mustFailParse(t, "x = m.a\n", "'.' は使用できません")
 	mustFailParse(t, "m.a = 2\n", "'.' は使用できません")
-	mustFailParse(t, "p = Person{\nname: \"A\",\n}\n", "予期しない '{'")
+	mustFailParse(t, "p = Person\nname: \"A\",\nend\n", "文の後に改行")
 }
 
 func TestParseConditionWithBraceVar(t *testing.T) {
-	// `if x {` は条件＋ブロックでなければならない。
-	prog := mustParse(t, "x = true\nif x {\nmes(1)\n}\n")
+	// `if x` 改行 ... `end` が条件＋ブロック。
+	prog := mustParse(t, "x = true\nif x\nmes(1)\nend\n")
 	ifs := prog.Stmts[1].(*IfStmt)
 	if _, ok := ifs.Cond.(*VarExpr); !ok {
 		t.Fatalf("cond: %T", ifs.Cond)
@@ -245,12 +281,23 @@ func TestParseConditionWithBraceVar(t *testing.T) {
 
 func TestParseRejections(t *testing.T) {
 	mustFailParse(t, "x = 1;\n", "セミコロン")
-	mustFailParse(t, "enum Color\n", "改行")
-	mustFailParse(t, "enum { }\n", "予期しない '{'")
+	mustFailParse(t, "mode cli\n", "mode は廃止")
 	mustFailParse(t, "*label\n", "*")
 	mustFailParse(t, "a = [1, 2\n", "']'")
-	mustFailParse(t, "if x {\nmes(1)\n", "ブロックが閉じられていません")
+	mustFailParse(t, "if x\nmes(1)\n", "ブロックが閉じられていません")
 	mustFailParse(t, "x = (1 + 2\n", "')'")
+	mustFailParse(t, "def f()\nmes(1)\n", "ブロックが閉じられていません")
+	mustFailParse(t, "if x\nmes(1)\nend mes(2)\n", "文の後に改行")
+	mustFailParse(t, "x = 1\nend\n", "予期しない 'end'")
+	mustFailParse(t, "if x\nmes(1)\nend\nelse\nmes(2)\nend\n", "予期しない 'else'")
+}
+
+func TestParseEndKeyword(t *testing.T) {
+	// end は予約語であり、識別子としては使えない。
+	mustFailParse(t, "end = 5\n", "予期しない 'end'")
+	mustFailParse(t, "end()\n", "予期しない 'end'")
+	// exit は組込みのため識別子にできない（def 引数など）。
+	mustFailParse(t, "def f(exit)\nend\n", "組み込み関数と同名")
 }
 
 func TestParseCallVsIndex(t *testing.T) {

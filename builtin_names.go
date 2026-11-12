@@ -3,18 +3,17 @@ package main
 // guiBuiltinNames は GUI 関連の組込（常に登録される）を列挙する。
 // TestBuiltinRegistryComplete から参照される。
 var guiBuiltinNames = []string{
-	"screen", "gsel", "buffer",
+	"screen", "gsel",
 	"pset", "pget", "line", "rect", "ellipse",
-	"gcopy", "gquad", "gflat", "gmode", "picload",
-	"pngsave", "galpha", "paint", "font",
-	"getkey", "mousex", "mousey", "mousewheel", "fullscreen", "closing", "screensize", "cursor",
+	"gcopy", "gblit", "gmode", "picload",
+	"pngsave", "galpha", "font",
+	"gquad", "tri",
+	"getkey", "mouse", "mousewheel", "fullscreen", "closing", "cursor",
 	"padcount", "padbtn", "padaxis", "padname", "resizable",
-	"touchcount", "touchx", "touchy", "winmove", "dropfiles", "dropload",
-	"mmload", "mmplay", "mmstop", "mmvol",
+	"touch", "dropfiles", "dropload",
+	"mmload", "mmplay", "mmstop", "mmvol", "mmpitch",
 	"button", "inputbox", "ime",
 	"listbox", "clrobj", "dialog",
 	"chkbox", "combox", "mesbox", "objset", "objget", "objenable",
-	"dlload", "dllcall", "dllfree",
-	"bufnewf", "bufnewi", "buflen", "bufget", "bufset",
-	"bufpackf", "bufpacki", "bufunpack",
+	"wbind", "wbind_items", "wunbind", "wsync",
 }

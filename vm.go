@@ -2,7 +2,7 @@
 //
 // runtime.go との観測一致が最優先：純粋な値演算は runtime.go の関数
 // （add/arith/bitwise/shift/compare/valuesEqual/applyBinary/setIndex
-// requireValue/requireBool）を直接呼び出すため、文言・条件がずれない。
+// requireValue/truthy）を直接呼び出すため、文言・条件がずれない。
 // 評価順序・検査位置は compile.go 側の発行順序で再現する。
 package main
 
@@ -252,7 +252,8 @@ func (m *vmachine) addProg(prog *VMProgram) {
 }
 
 // lookupVar は「スロット（作成済み）→グローバル」の順で探す。
-// 見つかれば値・真、なければ偽（呼出解決・LOADN 用）。
+// local 宣言・仮引数・repeat 変数はスロット、それ以外の未作成名は
+// グローバルとして解決する。見つかれば値・真、なければ偽。
 func (m *vmachine) lookupVar(fr *vmFrame, name string, slot int) (Value, bool) {
 	if slot >= 0 && slot < len(fr.regs) && fr.regs[slot].K != KNull {
 		return fr.regs[slot], true
@@ -307,6 +308,7 @@ func (m *vmachine) unwindAll() {
 func (m *vmachine) runMain(prog *VMProgram) (err error) {
 	m.addProg(prog)
 	m.prog = prog
+	m.in.vm = m
 	baseFrames := len(m.frames)
 	baseDepth := m.depth
 	defer func() {
@@ -349,6 +351,7 @@ func (m *vmachine) dropFrames(baseFrames int) {
 // evalOne は単一式を評価する（REPL の bare-expression echo 用）。
 // 共有の globals/funcs を使い、結果レジスタの値を返す。
 func (m *vmachine) evalOne(x Expr, at Pos) (out Value, err error) {
+	m.in.vm = m
 	g := &vmcGlobal{
 		constMap: map[string]int{},
 		nameMap:  map[string]int{},
@@ -439,8 +442,7 @@ func (m *vmachine) loop(pc int) error {
 				}
 				m.globals.vals[gi] = v
 			} else {
-				// `let` 廃止後：未定義への代入は宣言になる
-				// （見える定義の更新、なければ現在のスコープに作成）。
+				// 未定義へのトップレベル代入はグローバル宣言になる。
 				m.globals.vals[gi] = v
 				m.globals.has[gi] = true
 				m.globals.ro[gi] = false
@@ -479,11 +481,27 @@ func (m *vmachine) loop(pc int) error {
 					}
 					m.globals.vals[gi] = v
 				} else {
-					// `let` 廃止後：可視定義がなければ関数ローカルに作る。
-					regs[slot] = v
-					fr.ro[slot] = false
+					// local なしの代入は既存グローバルだけを更新する。
+					// 新しいローカルを作るには DEFN（local 宣言）が必要。
+					return rtErrf(pos, "未定義の変数 %q です", name)
 				}
 			}
+		case OpDefN:
+			// `local` 宣言：同名グローバルがあっても常にローカルへ束縛する。
+			name := proto.Names[d]
+			slot := int(c)
+			v := regs[a]
+			if err := requireValue(v, pos); err != nil {
+				return err
+			}
+			if isBuiltin(name) {
+				return rtErrf(pos, "%q に代入できません：組み込み関数です", name)
+			}
+			if fr.ro[slot] {
+				return rtErrf(pos, "%q に代入できません：repeat カウンタは読み取り専用です", name)
+			}
+			regs[slot] = v
+			fr.ro[slot] = false
 
 		case OpCkVal:
 			// requireValue のインライン化（文言同一）。
@@ -491,18 +509,20 @@ func (m *vmachine) loop(pc int) error {
 				return rtErrf(pos, "void値を使用できません")
 			}
 		case OpTest:
-			// requireBool のインライン化（文言同一、値は保持）。
-			if regs[a].K != KBool {
-				return rtErrf(pos, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(regs[a]))
+			// 条件式は整数（0=false、非0=true）。値を 1/0 に正規化する。
+			ok, err := truthy(regs[a], pos)
+			if err != nil {
+				return err
 			}
+			regs[a] = IntOfBool(ok)
 		case OpJmp:
 			next = pc + 1 + int(int32(d))
 		case OpJmpT:
-			if regs[a].B {
+			if regs[a].I != 0 {
 				next = pc + 1 + int(int32(d))
 			}
 		case OpJmpF:
-			if !regs[a].B {
+			if regs[a].I == 0 {
 				next = pc + 1 + int(int32(d))
 			}
 		case OpCkInt:
@@ -706,7 +726,7 @@ func (m *vmachine) loop(pc int) error {
 			if op == OpNe {
 				eq = !eq
 			}
-			regs[a] = Bool(eq)
+			regs[a] = IntOfBool(eq)
 		case OpLt, OpLe, OpGt, OpGe:
 			if l, r := regs[b], regs[c]; l.K == KInt && r.K == KInt {
 				// compare() は数値間を float64 で比較するため同一式で再現する。
@@ -729,7 +749,7 @@ func (m *vmachine) loop(pc int) error {
 				default:
 					out = c >= 0
 				}
-				regs[a] = Bool(out)
+				regs[a] = IntOfBool(out)
 				break
 			} else {
 				var v Value
@@ -750,10 +770,11 @@ func (m *vmachine) loop(pc int) error {
 				regs[a] = v
 			}
 		case OpNot:
-			if regs[b].K != KBool {
-				return rtErrf(pos, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(regs[b]))
+			ok, err := truthy(regs[b], pos)
+			if err != nil {
+				return err
 			}
-			regs[a] = Bool(!regs[b].B)
+			regs[a] = IntOfBool(!ok)
 		case OpNeg:
 			if v := regs[b]; v.K == KInt {
 				regs[a] = Int(-v.I)
@@ -1000,6 +1021,9 @@ func (m *vmachine) loop(pc int) error {
 				}
 				seen[p] = true
 			}
+			if isLegacyDllName(proto2.Name) {
+				return rtErrf(pos, "%s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", proto2.Name)
+			}
 			if isBuiltin(proto2.Name) {
 				return rtErrf(pos, "%q を再定義できません：組み込み関数です", proto2.Name)
 			}
@@ -1010,6 +1034,9 @@ func (m *vmachine) loop(pc int) error {
 		case OpCkCall:
 			name := proto.Names[d]
 			argc := int(c)
+			if isLegacyDllName(name) {
+				return rtErrf(pos, "%s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", name)
+			}
 			if callee, ok := m.funcs[name]; ok {
 				want := len(callee.Params)
 				if argc != want {
@@ -1067,7 +1094,10 @@ func (m *vmachine) loop(pc int) error {
 		case OpCallB:
 			argc := int(c)
 			copy(m.argsBuf, regs[int(b):int(b)+argc])
+			prevFrame, prevProto := m.in.curFrame, m.in.curProto
+			m.in.curFrame, m.in.curProto = fr, proto
 			v, err := callBuiltinByID(int(d), m.in, m.argsBuf[:argc], pos)
+			m.in.curFrame, m.in.curProto = prevFrame, prevProto
 			if err != nil {
 				return err
 			}

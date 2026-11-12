@@ -50,7 +50,7 @@ func TestCompilePositions(t *testing.T) {
 
 func TestCompileCallOrder(t *testing.T) {
 	// CKCALL は引数評価・CALL より前に発行される（解決順序の再現）。
-	vprog := mustCompileSrc(t, "mes(f(1))\ndef f(a) {\nreturn a\n}\n")
+	vprog := mustCompileSrc(t, "mes(f(1))\ndef f(a)\nreturn a\nend\n")
 	code := vprog.Main.Code
 	ckPos, callPos := -1, -1
 	for i, ins := range code {
@@ -74,12 +74,33 @@ func TestCompileAssignDeclares(t *testing.T) {
 	if !hasOp(vprog.Main, OpStoreG) {
 		t.Fatalf("top-level assign must use STOREG")
 	}
-	vprog = mustCompileSrc(t, "x = 1\ndef f() {\nx = 2\nmes(x)\n}\n")
+	vprog = mustCompileSrc(t, "x = 1\ndef f()\nx = 2\nmes(x)\nend\n")
 	if len(vprog.Protos) != 1 {
 		t.Fatalf("protos = %d, want 1", len(vprog.Protos))
 	}
 	if !hasOp(vprog.Protos[0], OpStoreN) {
 		t.Fatalf("function assign must use STOREN")
+	}
+	// local 宣言は関数ローカルの DEFN。
+	vprog = mustCompileSrc(t, "x = 1\ndef f()\nlocal x = 2\nreturn x\nend\n")
+	if !hasOp(vprog.Protos[0], OpDefN) {
+		t.Fatalf("function local declaration must use DEFN")
+	}
+	if _, ok := vprog.Protos[0].Slots["x"]; !ok {
+		t.Fatalf("local name must have a slot")
+	}
+	// トップレベルの local はエラー（直接・ブロック内とも）。
+	for _, src := range []string{"local x = 1\n", "if true\nlocal x = 1\nend\n"} {
+		prog, err := Parse(src)
+		if err == nil {
+			if _, err := Compile(prog); err == nil {
+				t.Fatalf("top-level local should error: %q", src)
+			} else if !containsStr(err.Error(), "関数内でのみ") {
+				t.Fatalf("top-level local wrong error %q: %v", src, err)
+			}
+		} else if !containsStr(err.Error(), "関数内でのみ") {
+			t.Fatalf("top-level local wrong parse error %q: %v", src, err)
+		}
 	}
 }
 
@@ -93,7 +114,7 @@ func TestCompileCompoundSingle(t *testing.T) {
 
 func TestCompileRepeatShapes(t *testing.T) {
 	// 整数・配列の両経路（REPDISP 分岐＋FORILOOP/FORALOOP）が発行される。
-	vprog := mustCompileSrc(t, "repeat 3 as i {\nmes(i)\n}\na = [1]\nrepeat a as x {\nmes(x)\n}\n")
+	vprog := mustCompileSrc(t, "repeat 3 as i\nmes(i)\nend\na = [1]\nrepeat a as x\nmes(x)\nend\n")
 	for _, op := range []Op{OpRepDisp, OpForIPrep, OpForILoop, OpForAPrep, OpForALoop, OpPopLoop, OpSaveVar} {
 		if !hasOp(vprog.Main, op) {
 			t.Fatalf("missing op %s", op)
@@ -102,7 +123,7 @@ func TestCompileRepeatShapes(t *testing.T) {
 }
 
 func TestCompileSwitch(t *testing.T) {
-	vprog := mustCompileSrc(t, "switch 1 {\ncase 1 {\nmes(1)\n}\ndefault {\nmes(2)\n}\n}\n")
+	vprog := mustCompileSrc(t, "switch 1\ncase 1\nmes(1)\ndefault\nmes(2)\nend\n")
 	for _, op := range []Op{OpCkVal, OpEq, OpJmpT, OpJmp} {
 		if !hasOp(vprog.Main, op) {
 			t.Fatalf("missing op %s", op)
@@ -111,7 +132,7 @@ func TestCompileSwitch(t *testing.T) {
 }
 
 func TestCompileFuncProto(t *testing.T) {
-	vprog := mustCompileSrc(t, "def f(a, b) {\nreturn a\n}\nmes(f(1, 2))\n")
+	vprog := mustCompileSrc(t, "def f(a, b)\nreturn a\nend\nmes(f(1, 2))\n")
 	if len(vprog.Protos) != 1 {
 		t.Fatalf("want 1 proto, got %d", len(vprog.Protos))
 	}

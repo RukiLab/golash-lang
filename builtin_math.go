@@ -11,8 +11,7 @@ import (
 
 func init() {
 	// int(v): 浮動小数は 0 方向へ切り捨て (有限かつ int64 範囲内);
-	// 文字列は 10 進整数であること; 真偽値は 1/0 に対応。
-	// それ以外はエラー。
+	// 文字列は 10 進整数であること。それ以外はエラー。
 	register("int", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		switch args[0].K {
 		case KInt:
@@ -23,11 +22,6 @@ func init() {
 				return Null(), argErr("int", 0, at, "%g を整数に変換できません", f)
 			}
 			return Int(int64(f)), nil
-		case KBool:
-			if args[0].B {
-				return Int(1), nil
-			}
-			return Int(0), nil
 		case KString:
 			s := strings.TrimSpace(args[0].S)
 			if v, err := strconv.ParseInt(s, 10, 64); err == nil {
@@ -38,19 +32,13 @@ func init() {
 		return Null(), argErr("int", 0, at, "%s を整数に変換できません", typeNameOf(args[0]))
 	})
 
-	// float(v): 整数は拡大変換; 数値文字列を解釈 (有限のみ);
-	// 真偽値は 1.0/0.0 に対応。
+	// float(v): 整数は拡大変換; 数値文字列を解釈 (有限のみ)。
 	register("float", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		switch args[0].K {
 		case KFloat:
 			return args[0], nil
 		case KInt:
 			return Float(float64(args[0].I)), nil
-		case KBool:
-			if args[0].B {
-				return Float(1), nil
-			}
-			return Float(0), nil
 		case KString:
 			s := strings.TrimSpace(args[0].S)
 			if f, err := strconv.ParseFloat(s, 64); err == nil {
@@ -69,8 +57,7 @@ func init() {
 		return Str(Stringify(args[0])), nil
 	})
 
-	// vartype(v): 型名 ("int", "float", "string", "bool", "array",
-	// "map", "function", "null")。
+	// vartype(v): 型名 ("int", "float", "string", "array", "void")。
 	register("vartype", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		return Str(typeNameOf(args[0])), nil
 	})

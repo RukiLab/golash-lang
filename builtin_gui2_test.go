@@ -43,38 +43,41 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	// 拡張キーは受け付ける（ヘッドレス：何も押されていない）。
 	for _, src := range []string{"getkey(8)", "getkey(9)", "getkey(16)", "getkey(17)", "getkey(18)", "getkey(33)", "getkey(46)", "getkey(112)", "getkey(123)", "getkey(186)", "getkey(222)"} {
 		v, err := guiEval(t, src)
-		if err != nil || v.K != KBool || v.B {
-			t.Fatalf("%s: got %v, %v (want false)", src, v, err)
+		if err != nil || v.K != KInt || v.I != 0 {
+			t.Fatalf("%s: got %v, %v (want 0)", src, v, err)
 		}
 	}
-	// 第2引数 mode: 省略・0 はレベル検出、1 は立上り検出（消費型）。
+	// 第2引数 mode: 省略・false はレベル検出、true は立上り検出（消費型）。
 	// ヘッドレスでは押下がないためいずれも false。
-	for _, src := range []string{"getkey(37, 0)", "getkey(37, 1)", "getkey(16, 1)"} {
+	for _, src := range []string{"getkey(37, false)", "getkey(37, true)", "getkey(16, true)"} {
 		v, err := guiEval(t, src)
-		if err != nil || v.K != KBool || v.B {
-			t.Fatalf("%s: got %v, %v (want false)", src, v, err)
+		if err != nil || v.K != KInt || v.I != 0 {
+			t.Fatalf("%s: got %v, %v (want 0)", src, v, err)
 		}
 	}
 	// 立上り検出は消費される：押下なしでは何度呼んでも false。
-	if v, err := guiEval(t, "getkey(37, 1)"); err != nil || v.K != KBool || v.B {
-		t.Fatalf("getkey(37, 1) repeat: got %v, %v", v, err)
+	if v, err := guiEval(t, "getkey(37, true)"); err != nil || v.K != KInt || v.I != 0 {
+		t.Fatalf("getkey(37, true) repeat: got %v, %v", v, err)
 	}
-	if _, err := guiEval(t, "getkey(999, 1)"); err == nil || !strings.Contains(err.Error(), "不明なキーコード") {
-		t.Fatalf("getkey(999, 1): got %v", err)
+	if _, err := guiEval(t, "getkey(999, true)"); err == nil || !strings.Contains(err.Error(), "不明なキーコード") {
+		t.Fatalf("getkey(999, true): got %v", err)
 	}
 	// マウスは code 0-2 に統合（0 左、1 中、2 右）。ヘッドレスでは false。
-	for _, src := range []string{"getkey(0)", "getkey(1)", "getkey(2)", "getkey(0, 0)", "getkey(2, 0)", "getkey(0, 1)", "getkey(1, 1)", "getkey(2, 1)"} {
+	for _, src := range []string{"getkey(0)", "getkey(1)", "getkey(2)", "getkey(0, false)", "getkey(2, false)", "getkey(0, true)", "getkey(1, true)", "getkey(2, true)"} {
 		v, err := guiEval(t, src)
-		if err != nil || v.K != KBool || v.B {
-			t.Fatalf("%s: got %v, %v (want false)", src, v, err)
+		if err != nil || v.K != KInt || v.I != 0 {
+			t.Fatalf("%s: got %v, %v (want 0)", src, v, err)
 		}
 	}
 	// 3 はマウスでもキーでもないためエラー。
 	if _, err := guiEval(t, "getkey(3)"); err == nil || !strings.Contains(err.Error(), "不明なキーコード") {
 		t.Fatalf("getkey(3): got %v", err)
 	}
-	if _, err := guiEval(t, "getkey(37, 2)"); err == nil || !strings.Contains(err.Error(), "0 または 1") {
-		t.Fatalf("getkey mode range: got %v", err)
+	for _, src := range []string{"getkey(37, 1)", "getkey(37, 0)", "getkey(37, 2)"} {
+		v, err := guiEval(t, src)
+		if err != nil || v.K != KInt || v.I != 0 {
+			t.Fatalf("%s: got %v, %v (want 0)", src, v, err)
+		}
 	}
 	if _, err := guiEval(t, "getkey(37, \"x\")"); err == nil {
 		t.Fatal("getkey string mode should error")
@@ -102,7 +105,7 @@ func TestGuiBuiltinValidation(t *testing.T) {
 		t.Fatal("keychar should be undefined")
 	}
 	if _, err := guiEval(t, "clicked()"); err == nil {
-		t.Fatal("clicked should be undefined (use getkey(0, 1))")
+		t.Fatal("clicked should be undefined (use getkey(0, true))")
 	}
 	if _, err := guiEval(t, "clicked(2)"); err == nil {
 		t.Fatal("clicked should be undefined")
@@ -114,36 +117,123 @@ func TestGuiBuiltinValidation(t *testing.T) {
 		t.Fatal("mousedown should be undefined")
 	}
 	v, err = guiEval(t, "cursor()")
-	if err != nil || v.K != KBool {
+	if err != nil || v.K != KInt {
 		t.Fatalf("cursor(): got %v, %v", v, err)
 	}
-	if v, err := guiEval(t, "cursor(1)"); err != nil || v.K != KNull {
-		t.Fatalf("cursor(1): got %v, %v", v, err)
+	if v, err := guiEval(t, "cursor(true)"); err != nil || v.K != KNull {
+		t.Fatalf("cursor(true): got %v, %v", v, err)
+	}
+	if v, err := guiEval(t, "cursor(false)"); err != nil || v.K != KNull {
+		t.Fatalf("cursor(false): got %v, %v", v, err)
+	}
+	// 整数フラグ（0=非表示、非0=表示）を受け付ける。文字列は受け付けない。
+	if _, err := guiEval(t, "cursor(1)"); err != nil {
+		t.Fatalf("cursor(1): got %v", err)
+	}
+	if _, err := guiEval(t, "cursor(0)"); err != nil {
+		t.Fatalf("cursor(0): got %v", err)
+	}
+	if _, err := guiEval(t, "cursor(\"x\")"); err == nil {
+		t.Fatal("cursor string should error")
 	}
 	v, err = guiEval(t, "mousewheel()")
 	if err != nil || v.K != KInt || v.I != 0 {
 		t.Fatalf("mousewheel(): got %v, %v", v, err)
 	}
 	v, err = guiEval(t, "fullscreen()")
-	if err != nil || v.K != KBool {
+	if err != nil || v.K != KInt {
 		t.Fatalf("fullscreen(): got %v, %v", v, err)
 	}
+	// 成功系はゲームスレッド待ち（runOnLoop）でヘッドレスでは
+	// ブロックするため呼ばない。文字列フラグの拒否のみ検証する。
 	if _, err := guiEval(t, "fullscreen(\"x\")"); err == nil {
 		t.Fatal("fullscreen string should error")
 	}
+	v, err = guiEval(t, "resizable()")
+	if err != nil || v.K != KInt {
+		t.Fatalf("resizable(): got %v, %v", v, err)
+	}
+	if v, err := guiEval(t, "resizable(true)"); err != nil || v.K != KNull {
+		t.Fatalf("resizable(true): got %v, %v", v, err)
+	}
+	if v, err := guiEval(t, "resizable(false)"); err != nil || v.K != KNull {
+		t.Fatalf("resizable(false): got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "resizable(1)"); err != nil {
+		t.Fatalf("resizable(1): got %v", err)
+	}
+	if _, err := guiEval(t, "resizable(\"x\")"); err == nil {
+		t.Fatal("resizable string should error")
+	}
+	v, err = guiEval(t, "ime()")
+	if err != nil || v.K != KInt {
+		t.Fatalf("ime(): got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "ime(\"x\")"); err == nil {
+		t.Fatal("ime string should error")
+	}
+	if _, err := guiEval(t, "mmplay(1, \"x\")"); err == nil {
+		t.Fatal("mmplay string loop should error")
+	}
 	v, err = guiEval(t, "closing()")
-	if err != nil || v.K != KBool || v.B {
+	if err != nil || v.K != KInt || v.I != 0 {
 		t.Fatalf("closing(): got %v, %v", v, err)
 	}
-	// screensize()はモニタではなくOSウィンドウを報告する：ヘッドレス実行で
+	// screen()はモニタではなくOSウィンドウを報告する：ヘッドレス実行で
 	// 値が確定するようウィンドウサイズを固定する。
 	ebiten.SetWindowSize(320, 200)
-	v, err = guiEval(t, "screensize()")
+	v, err = guiEval(t, "screen()")
 	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
-		t.Fatalf("screensize(): got %v, %v", v, err)
+		t.Fatalf("screen(): got %v, %v", v, err)
 	}
 	if v.Arr.Elems[0].I != 320 || v.Arr.Elems[1].I != 200 {
-		t.Fatalf("screensize() = %v, want [320 200]", v.Arr.Elems)
+		t.Fatalf("screen() = %v, want [320 200]", v.Arr.Elems)
+	}
+	// screen(id) は描画バッファのサイズ。0 はメインキャンバス。
+	v, err = guiEval(t, "screen(0)")
+	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
+		t.Fatalf("screen(0): got %v, %v", v, err)
+	}
+	if v.Arr.Elems[0].I != 320 || v.Arr.Elems[1].I != 200 {
+		t.Fatalf("screen(0) = %v, want [320 200]", v.Arr.Elems)
+	}
+	if _, err := guiEval(t, "screen(1)"); err == nil || !strings.Contains(err.Error(), "不明なバッファ") {
+		t.Fatalf("screen(1) unallocated: got %v", err)
+	}
+	for _, src := range []string{"screen(-1)", "screen(16)"} {
+		if _, err := guiEval(t, src); err == nil {
+			t.Fatalf("%s out-of-range should error", src)
+		}
+	}
+	if _, err := guiEval(t, `screen("x")`); err == nil {
+		t.Fatal("screen string id should error")
+	}
+	if _, err := guiEval(t, "screen(0, 1, 2, 3)"); err == nil {
+		t.Fatal("screen with 4 args should error")
+	}
+	// screen(id, w, h) で作ったバッファは自身のサイズを返す。
+	v, err = guiEvalSeq(t, "screen(1, 64, 48)\nscreen(1)")
+	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
+		t.Fatalf("screen(1) after screen(1, 64, 48): got %v, %v", v, err)
+	}
+	if v.Arr.Elems[0].I != 64 || v.Arr.Elems[1].I != 48 {
+		t.Fatalf("screen(1) = %v, want [64 48]", v.Arr.Elems)
+	}
+	// id 0 の3引数は screen(w, h) と同じくメインキャンバスをリサイズする。
+	v, err = guiEvalSeq(t, "screen(0, 80, 60)\nscreen(0)")
+	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
+		t.Fatalf("screen(0) after screen(0, 80, 60): got %v, %v", v, err)
+	}
+	if v.Arr.Elems[0].I != 80 || v.Arr.Elems[1].I != 60 {
+		t.Fatalf("screen(0) = %v, want [80 60]", v.Arr.Elems)
+	}
+	// gsel() だけで確保した id は遅延生成時のメインキャンバスサイズ。
+	v, err = guiEvalSeq(t, "gsel(2)\nscreen(2)")
+	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
+		t.Fatalf("screen(2) after gsel: got %v, %v", v, err)
+	}
+	if v.Arr.Elems[0].I != 320 || v.Arr.Elems[1].I != 200 {
+		t.Fatalf("screen(2) = %v, want [320 200]", v.Arr.Elems)
 	}
 	v, err = guiEval(t, "dropfiles()")
 	if err != nil || v.K != KArray || len(v.Arr.Elems) != 0 {
@@ -151,9 +241,6 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	}
 	if _, err := guiEval(t, "dropload(\"nope.png\")"); err == nil {
 		t.Fatal("dropload without drops should error")
-	}
-	if _, err := guiEval(t, "winmove(\"x\", 0)"); err == nil {
-		t.Fatal("winmove string should error")
 	}
 	v, err = guiEval(t, "padcount()")
 	if err != nil || v.K != KInt || v.I != 0 {
@@ -171,16 +258,6 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	if _, err := guiEval(t, "padname(0)"); err == nil {
 		t.Fatal("padname without pads should error")
 	}
-	v, err = guiEval(t, "touchcount()")
-	if err != nil || v.K != KInt || v.I != 0 {
-		t.Fatalf("touchcount(): got %v, %v", v, err)
-	}
-	if _, err := guiEval(t, "touchx(0)"); err == nil {
-		t.Fatal("touchx without touches should error")
-	}
-	if _, err := guiEval(t, "touchy(0)"); err == nil {
-		t.Fatal("touchy without touches should error")
-	}
 	v, err = guiEval(t, "mmstop()")
 	if err != nil || v.K != KNull {
 		t.Fatalf("mmstop(): got %v, %v", v, err)
@@ -190,8 +267,33 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	}
 }
 
+// mouse()/touch() の統合 API。ヘッドレスでも型と空配列が確定する。
+func TestGuiMouseTouch(t *testing.T) {
+	// mouse() はカーソル位置を [x, y] で返す（ヘッドレスでは 0, 0）。
+	v, err := guiEval(t, "mouse()")
+	if err != nil || v.K != KArray || len(v.Arr.Elems) != 2 {
+		t.Fatalf("mouse(): got %v, %v", v, err)
+	}
+	for _, e := range v.Arr.Elems {
+		if e.K != KInt {
+			t.Fatalf("mouse() element: got %v, want int", e)
+		}
+	}
+	// touch() は接触中の座標を [[x, y], ...] で返す（ヘッドレスでは空）。
+	v, err = guiEval(t, "touch()")
+	if err != nil || v.K != KArray || len(v.Arr.Elems) != 0 {
+		t.Fatalf("touch(): got %v, %v", v, err)
+	}
+	// 旧名は統合により未定義。
+	for _, src := range []string{"mousex()", "mousey()", "touchcount()", "touchx(0)", "touchy(0)"} {
+		if _, err := guiEval(t, src); err == nil {
+			t.Fatalf("%s should be undefined", src)
+		}
+	}
+}
+
 // 巨大画像はループgoroutine内のエンジン内部でパニックになるため
-//（捕捉不可）、Ebitenに届く前に組み込み関数側でスクリプトエラーとして
+// （捕捉不可）、Ebitenに届く前に組み込み関数側でスクリプトエラーとして
 // 拒否しなければならない。ヘッドレス安全：GPU/ウィンドウ呼び出しの
 // 前に拒否される。
 func TestGuiImageLimits(t *testing.T) {
@@ -201,25 +303,28 @@ func TestGuiImageLimits(t *testing.T) {
 	if _, err := guiEval(t, "screen(100000, 100000)"); err == nil || !strings.Contains(err.Error(), "上限") {
 		t.Fatalf("screen huge: got %v", err)
 	}
-	// buffer()は上限と正サイズ規則を共有する。
-	if _, err := guiEval(t, "buffer(1, 4097, 1)"); err == nil || !strings.Contains(err.Error(), "上限") {
-		t.Fatalf("buffer width over limit: got %v", err)
+	// screen(id, w, h) は screen(w, h) と同じ上限・正サイズ規則を共有する。
+	if _, err := guiEval(t, "screen(1, 4097, 1)"); err == nil || !strings.Contains(err.Error(), "上限") {
+		t.Fatalf("screen buffer width over limit: got %v", err)
 	}
-	if _, err := guiEval(t, "buffer(1, 0, 8)"); err == nil || !strings.Contains(err.Error(), "正の値") {
-		t.Fatalf("buffer zero size: got %v", err)
+	if _, err := guiEval(t, "screen(1, 0, 8)"); err == nil || !strings.Contains(err.Error(), "正の値") {
+		t.Fatalf("screen buffer zero size: got %v", err)
 	}
-	// 表示キャンバスはscreen()専用：画面外IDのみ。
-	if _, err := guiEval(t, "buffer(0, 8, 8)"); err == nil || !strings.Contains(err.Error(), "1 から") {
-		t.Fatalf("buffer(0, ...): got %v", err)
+	if _, err := guiEval(t, "screen(0, 4097, 1)"); err == nil || !strings.Contains(err.Error(), "上限") {
+		t.Fatalf("screen(0, ...) width over limit: got %v", err)
 	}
-	if _, err := guiEval(t, "buffer(16, 8, 8)"); err == nil {
-		t.Fatal("buffer(16, ...) should error")
+	// id 0 はメインキャンバスのリサイズ経路になる。
+	if _, err := guiEval(t, "screen(0, 0, 8)"); err == nil || !strings.Contains(err.Error(), "正の値") {
+		t.Fatalf("screen(0, 0, 8): got %v", err)
 	}
-	if _, err := guiEval(t, "buffer(1, 8)"); err == nil {
-		t.Fatal("buffer with 2 args should error")
+	if _, err := guiEval(t, "screen(16, 8, 8)"); err == nil {
+		t.Fatal("screen(16, ...) should error")
 	}
-	if _, err := guiEval(t, "buffer(\"x\", 8, 8)"); err == nil {
-		t.Fatal("buffer string id should error")
+	if _, err := guiEval(t, "screen(0, 1, 2, 3)"); err == nil {
+		t.Fatal("screen with 4 args should error")
+	}
+	if _, err := guiEval(t, "screen(\"x\", 8, 8)"); err == nil {
+		t.Fatal("screen string id should error")
 	}
 	if _, err := guiEval(t, `title("a\0b")`); err == nil || !strings.Contains(err.Error(), "NUL") {
 		t.Fatalf("title NUL: got %v", err)
@@ -244,9 +349,45 @@ func TestGuiImageLimits(t *testing.T) {
 	}
 }
 
+// TestGuiScreenOverloads は screen の引数個数による分岐を検証する:
+// 0個=OSウィンドウ、1個=バッファサイズ、2個=リサイズ、3個=バッファ作成。
+func TestGuiScreenOverloads(t *testing.T) {
+	ebiten.SetWindowSize(320, 200)
+	defer ebiten.SetWindowSize(320, 200)
+	if v, err := guiEval(t, "screen()"); err != nil || v.K != KArray || len(v.Arr.Elems) != 2 ||
+		v.Arr.Elems[0].I != 320 || v.Arr.Elems[1].I != 200 {
+		t.Fatalf("screen(): got %v, %v", v, err)
+	}
+	if v, err := guiEval(t, "screen(0)"); err != nil || v.K != KArray || len(v.Arr.Elems) != 2 ||
+		v.Arr.Elems[0].I != 320 || v.Arr.Elems[1].I != 200 {
+		t.Fatalf("screen(0): got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "screen(1)"); err == nil || !strings.Contains(err.Error(), "不明なバッファ") {
+		t.Fatalf("screen(1) unallocated: got %v", err)
+	}
+	if v, err := guiEvalSeq(t, "screen(1, 64, 48)\nscreen(1)"); err != nil || v.K != KArray ||
+		len(v.Arr.Elems) != 2 || v.Arr.Elems[0].I != 64 || v.Arr.Elems[1].I != 48 {
+		t.Fatalf("screen(1, 64, 48) then screen(1): got %v, %v", v, err)
+	}
+	if v, err := guiEvalSeq(t, "screen(0, 80, 60)\nscreen(0)"); err != nil || v.K != KArray ||
+		len(v.Arr.Elems) != 2 || v.Arr.Elems[0].I != 80 || v.Arr.Elems[1].I != 60 {
+		t.Fatalf("screen(0, 80, 60) then screen(0): got %v, %v", v, err)
+	}
+	// 旧名は統合により未定義。
+	if _, err := guiEval(t, "screensize()"); err == nil {
+		t.Fatal("screensize should be undefined")
+	}
+	if _, err := guiEval(t, "buffer(1, 8, 8)"); err == nil {
+		t.Fatal("buffer should be undefined")
+	}
+}
+
 func TestGuiWidgetValidation(t *testing.T) {
-	if _, err := guiEval(t, "dialog(\"x\", \"bogus\")"); err == nil {
+	if _, err := guiEval(t, "dialog(\"x\", 99)"); err == nil {
 		t.Fatal("dialog bogus mode should error")
+	}
+	if _, err := guiEval(t, "dialog(\"x\", \"ok\")"); err == nil {
+		t.Fatal("dialog string mode should error")
 	}
 	if _, err := guiEval(t, "objget(99)"); err == nil {
 		t.Fatal("objget unknown should error")
@@ -271,6 +412,19 @@ func TestGuiWidgetValidation(t *testing.T) {
 	if _, err := guiEval(t, "button(1, \"x\", 0, 0, 100, 30)"); err == nil {
 		t.Fatal("old 6-arg button should error")
 	}
+	// 画像は (buf, sx, sy) の組で指定する。余りはエラー。
+	if _, err := guiEval(t, "button(1, \"x\", 10, 10, 1)"); err == nil {
+		t.Fatal("button single image arg should error")
+	}
+	if _, err := guiEval(t, "button(1, \"x\", 10, 10, 1, 0)"); err == nil {
+		t.Fatal("button two image args should error")
+	}
+	if _, err := guiEval(t, "button(1, \"x\", 10, 10, 99, 0, 0)"); err == nil {
+		t.Fatal("button unknown buffer should error")
+	}
+	if _, err := guiEval(t, "button(1, \"x\", 10, 10, 0, 1, 0)"); err == nil {
+		t.Fatal("button empty slot with coords should error")
+	}
 	// 成功系はguiEvalが汲み上げないゲームスレッド作業をキューに入れる
 	//（ブロックしてしまう）。バックエンド側の収まりは
 	// TestListboxItemsFitAndStayUnique / TestButtonLabelFitsで扱う。
@@ -281,7 +435,11 @@ func TestGuiWidgetValidation(t *testing.T) {
 		t.Fatal("objget arity should error")
 	}
 	if _, err := guiEval(t, "objenable(1, \"x\")"); err == nil {
-		t.Fatal("objenable non-int flag should error")
+		t.Fatal("objenable string flag should error")
+	}
+	// objvisible は削除済み: 未定義でなければならない。
+	if _, err := guiEval(t, "objvisible(1, 1)"); err == nil {
+		t.Fatal("objvisible should be undefined (removed)")
 	}
 }
 
@@ -300,6 +458,30 @@ func TestGuiFormValidation(t *testing.T) {
 	}
 	if _, err := guiEval(t, "chkbox(1)"); err == nil {
 		t.Fatal("chkbox arity should error")
+	}
+	if _, err := guiEval(t, "chkbox(1, \"x\", 1)"); err != nil {
+		t.Fatalf("chkbox int flag should succeed: got %v", err)
+	}
+	if _, err := guiEval(t, "chkbox(1, \"x\", 0)"); err != nil {
+		t.Fatalf("chkbox int flag should succeed: got %v", err)
+	}
+	if _, err := guiEval(t, "chkbox(1, \"x\", \"true\")"); err == nil {
+		t.Fatal("chkbox string flag should error")
+	}
+	if _, err := guiEvalSeq(t, "chkbox(1, \"x\")\nobjset(1, 1)\n"); err != nil {
+		t.Fatalf("objset chkbox int should succeed: got %v", err)
+	}
+	if _, err := guiEvalSeq(t, "chkbox(1, \"x\")\nobjset(1, 1.0)\n"); err == nil {
+		t.Fatal("objset chkbox float should error")
+	}
+	if _, err := guiEvalSeq(t, "chkbox(1, \"x\")\nobjset(1, true)\n"); err != nil {
+		t.Fatalf("objset chkbox int should succeed: got %v", err)
+	}
+	if _, err := guiEval(t, "chkbox(1, \"x\", true)"); err != nil {
+		t.Fatalf("chkbox true flag should succeed: got %v", err)
+	}
+	if _, err := guiEval(t, "chkbox(1, \"x\", false)"); err != nil {
+		t.Fatalf("chkbox false flag should succeed: got %v", err)
 	}
 	if _, err := guiEval(t, "inputbox(1, 2)"); err == nil {
 		t.Fatal("inputbox arity should error")
@@ -331,8 +513,12 @@ func TestGuiFormValidation(t *testing.T) {
 	if _, err := guiEval(t, "mesbox(1, 0, 0, 100, \"x\")"); err == nil {
 		t.Fatal("old 5-arg mesbox should error")
 	}
-	if _, err := guiEval(t, "objenable(99, 1)"); err == nil {
+	if _, err := guiEval(t, "objenable(99, true)"); err == nil {
 		t.Fatal("objenable unknown should error")
+	}
+	// objvisible は削除済み: 未定義でなければならない。
+	if _, err := guiEval(t, "objvisible(99, 1)"); err == nil {
+		t.Fatal("objvisible should be undefined (removed)")
 	}
 }
 
@@ -349,35 +535,86 @@ func TestGuiDrawValidation(t *testing.T) {
 	if v, err := guiEval(t, "font(24)"); err != nil || v.K != KNull {
 		t.Fatalf("font(24): got %v, %v", v, err)
 	}
-	if _, err := guiEval(t, "paint(1)"); err == nil {
-		t.Fatal("paint with arg should error")
+	if _, err := guiEval(t, "paint()"); err == nil {
+		t.Fatal("paint should be undefined (removed)")
 	}
-	if v, err := guiEval(t, "paint()"); err != nil || v.K != KNull {
-		t.Fatalf("paint(): got %v, %v", v, err)
+	// gquad: src+頂点4配列。各頂点は [x, y, u, v]。透視補正付き2三角形で描く。
+	// 内部バッファに貯めてまとめて描画する。空は無描画、縮退はアフィンにフォールバック。
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngquad(1, [0,0,0,0], [10,0,10,0], [10,10,10,10], [0,10,0,10])\n"); err != nil {
+		t.Fatalf("gquad buffered: got %v", err)
 	}
-	if _, err := guiEvalSeq(t, "pos(-1, 0)\npaint()\n"); err == nil {
-		t.Fatal("paint out-of-range seed should error")
+	// 空（変換先が直線）は沈黙の無描画（エラーにしない）。
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngquad(1, [0,0,0,0], [1,0,1,0], [2,0,2,0], [3,0,3,0])\n"); err != nil {
+		t.Fatalf("gquad degenerate should be no-op: got %v", err)
 	}
-	if _, err := guiEval(t, "gcopy(99, 0, 0, 10, 10)"); err == nil {
+	// 縮退（参照元が直線で特異）はアフィンにフォールバックして描く（エラーにしない）。
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngquad(1, [0,0,0,0], [10,0,1,0], [10,10,2,0], [0,10,3,0])\n"); err != nil {
+		t.Fatalf("gquad singular should fallback: got %v", err)
+	}
+	if _, err := guiEval(t, "gquad(1, [0,0,0,0])"); err == nil {
+		t.Fatal("gquad short args should error")
+	}
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngquad(1, [0,0,0], [10,0,10,0], [10,10,10,10], [0,10,0,10])\n"); err == nil {
+		t.Fatal("gquad short vertex should error")
+	}
+	if _, err := guiEval(t, "gquad(99, [0,0,0,0], [10,0,10,0], [10,10,10,10], [0,10,0,10])"); err == nil {
+		t.Fatal("gquad unknown buffer should error")
+	}
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngquad(1, [0,0,0,0], [10,0,10,0], [10,10,10,10], [0,10,0,\"x\"])\n"); err == nil {
+		t.Fatal("gquad string elem should error")
+	}
+	// tri: 6引数、現在の色で塗りつぶし。内部バッファでまとめて描く。
+	if v, err := guiEval(t, "tri(0,0, 10,0, 0,10)"); err != nil || v.K != KNull {
+		t.Fatalf("tri(): got %v, %v", v, err)
+	}
+	// 縮退は沈黙の無描画。
+	if v, err := guiEval(t, "tri(0,0, 1,0, 2,0)"); err != nil || v.K != KNull {
+		t.Fatalf("tri degenerate should be no-op: got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "tri(0,0, 10,0)"); err == nil {
+		t.Fatal("tri short args should error")
+	}
+	if _, err := guiEval(t, "tri(0,0, 10,0, 0,\"x\")"); err == nil {
+		t.Fatal("tri string arg should error")
+	}
+	if _, err := guiEval(t, "gcopy(99, 0, 0, 10, 10, 0, 0)"); err == nil {
 		t.Fatal("gcopy unknown buffer should error")
 	}
-	if _, err := guiEval(t, "gcopy(99, 0, 0, 10, 10, 1, 1)"); err == nil {
+	if _, err := guiEval(t, "gcopy(99, 0, 0, 10, 10, 0, 0, 20, 20)"); err == nil {
 		t.Fatal("gcopy scaled unknown buffer should error")
 	}
-	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 0, 1)"); err == nil {
-		t.Fatal("gcopy zero scale should error")
+	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 0, 0, 0, 20)"); err == nil {
+		t.Fatal("gcopy zero dest size should error")
 	}
-	if _, err := guiEval(t, "gcopy(0, \"x\", 0, 10, 10, 1, 1)"); err == nil {
+	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 0, 0, 20, 0)"); err == nil {
+		t.Fatal("gcopy zero dest height should error")
+	}
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngcopy(1, 0, 0, 0, 10, 0, 0)\n"); err == nil {
+		t.Fatal("gcopy zero src size should error")
+	}
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngcopy(1, 10, 0, -10, 10, 50, 50)\n"); err != nil {
+		t.Fatalf("gcopy negative src should mirror: got %v", err)
+	}
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngcopy(1, 0, 0, 10, 10, 50, 50, -20, 20)\n"); err != nil {
+		t.Fatalf("gcopy negative dest should mirror: got %v", err)
+	}
+	if _, err := guiEvalSeq(t, "screen(1, 20, 20)\ngcopy(1, 0, 0, 10, 10, 50, 50, 20, -20)\n"); err != nil {
+		t.Fatalf("gcopy negative dest height should mirror: got %v", err)
+	}
+	if _, err := guiEval(t, "gcopy(0, \"x\", 0, 10, 10, 0, 0)"); err == nil {
 		t.Fatal("gcopy string arg should error")
 	}
-	if _, err := guiEval(t, "gcopy(99, 0, 0, 10, 10, 1, 1, 30)"); err == nil {
-		t.Fatal("gcopy rotated unknown buffer should error")
+	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 0, 0, 20, \"x\")"); err == nil {
+		t.Fatal("gcopy string dest size should error")
 	}
-	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 1, 0, 30)"); err == nil {
-		t.Fatal("gcopy rotated zero scale should error")
+	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 0, 0, 20)"); err == nil {
+		t.Fatal("gcopy 8 args should error")
 	}
-	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 1)"); err == nil {
+	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10, 0)"); err == nil {
 		t.Fatal("gcopy 6 args should error")
+	}
+	if _, err := guiEval(t, "gcopy(0, 0, 0, 10, 10)"); err == nil {
+		t.Fatal("old 5-arg gcopy should error")
 	}
 	if _, err := guiEval(t, "gzoom(0, 0, 0, 10, 10, 1, 1)"); err == nil {
 		t.Fatal("gzoom should be undefined")
@@ -407,29 +644,31 @@ func TestGuiDrawValidation(t *testing.T) {
 
 func TestGuiPgetValidation(t *testing.T) {
 	// CUIバックエンドには読み取るキャンバスがない。
-	mustErrIO(t, "pget()\n", "pget は GUI ビルドが必要です")
+	mustErrIO(t, "pget(0, 0)\n", "pget は GUI ビルドが必要です")
 	// ヘッドレスウィンドウバックエンド（320x200）：検証は
-	// ゲームスレッド読み戻しより先に実行される。位置は pos() で指定する。
+	// ゲームスレッド読み戻しより先に実行される。座標は引数で指定する。
 	if _, err := guiEval(t, "pget(1)"); err == nil {
 		t.Fatal("pget arity should error")
 	}
-	if _, err := guiEvalSeq(t, "pos(-1, 0)\npget()\n"); err == nil {
+	if _, err := guiEval(t, "pget()"); err == nil {
+		t.Fatal("old 0-arg pget should error")
+	}
+	if _, err := guiEval(t, "pget(-1, 0)"); err == nil {
 		t.Fatal("pget negative x should error")
 	}
-	if _, err := guiEvalSeq(t, "pos(0, -1)\npget()\n"); err == nil {
+	if _, err := guiEval(t, "pget(0, -1)"); err == nil {
 		t.Fatal("pget negative y should error")
 	}
-	if _, err := guiEvalSeq(t, "pos(320, 0)\npget()\n"); err == nil {
+	if _, err := guiEval(t, "pget(320, 0)"); err == nil {
 		t.Fatal("pget x == width should error")
 	}
-	if _, err := guiEvalSeq(t, "pos(0, 200)\npget()\n"); err == nil {
+	if _, err := guiEval(t, "pget(0, 200)"); err == nil {
 		t.Fatal("pget y == height should error")
 	}
 }
 
 // guiEvalSeq は複文スクリプトを1つのヘッドレスバックエンド上で
-// 順に評価する（pos() で位置を決めてから描画する形式の検証用）。
-// 成功系の描画はキューに入るだけでブロックしないが、pget() の成功系は
+// 順に評価する。成功系の描画はキューに入るだけでブロックしないが、pget() の成功系は
 // ゲームスレッドの読み戻しを待つためヘッドレスでは扱わない。
 func guiEvalSeq(t *testing.T, src string) (Value, error) {
 	t.Helper()
@@ -458,66 +697,90 @@ func guiEvalSeq(t *testing.T, src string) (Value, error) {
 }
 
 func TestGuiPosDrawValidation(t *testing.T) {
-	// pset(): 引数なし。位置は pos() で指定する。
-	if v, err := guiEval(t, "pset()"); err != nil || v.K != KNull {
-		t.Fatalf("pset(): got %v, %v", v, err)
+	// pset(x, y): 起点座標を指定する。
+	if v, err := guiEval(t, "pset(10, 20)"); err != nil || v.K != KNull {
+		t.Fatalf("pset(10, 20): got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "pset()"); err == nil {
+		t.Fatal("old 0-arg pset should error")
 	}
 	if _, err := guiEval(t, "pset(1)"); err == nil {
 		t.Fatal("pset arity should error")
 	}
-	if _, err := guiEval(t, "pset(1, 2)"); err == nil {
-		t.Fatal("old 2-arg pset should error")
+	if _, err := guiEval(t, "pset(1, 2, 3)"); err == nil {
+		t.Fatal("pset too many args should error")
 	}
-	// line(x2, y2): pos() から (x2, y2) へ引く。
-	if _, err := guiEvalSeq(t, "pos(10, 20)\nline(30, 40)\n"); err != nil {
-		t.Fatalf("pos+line: got %v", err)
+	// line(x1, y1, x2, y2): 起点から終点へ引く。
+	if _, err := guiEval(t, "line(10, 20, 30, 40)"); err != nil {
+		t.Fatalf("line: got %v", err)
 	}
 	if _, err := guiEval(t, "line(1, 2, 3)"); err == nil {
 		t.Fatal("line arity should error")
 	}
-	if _, err := guiEval(t, "line(1, 2, 3, 4)"); err == nil {
-		t.Fatal("old 4-arg line should error")
+	if _, err := guiEval(t, "line(30, 40)"); err == nil {
+		t.Fatal("old 2-arg line should error")
 	}
-	if _, err := guiEval(t, "line(\"x\", 0)"); err == nil {
+	if _, err := guiEval(t, "line(\"x\", 0, 0, 0)"); err == nil {
 		t.Fatal("line string x should error")
 	}
-	// rect(w, h): pos() を左上として w x h を塗る。rect() は全画面。
+	// rect(x, y, w, h): (x, y) を左上として w x h を塗る。rect() は全画面。
 	if v, err := guiEval(t, "rect()"); err != nil || v.K != KNull {
 		t.Fatalf("rect(): got %v, %v", v, err)
 	}
-	if _, err := guiEvalSeq(t, "pos(0, 0)\nrect(10, 20)\n"); err != nil {
-		t.Fatalf("pos+rect: got %v", err)
+	if _, err := guiEval(t, "rect(0, 0, 10, 20)"); err != nil {
+		t.Fatalf("rect: got %v", err)
+	}
+	if _, err := guiEval(t, "rect(10, 10, -10, -20)"); err != nil {
+		t.Fatalf("rect negative should normalize: got %v", err)
 	}
 	if _, err := guiEval(t, "rect(1)"); err == nil {
 		t.Fatal("rect arity should error")
 	}
+	if _, err := guiEval(t, "rect(10, 20)"); err == nil {
+		t.Fatal("old 2-arg rect should error")
+	}
 	if _, err := guiEval(t, "rect(1, 2, 3)"); err == nil {
 		t.Fatal("rect too many args should error")
 	}
-	if _, err := guiEval(t, "rect(\"x\", 1)"); err == nil {
-		t.Fatal("rect string w should error")
+	if _, err := guiEval(t, "rect(\"x\", 0, 1, 1)"); err == nil {
+		t.Fatal("rect string x should error")
 	}
 	if _, err := guiEval(t, "boxf(10, 20)"); err == nil {
 		t.Fatal("boxf should be undefined")
 	}
-	// ellipse(w, h [, fill]): pos() を中心に全幅 w・全高 h の楕円を描く。
-	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(20, 20)\n"); err != nil {
-		t.Fatalf("pos+ellipse: got %v", err)
+	// ellipse(x, y, w, h [, fill]): (x, y) を中心に全幅 w・全高 h の楕円を描く。
+	if _, err := guiEval(t, "ellipse(50, 50, 20, 20)"); err != nil {
+		t.Fatalf("ellipse: got %v", err)
 	}
-	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(20, 10, 1)\n"); err != nil {
-		t.Fatalf("pos+ellipse fill: got %v", err)
+	if _, err := guiEval(t, "ellipse(50, 50, 20, 10, true)"); err != nil {
+		t.Fatalf("ellipse fill: got %v", err)
+	}
+	if _, err := guiEval(t, "ellipse(50, 50, 20, 10, false)"); err != nil {
+		t.Fatalf("ellipse nofill: got %v", err)
+	}
+	if _, err := guiEval(t, "ellipse(50, 50, 20, 10, 1)"); err != nil {
+		t.Fatalf("ellipse int fill should succeed: got %v", err)
+	}
+	if _, err := guiEval(t, "ellipse(10, 10)"); err == nil {
+		t.Fatal("old 2-arg ellipse should error")
 	}
 	if _, err := guiEval(t, "ellipse(10)"); err == nil {
 		t.Fatal("ellipse arity should error")
 	}
-	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(10, 10, 1, 1)\n"); err == nil {
+	if _, err := guiEval(t, "ellipse(50, 50, 10, 10, 1, 1)"); err == nil {
 		t.Fatal("ellipse too many args should error")
 	}
-	if _, err := guiEvalSeq(t, "pos(50, 50)\nellipse(-1, 5)\n"); err == nil {
-		t.Fatal("ellipse negative size should error")
+	if _, err := guiEval(t, "ellipse(50, 50, -20, 10)"); err != nil {
+		t.Fatalf("ellipse negative width should mirror: got %v", err)
 	}
-	if _, err := guiEval(t, "ellipse(\"x\", 1)"); err == nil {
-		t.Fatal("ellipse string w should error")
+	if _, err := guiEval(t, "ellipse(50, 50, 20, -10, true)"); err != nil {
+		t.Fatalf("ellipse negative height should mirror: got %v", err)
+	}
+	if v, err := guiEval(t, "ellipse(50, 50, 0, 10)"); err != nil || v.K != KNull {
+		t.Fatalf("ellipse zero size should be no-op: got %v, %v", v, err)
+	}
+	if _, err := guiEval(t, "ellipse(\"x\", 0, 10, 10)"); err == nil {
+		t.Fatal("ellipse string x should error")
 	}
 	if _, err := guiEval(t, "circle(10, 10)"); err == nil {
 		t.Fatal("circle should be undefined")

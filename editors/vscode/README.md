@@ -21,13 +21,13 @@ Golash（`.gsh`）用の言語サポートです。TextMate による構文強�
 ## 導入方法（ローカル）
 
 1. このフォルダを拡張機能ディレクトリにコピー（またはシンボリックリンク）します。
-   - Windows: `%USERPROFILE%\.vscode\extensions\goulash-0.8.2\`
-   - macOS / Linux: `~/.vscode/extensions/goulash-0.8.2/`
+   - Windows: `%USERPROFILE%\.vscode\extensions\goulash-0.9\`
+   - macOS / Linux: `~/.vscode/extensions/goulash-0.9/`
 2. VS Code を再読み込みし、`.gsh` ファイルを開きます。
 
 ## 公開手順（管理者向け）
 
-拡張機能の版は `package.json` の `version` で、処理系と同じ SemVer に
+拡張機能の版は `package.json` の `version` で、処理系と同じ `MAJOR.MINOR` に
 揃えます（`TestVersionPinnedEverywhere` が検査するため、処理系と別版には
 できません）。版上げは処理系と同じ `go run ./tools/bumpver.go` で
 一括更新されます。
@@ -40,10 +40,10 @@ vsce publish
 
 ## 内容
 
-- `syntaxes/goulash.tmLanguage.json` — キーワード・組み込み関数・`#` ディレクティブ
-  （`#include` / `#define` / `#ifdef` / `#ifndef` / `#else` / `#endif` /
-  `#error`）、文字列、コメント、`0x` / `0b` / `0o` 数値
-- `language-configuration.json` — `//` と `/* */` コメント、括弧、
+- `syntaxes/goulash.tmLanguage.json` — キーワード・組み込み関数・ローダ宣言
+  （`include` / `dll` / `dlldef`）、文字列、
+  コメント、`0x` / `0b` / `0o` 数値
+- `language-configuration.json` — `//` コメント、括弧、
   自動補完ペア、ブレースのインデント
 - `package.json` — `.gsh` に対する言語・文法・実行コマンド・F5 キーバインドの登録
 - `extension.js` — `Golash: 実行` コマンド（保存→ターミナル確保→`gsh run`）

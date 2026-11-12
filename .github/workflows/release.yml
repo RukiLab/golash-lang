@@ -4,8 +4,8 @@ name: release
 # 使い方:
 #
 #	go run ./tools/bumpver.go -bump minor   # VERSION などを一括更新
-#	git commit -am "release: v0.9.0"
-#	git tag -a v0.9.0 -m "v0.9.0"
+#	git commit -am "release: v0.9"
+#	git tag -a v0.9 -m "v0.9"
 #	git push origin main --tags
 #
 # タグ名は VERSION と一致している必要があります（workflow が検証します）。

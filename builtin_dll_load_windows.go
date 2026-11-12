@@ -27,8 +27,3 @@ func dllSym(h *dllHandle, name string) (uintptr, error) {
 	return p.Addr(), nil
 }
 
-// dllClose は登録を外す (Windows にアンロード API は無いため
-// プロセス終了まで常駐する。HSP の DLL と同じ扱い)。
-func dllClose(h *dllHandle) error {
-	return nil
-}

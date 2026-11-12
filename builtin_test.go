@@ -62,17 +62,17 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 		"abs", "sqrt", "sin", "cos", "tan", "atan", "exp", "log", "pow", "limit", "min", "max",
 		"rnd", "randomize",
 		"strlen", "strmid", "instr", "strtrim", "split", "strf", "getpath",
-		"gettime", "sleep", "await", "tick", "nanotime", "end", "assert", "logmes", "exec", "args",
-		"getenv", "setenv", "open", "clipget", "clipset",
-		"dlgopen", "dlgsave", "httpget", "httppost",
-		"fileinfo", "dirlist", "delete", "mkdir", "chdir", "bcopy", "bload", "bsave",
-		"getcwd", "direxe", "homedir", "tmpdir",
+		"gettime", "sleep", "await", "tick", "nanotime", "exit", "assert", "logmes", "exec", "args",
+		"env", "open", "clip",
+		"http",
+		"fileinfo", "dirlist", "delete", "mkdir", "bcopy", "bload", "bsave",
+		"cwd", "direxe", "homedir", "tmpdir",
 		"notemax", "noteget", "noteadd", "notedel", "noteload", "notesave",
-		"peek", "wpeek", "lpeek", "poke", "wpoke", "lpoke",
 		"push", "pop", "join", "dim",
 		"sort", "reverse", "insert", "remove", "slice", "find",
 		"replace", "upper", "lower", "asc", "chr",
-		"lextokens", "strwidth", "parsetree", "checksrc", "srcanalyze", "pipeexec",
+		"strwidth", "pipeexec",
+		"procopen", "procread", "procwrite", "proceof", "procpoll", "procclose",
 	}
 	got := map[string]bool{}
 	for _, n := range builtinNames() {
@@ -87,6 +87,12 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 	// GUI ワード（builtin_gui*.go）は有効な追加である。
 	for _, n := range guiBuiltinNames {
 		delete(got, n)
+	}
+	// $ 始まりは dlldef 展開だけが使う隠し組込（字句で書けない）。
+	for n := range got {
+		if strings.HasPrefix(n, "$") {
+			delete(got, n)
+		}
 	}
 	for n := range got {
 		t.Errorf("unexpected builtin %q (add to test or remove)", n)
@@ -111,7 +117,7 @@ func TestConversions(t *testing.T) {
 	mustErrIO(t, "mes(float(\"nan\"))\n", "変換できません")
 	mustErrIO(t, "mes(float(\"inf\"))\n", "変換できません")
 	mustErrIO(t, "mes(float(\"Infinity\"))\n", "変換できません")
-	mustOutIO(t, "mes(str(42))\nmes(str([1, 2]))\nmes(vartype(1))\nmes(vartype(1.5))\nmes(vartype(\"s\"))\nmes(vartype(true))\nmes(vartype([1]))\n", "", "42\n[1, 2]\nint\nfloat\nstring\nbool\narray\n")
+	mustOutIO(t, "mes(str(42))\nmes(str([1, 2]))\nmes(vartype(1))\nmes(vartype(1.5))\nmes(vartype(\"s\"))\nmes(vartype(true))\nmes(vartype([1]))\n", "", "42\n[1, 2]\nint\nfloat\nstring\nint\narray\n")
 	mustErrIO(t, "mes(int(\"abc\"))\n", "変換できません")
 	mustErrIO(t, "mes(int([1]))\n", "変換できません")
 	mustErrIO(t, "mes(float(\"x\"))\n", "変換できません")
@@ -159,12 +165,12 @@ func TestRandom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "true\ntrue\n" {
+	if got != "1\n1\n" {
 		t.Fatalf("got %q", got)
 	}
 	mustErrIO(t, "mes(rnd(0))\n", "正の上限")
 	mustErrIO(t, "mes(rnd(\"x\"))\n", "整数である必要があります")
-	mustOutIO(t, "randomize()\nmes(rnd(10) >= 0 && rnd(10) < 10)\n", "", "true\n")
+	mustOutIO(t, "randomize()\nmes(rnd(10) >= 0 && rnd(10) < 10)\n", "", "1\n")
 }
 
 func TestBuiltinStrings(t *testing.T) {
@@ -203,7 +209,7 @@ func TestGettimeRanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "true\ntrue\ntrue\ntrue\ntrue\ntrue\n" {
+	if got != "1\n1\n1\n1\n1\n1\n" {
 		t.Fatalf("got %q", got)
 	}
 	mustErrIO(t, "mes(gettime(8))\n", "0 から 7")
@@ -212,12 +218,12 @@ func TestGettimeRanges(t *testing.T) {
 func TestSleepEndAssertLogmes(t *testing.T) {
 	mustOutIO(t, "sleep(0)\nsleep(5)\nmes(\"ok\")\n", "", "ok\n")
 	mustErrIO(t, "sleep(-1)\n", "0 以上")
-	mustOutIO(t, "await(0)\nawait()\nmes(tick() >= 0)\n", "", "true\n")
+	mustOutIO(t, "await(0)\nawait()\nmes(tick() >= 0)\n", "", "1\n")
 	mustErrIO(t, "await(-1)\n", "0 以上")
 	// 対象のティックが表現できない待機は、ラップによる即時リターンでは
 	// なくエラーである。
 	mustErrIO(t, "await(9223372036854775807)\n", "大きすぎます")
-	mustOutIO(t, "a = nanotime()\nmes(a > 0 && nanotime() >= a)\n", "", "true\n")
+	mustOutIO(t, "a = nanotime()\nmes(a > 0 && nanotime() >= a)\n", "", "1\n")
 	_, _, in, err := runIO(t, "mes(\"hi\")\nend(3)\nmes(\"bye\")\n", "")
 	if err != nil {
 		t.Fatal(err)
@@ -267,11 +273,12 @@ func TestSleepEndAssertLogmes(t *testing.T) {
 		t.Fatalf("concurrent exit code: %d, %v", code, ok)
 	}
 	// nanotime() は単調増加する（プロセス開始を基準とし、決して逆行しない）。
-	mustOutIO(t, "a = nanotime()\nb = nanotime()\nmes(b >= a)\nmes(a >= 0)\n", "", "true\ntrue\n")
+	mustOutIO(t, "a = nanotime()\nb = nanotime()\nmes(b >= a)\nmes(a >= 0)\n", "", "1\n1\n")
 	mustOutIO(t, "assert(true)\nassert(1 < 2, \"math broke\")\nmes(\"ok\")\n", "", "ok\n")
 	mustErrIO(t, "assert(false)\n", "assertion failed")
 	mustErrIO(t, "assert(false, \"custom\")\n", "custom")
-	mustErrIO(t, "assert(1)\n", "bool 型")
+	mustOutIO(t, "assert(2)\nmes(\"ok\")\n", "", "ok\n")
+	mustErrIO(t, "assert(1.5)\n", "整数")
 	_, errout, _, err := runIO(t, "logmes(\"dbg\", 42)\n", "")
 	if err != nil {
 		t.Fatal(err)
@@ -357,7 +364,7 @@ func TestFileDialogBuilder(t *testing.T) {
 }
 
 func TestEnv(t *testing.T) {
-	mustOutIO(t, "env(\"GOU_TEST\", \"42\")\nmes(env(\"GOU_TEST\"))\nmes(env(\"GOU_NO_SUCH_VAR_XYZ\") == \"\")\n", "", "42\ntrue\n")
+	mustOutIO(t, "env(\"GOU_TEST\", \"42\")\nmes(env(\"GOU_TEST\"))\nmes(env(\"GOU_NO_SUCH_VAR_XYZ\") == \"\")\n", "", "42\n1\n")
 	mustErrIO(t, "env(1)\n", "文字列である必要があります")
 	mustErrIO(t, "env(\"a\", 1)\n", "文字列である必要があります")
 	mustErrIO(t, "env()\n", "1 から 2 個")
@@ -377,55 +384,64 @@ func TestEnv(t *testing.T) {
 	mustErrIO(t, "clipset(\"x\")\n", "未定義の関数")
 }
 
-func TestHttpget(t *testing.T) {
+func TestHttp(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			body, _ := io.ReadAll(r.Body)
+			// 受信内容の検査用：Content-Type と本文を | 区切りで返す。
+			if r.URL.Path == "/echo" {
+				fmt.Fprintf(w, "%s|%s", r.Header.Get("Content-Type"), body)
+				return
+			}
+			// その他の POST は受信本文をそのまま返す。
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(body)
+			return
+		}
 		switch r.URL.Path {
 		case "/ok":
 			fmt.Fprint(w, "hello")
+		case "/obj":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"b":2,"a":1}`)
+		case "/arr":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `[1,"x",true,null,{"k":"v"},[1,2]]`)
+		case "/bad":
+			fmt.Fprint(w, "{oops")
+		case "/num":
+			fmt.Fprint(w, "123")
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer srv.Close()
-	mustOutIO(t, fmt.Sprintf("mes(httpget(%q))\n", srv.URL+"/ok"), "", "hello\n")
-	mustErrIO(t, fmt.Sprintf("mes(httpget(%q))\n", srv.URL+"/missing"), "404")
-	// 保存形式は本体を書き込み、そのサイズを返す。
-	dir := t.TempDir()
-	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
-	mustOutIO(t, fmt.Sprintf("mes(httpget(%q, %q))\n", srv.URL+"/ok", join("out.txt")), "", "5\n")
-	data, err := os.ReadFile(filepath.Join(dir, "out.txt"))
-	if err != nil || string(data) != "hello" {
-		t.Fatalf("saved body = %q, %v", data, err)
-	}
-	// 到達できないホストはハングではなくエラー（クライアントの
-	// タイムアウト）。
-	mustErrIO(t, "mes(httpget(\"http://127.0.0.1:1/nope\"))\n", "httpget")
-}
-
-func TestHttppost(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			http.Error(w, "want POST", http.StatusMethodNotAllowed)
-			return
-		}
-		body, _ := io.ReadAll(r.Body)
-		fmt.Fprintf(w, "%s|%s", r.Header.Get("Content-Type"), body)
-	}))
-	defer srv.Close()
-	// 既定のコンテンツタイプは application/json。
-	mustOutIO(t, fmt.Sprintf("mes(httppost(%q, %q))\n", srv.URL, `{"a":1}`), "", "application/json|{\"a\":1}\n")
-	// 明示的なコンテンツタイプ。
-	mustOutIO(t, fmt.Sprintf("mes(httppost(%q, %q, %q))\n", srv.URL, "x=1", "application/x-www-form-urlencoded"), "", "application/x-www-form-urlencoded|x=1\n")
-	// 保存形式は本体を書き込み、そのサイズを返す。
-	dir := t.TempDir()
-	out := filepath.ToSlash(filepath.Join(dir, "post.txt"))
-	mustOutIO(t, fmt.Sprintf("mes(httppost(%q, %q, %q, %q))\n", srv.URL, "hi", "text/plain", out), "", "13\n")
-	data, err := os.ReadFile(filepath.Join(dir, "post.txt"))
-	if err != nil || string(data) != "text/plain|hi" {
-		t.Fatalf("saved body = %q, %v", data, err)
-	}
-	mustErrIO(t, "mes(httppost(1, \"x\"))\n", "文字列である必要があります")
-	mustErrIO(t, "mes(httppost(\"http://127.0.0.1:1/nope\", \"x\"))\n", "httppost")
+	// GET: 応答は常に文字列で返す（JSON の解釈はしない）。
+	mustOutIO(t, fmt.Sprintf("mes(http(%q))\n", srv.URL+"/ok"), "", "hello\n")
+	mustErrIO(t, fmt.Sprintf("mes(http(%q))\n", srv.URL+"/missing"), "404")
+	mustOutIO(t, fmt.Sprintf("mes(http(%q))\n", srv.URL+"/obj"), "", "{\"b\":2,\"a\":1}\n")
+	mustOutIO(t, fmt.Sprintf("mes(http(%q))\n", srv.URL+"/arr"), "", "[1,\"x\",true,null,{\"k\":\"v\"},[1,2]]\n")
+	mustOutIO(t, fmt.Sprintf("mes(http(%q))\n", srv.URL+"/bad"), "", "{oops\n")
+	mustOutIO(t, fmt.Sprintf("mes(http(%q))\n", srv.URL+"/num"), "", "123\n")
+	// 型で確認する：JSON でも文字列のまま返す。
+	mustOutIO(t, fmt.Sprintf("mes(vartype(http(%q)))\n", srv.URL+"/obj"), "", "string\n")
+	mustOutIO(t, fmt.Sprintf("mes(vartype(http(%q)))\n", srv.URL+"/ok"), "", "string\n")
+	// POST: 文字列 val はそのまま送る（application/json 固定）。
+	// 応答も文字列で返す。
+	mustOutIO(t, fmt.Sprintf("mes(http(%q, %q))\n", srv.URL, `{"a":1}`), "", "{\"a\":1}\n")
+	// val が文字列でなければエラーになる。
+	mustErrIO(t, fmt.Sprintf("mes(http(%q, [1]))\n", srv.URL), "文字列である必要があります")
+	// echo で送信内容（Content-Type と本文）を確認する。
+	mustOutIO(t, fmt.Sprintf("mes(http(%q, %q))\n", srv.URL+"/echo", "hi"), "", "application/json|hi\n")
+	// 保存形・contentType 指定は廃止し、引数は url [, val] のみ。
+	mustErrIO(t, fmt.Sprintf("mes(http(%q, %q, %q))\n", srv.URL, "x", "text/plain"), "1 から 2 個")
+	// 旧名は未定義になる。
+	mustErrIO(t, fmt.Sprintf("mes(httpget(%q))\n", srv.URL+"/ok"), "未定義の関数")
+	mustErrIO(t, fmt.Sprintf("mes(httppost(%q, %q))\n", srv.URL, "x"), "未定義の関数")
+	mustErrIO(t, "mes(http(1))\n", "文字列である必要があります")
+	mustErrIO(t, "mes(http(\"http://127.0.0.1:1/nope\"))\n", "http")
+	mustErrIO(t, "mes(http(1, \"x\"))\n", "文字列である必要があります")
+	mustErrIO(t, "mes(http(\"http://127.0.0.1:1/nope\", \"x\"))\n", "http")
 }
 
 func TestExec(t *testing.T) {
@@ -499,7 +515,7 @@ func TestPipeexec(t *testing.T) {
 		mustOutIO(t, "r = pipeexec(\"sh\", \"-c\", \"echo oops 1>&2\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "", "0\n\noops\n\n")
 	}
 	// 起動失敗は [-1, "", message] で、決してエラーではない。
-	mustOutIO(t, "r = pipeexec(\"no-such-command-xyz\")\nmes(r[0])\nmes(r[2] != \"\")\n", "", "-1\ntrue\n")
+	mustOutIO(t, "r = pipeexec(\"no-such-command-xyz\")\nmes(r[0])\nmes(r[2] != \"\")\n", "", "-1\n1\n")
 	mustErrIO(t, "mes(piperun(\"sh\"))\n", "未定義の関数")
 }
 
@@ -543,7 +559,7 @@ func TestInput(t *testing.T) {
 	mustOutIO(t, "s = input()\nmes(s)\n", "hello\n", "hello\n")
 	mustOutIO(t, "s = input(\"name? \")\nmes(s)\n", "bob\n", "name? bob\n")
 	mustOutIO(t, "mes(input())\n", "", "\n")                    // EOF yields ""
-	mustOutIO(t, "s = input()\nmes(s == \"\")\n", "", "true\n") // EOF
+	mustOutIO(t, "s = input()\nmes(s == \"\")\n", "", "1\n") // EOF
 }
 
 // runScriptDir は与えられた作業ディレクトリとスクリプトディレクトリで
@@ -627,12 +643,12 @@ func TestFiles(t *testing.T) {
 	// 受け付ける。
 	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
 
-	mustOutIO(t, "mes(fileinfo(\""+join("nope")+"\")[0] == -1)\n", "", "true\n")
+	mustOutIO(t, "mes(fileinfo(\""+join("nope")+"\")[0] == -1)\n", "", "1\n")
 	mustErrIO(t, "delete(\""+join("nope")+"\")\n", "delete：")
 
 	// notesave/noteload + fileinfo の往復。
 	mustOutIO(t, "notesave(\""+join("t.txt")+"\", \"a\\nb\")\nmes(fileinfo(\""+join("t.txt")+"\")[0] != -1)\nmes(noteload(\""+join("t.txt")+"\"))\n", "",
-		"true\na\nb\n")
+		"1\na\nb\n")
 
 	// bsave/bload のサイズ切り詰め付き往復。
 	mustOutIO(t, "bsave(\""+join("b.bin")+"\", [65, 66, 67])\na = bload(\""+join("b.bin")+"\")\nmes(a)\nmes(length(a))\nbsave(\""+join("c.bin")+"\", [1, 2, 3], 2)\nmes(length(bload(\""+join("c.bin")+"\")))\n", "",
@@ -646,11 +662,11 @@ func TestFiles(t *testing.T) {
 	mustErrIO(t, "mes(bload(\""+join("missing.bin")+"\"))\n", "bload：")
 
 	// mkdir/delete/bcopy。
-	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nmes(fileinfo(\""+join("sub")+"\")[2])\n", "", "true\n")
+	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nmes(fileinfo(\""+join("sub")+"\")[2])\n", "", "1\n")
 	mustOutIO(t, "bcopy(\""+join("t.txt")+"\", \""+join("t2.txt")+"\")\nmes(fileinfo(\""+join("t2.txt")+"\")[0] != -1)\ndelete(\""+join("t2.txt")+"\")\nmes(fileinfo(\""+join("t2.txt")+"\")[0] != -1)\n", "",
-		"true\nfalse\n")
+		"1\n0\n")
 
-	// dirlist + chdir（後で cwd を復元）。
+	// dirlist + cwd（後で cwd を復元）。
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -672,21 +688,21 @@ func TestFileinfo(t *testing.T) {
 	join := func(n string) string { return filepath.ToSlash(filepath.Join(dir, n)) }
 
 	mustOutIO(t, "notesave(\""+join("t.txt")+"\", \"a\\nb\")\nr = fileinfo(\""+join("t.txt")+"\")\nmes(r[0])\nmes(r[1] > 0)\nmes(r[2])\n", "",
-		"3\ntrue\nfalse\n")
+		"3\n1\n0\n")
 	mustOutIO(t, "r = fileinfo(\""+join("nope")+"\")\nmes(r[0])\nmes(r[1])\nmes(r[2])\n", "",
-		"-1\n0\nfalse\n")
+		"-1\n0\n0\n")
 	mustOutIO(t, "mkdir(\""+join("sub")+"\")\nr = fileinfo(\""+join("sub")+"\")\nmes(r[1] > 0)\nmes(r[2])\n", "",
-		"true\ntrue\n")
+		"1\n1\n")
 	mustErrIO(t, "mes(fileinfo(1))\n", "fileinfo")
 	mustErrIO(t, "mes(filetime(\"x\"))\n", "未定義の関数")
 	mustErrIO(t, "mes(exist(\"x\"))\n", "未定義の関数")
 }
 
 func TestDirs(t *testing.T) {
-	mustOutIO(t, "mes(strlen(cwd()) > 0)\nmes(strlen(direxe()) > 0)\nmes(strlen(homedir()) > 0)\nmes(strlen(tmpdir()) > 0)\n", "", "true\ntrue\ntrue\ntrue\n")
-	mustOutIO(t, "mes(fileinfo(cwd())[2])\n", "", "true\n")
+	mustOutIO(t, "mes(strlen(cwd()) > 0)\nmes(strlen(direxe()) > 0)\nmes(strlen(homedir()) > 0)\nmes(strlen(tmpdir()) > 0)\n", "", "1\n1\n1\n1\n")
+	mustOutIO(t, "mes(fileinfo(cwd())[2])\n", "", "1\n")
 	// cwd(path)：変更後は cwd() で反映され、旧 cwd に戻せる。
-	mustOutIO(t, "qold = cwd()\ncwd(\".\")\nmes(cwd() != \"\")\ncwd(qold)\nmes(cwd() == qold)\n", "", "true\ntrue\n")
+	mustOutIO(t, "qold = cwd()\ncwd(\".\")\nmes(cwd() != \"\")\ncwd(qold)\nmes(cwd() == qold)\n", "", "1\n1\n")
 	mustErrIO(t, "mes(cwd(1))\n", "文字列である必要があります")
 	mustErrIO(t, "mes(cwd(\"a\", \"b\"))\n", "0 から 1 個")
 	mustErrIO(t, "mes(getcwd())\n", "未定義の関数")
@@ -746,7 +762,7 @@ func TestArrayExtras(t *testing.T) {
 	mustOutIO(t, "a = [2.5, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2.5, 10]\n")
 	mustOutIO(t, "a = [2, 1.5, 10]\nmes(sort(a))\n", "", "[1.5, 2, 10]\n")
 	mustErrIO(t, "sort([1, \"a\"])\n", "すべて数値かすべて文字列")
-	mustErrIO(t, "sort([true])\n", "すべて数値かすべて文字列")
+	mustOutIO(t, "mes(sort([true]))\n", "", "[1]\n")
 	mustErrIO(t, "insert([1], 5, 2)\n", "範囲外")
 	mustErrIO(t, "remove([1], 0, 2)\n", "範囲外")
 	// 巨大な添字/個数は Go の panic ではなく範囲エラーでなければ
@@ -782,13 +798,13 @@ func TestLexTokens(t *testing.T) {
 // [errstr, tokens, tree]。壊れたソースでは（例外を起こすのではなく）
 // エラー文字列を返す。
 func TestSrcAnalyze(t *testing.T) {
-	mustOutIO(t, "r = srcanalyze(\"x = 1\\n\")\nmes(r[0] == \"\")\nmes(length(r[1]))\nmes(r[1][0][0])\nmes(r[2][0])\nmes(length(r[2][4]))\n", "", "true\n4\nIDENT\nprogram\n1\n")
+	mustOutIO(t, "r = srcanalyze(\"x = 1\\n\")\nmes(r[0] == \"\")\nmes(length(r[1]))\nmes(r[1][0][0])\nmes(r[2][0])\nmes(length(r[2][4]))\n", "", "1\n4\nIDENT\nprogram\n1\n")
 	// 字句エラー: メッセージ＋空の tokens/tree。例外は起こさない。
-	mustOutIO(t, "r = srcanalyze(\"mes('a')\")\nmes(r[0] == \"\")\nmes(length(r[1]))\nmes(length(r[2]))\n", "", "false\n0\n0\n")
+	mustOutIO(t, "r = srcanalyze(\"mes('a')\")\nmes(r[0] == \"\")\nmes(length(r[1]))\nmes(length(r[2]))\n", "", "0\n0\n0\n")
 	// 解析エラーも同様（途中まで入力されたソース）。
-	mustOutIO(t, "r = srcanalyze(\"mes(\")\nmes(r[0] == \"\")\nmes(length(r[1]))\n", "", "false\n0\n")
+	mustOutIO(t, "r = srcanalyze(\"mes(\")\nmes(r[0] == \"\")\nmes(length(r[1]))\n", "", "0\n0\n")
 	// 生のディレクティブはここでも lextokens と同じく字句エラーである。
-	mustOutIO(t, "r = srcanalyze(\"#define X 1\\n\")\nmes(r[0] == \"\")\n", "", "false\n")
+	mustOutIO(t, "r = srcanalyze(\"#define X 1\\n\")\nmes(r[0] == \"\")\n", "", "0\n")
 	mustErrIO(t, "srcanalyze(1)\n", "文字列である必要があります")
 }
 
@@ -796,9 +812,9 @@ func TestParsetree(t *testing.T) {
 	mustOutIO(t, "t = parsetree(\"def f(a, b) {\\nreturn a\\n}\\nmes(f(1, 2))\\n\")\nmes(t[0])\nmes(length(t[4]))\nmes(t[4][0][4])\nmes(t[4][0][5][1][4])\nmes(t[4][1][0])\nmes(t[4][0][1])\n", "",
 		"program\n2\nf\nb\ncall\n1\n")
 	// 存在しない省略可能なものは ""（変数へ読み出せ、== で判定できる）。
-	mustOutIO(t, "t = parsetree(\"if true {\\nmes(1)\\n}\\n\")\nmes(t[4][0][6] == \"\")\n", "", "true\n")
-	mustOutIO(t, "t = parsetree(\"def f() {\\nreturn\\n}\\n\")\nmes(t[4][0][6][0][4] == \"\")\n", "", "true\n")
-	mustOutIO(t, "t = parsetree(\"repeat 3 {\\n}\\n\")\nmes(t[4][0][5] == \"\")\n", "", "true\n")
+	mustOutIO(t, "t = parsetree(\"if true {\\nmes(1)\\n}\\n\")\nmes(t[4][0][6] == \"\")\n", "", "1\n")
+	mustOutIO(t, "t = parsetree(\"def f() {\\nreturn\\n}\\n\")\nmes(t[4][0][6][0][4] == \"\")\n", "", "1\n")
+	mustOutIO(t, "t = parsetree(\"repeat 3 {\\n}\\n\")\nmes(t[4][0][5] == \"\")\n", "", "1\n")
 	// 演算子はソースの記号を使う。式文は展開される。
 	mustOutIO(t, "t = parsetree(\"x = 1 + 2 * 3\\n\")\nmes(t[4][0][0])\nmes(t[4][0][5][4])\nmes(t[4][0][5][6][0])\n", "", "assign\n+\nbinary\n")
 	mustOutIO(t, "mes(vartype(parsetree(\"x = 1\")))\n", "", "array\n")

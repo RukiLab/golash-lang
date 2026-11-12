@@ -2,10 +2,6 @@
 // ウィンドウ（GUIバックエンド）が必要で、なければエラーを返す。
 package main
 
-import (
-	"gsh/gui"
-)
-
 func init() {
 	// getkey(code [, mode]): キーとマウスボタンの状態を取得する。
 	// code 0-2 はマウスボタン（0 左、1 中、2 右。clicked/mousedown の
@@ -14,10 +10,10 @@ func init() {
 	// 18 alt、27 esc、32 space、33-36 pageup/pagedown/end/home、37-40
 	// 矢印キー、45 insert、46 delete、48-57 数字、65-90 A-Z、112-123
 	// F1-F12、186-192/219-222 記号キー。
-	// mode 省略時・0 は押されている間 true を返し続けるレベル検出
-	// （従来の getkey/mousedown、消費しない）。mode 1 は押した瞬間だけ
-	// true になる立上り検出で、呼び出しで消費される（従来の
-	// clicked。同一ティック内の複数回呼び出しは2回目以降 false）。
+	// mode 省略時・0 は押されている間 1 を返し続けるレベル検出
+	// （従来の getkey/mousedown、消費しない）。mode 非0 は押した瞬間だけ
+	// 1 になる立上り検出で、呼び出しで消費される（従来の
+	// clicked。同一ティック内の複数回呼び出しは2回目以降 0）。
 	register("getkey", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "getkey")
 		if err != nil {
@@ -27,77 +23,69 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		mode := int64(0)
+		mode := false
 		if len(args) == 2 {
-			mode, err = needInt("getkey", args, 1, at)
+			var err error
+			mode, err = needTruthy("getkey", args, 1, at)
 			if err != nil {
 				return Null(), err
-			}
-			if mode != 0 && mode != 1 {
-				return Null(), argErr("getkey", 1, at, "0 または 1 で指定してください。%d が指定されました", mode)
 			}
 		}
 		if code >= 0 && code <= 2 {
 			btn := int(code)
-			if mode == 1 {
+			if mode {
 				c, err := wb.ClickedButton(btn)
 				if err != nil {
 					return Null(), rtErrf(at, "%s", err.Error())
 				}
-				return Bool(c), nil
+				return IntOfBool(c), nil
 			}
 			d, err := wb.MouseDown(btn)
 			if err != nil {
 				return Null(), rtErrf(at, "%s", err.Error())
 			}
-			return Bool(d), nil
+			return IntOfBool(d), nil
 		}
-		if mode == 1 {
+		if mode {
 			hit, ok := wb.KeyHit(int(code))
 			if !ok {
 				return Null(), argErr("getkey", 0, at, "不明なキーコード %d です", code)
 			}
-			return Bool(hit), nil
+			return IntOfBool(hit), nil
 		}
 		down, ok := wb.KeyDown(int(code))
 		if !ok {
 			return Null(), argErr("getkey", 0, at, "不明なキーコード %d です", code)
 		}
-		return Bool(down), nil
+		return IntOfBool(down), nil
 	})
 
-	// mousex()/mousey(): ウィンドウピクセルでのカーソル位置。
-	register("mousex", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mousex")
+	// mouse(): ウィンドウピクセルでのカーソル位置を [x, y] で返す。
+	register("mouse", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "mouse")
 		if err != nil {
 			return Null(), err
 		}
-		x, _ := wb.MousePos()
-		return Int(int64(x)), nil
-	})
-	register("mousey", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mousey")
-		if err != nil {
-			return Null(), err
-		}
-		_, y := wb.MousePos()
-		return Int(int64(y)), nil
+		x, y := wb.MousePos()
+		return ArrayOf([]Value{Int(int64(x)), Int(int64(y))}), nil
 	})
 
-	// cursor([v]): 引数なしは IME 入力の照会、ありは設定（0以外 = オン）。
+	// cursor([v]): マウスカーソルの表示状態を取得・変更する。
+	// 引数なしは現在の表示状態を 1/0 で返す。ありは整数で指定する
+	// （0 = 非表示、非0 = 表示）。文字列は受け付けない。
 	register("cursor", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "cursor")
 		if err != nil {
 			return Null(), err
 		}
 		if len(args) == 0 {
-			return Bool(wb.CursorVisible()), nil
+			return IntOfBool(wb.CursorVisible()), nil
 		}
-		v, err := needInt("cursor", args, 0, at)
+		v, err := needTruthy("cursor", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		wb.SetCursorVisible(v != 0)
+		wb.SetCursorVisible(v)
 		return Null(), nil
 	})
 
@@ -138,7 +126,7 @@ func init() {
 		if err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
-		return Bool(down), nil
+		return IntOfBool(down), nil
 	})
 
 	// padaxis(id, axis): スティック軸 0-3（-1..1）。
@@ -179,45 +167,22 @@ func init() {
 		return Str(name), nil
 	})
 
-	// touchcount(): 有効なタッチ数。
-	register("touchcount", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "touchcount")
+	// touch(): 接触中のタッチ位置を [[x, y], ...] で返す（ウィンドウピクセル）。
+	register("touch", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "touch")
 		if err != nil {
 			return Null(), err
 		}
-		return Int(int64(wb.TouchCount())), nil
-	})
-
-	// touchx(i)/touchy(i): i 番目のタッチ位置（ウィンドウピクセル）。
-	register("touchx", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "touchx")
-		if err != nil {
-			return Null(), err
+		n := wb.TouchCount()
+		elems := make([]Value, n)
+		for i := 0; i < n; i++ {
+			x, y, err := wb.TouchPos(i)
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			elems[i] = ArrayOf([]Value{Int(int64(x)), Int(int64(y))})
 		}
-		i, err := needInt("touchx", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		x, _, err := wb.TouchPos(int(i))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Int(int64(x)), nil
-	})
-	register("touchy", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "touchy")
-		if err != nil {
-			return Null(), err
-		}
-		i, err := needInt("touchy", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		_, y, err := wb.TouchPos(int(i))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Int(int64(y)), nil
+		return ArrayOf(elems), nil
 	})
 
 	// dropfiles(): 前回呼び出し以降にウィンドウへドロップされた名前
@@ -252,37 +217,6 @@ func init() {
 		return Int(int64(id)), nil
 	})
 
-	// screensize(): [ウィンドウ幅, 高さ]（ピクセル）。実際の OS
-	// ウィンドウであり、モニターでも screen() の論理キャンバスでもない。
-	// resizable() が許可されている間はキャンバスがウィンドウに追従するため、
-	// 描画ピクセルでもある。
-	register("screensize", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		if _, err := guiBE(in, at, "screensize"); err != nil {
-			return Null(), err
-		}
-		w, h := gui.WindowSize()
-		return ArrayOf([]Value{Int(int64(w)), Int(int64(h))}), nil
-	})
-
-	// winmove(x, y): ウィンドウを移動する（モニタ左上角からの
-	// デスクトップピクセル）。
-	register("winmove", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "winmove")
-		if err != nil {
-			return Null(), err
-		}
-		x, err := needInt("winmove", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		y, err := needInt("winmove", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		wb.MoveWindow(int(x), int(y))
-		return Null(), nil
-	})
-
 	// closing(): 閉じるボタンが押されたかどうか。最初の呼出がオプト
 	// インになる: closing はループの終了をやめるため、これをポーリング
 	// して保存し、それから end() する。
@@ -291,29 +225,30 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		return Bool(wb.Closing()), nil
+		return IntOfBool(wb.Closing()), nil
 	})
 
 	// fullscreen([v]): 引数なしなら全画面状態を報告（1/0）する。v を
-	// 渡すと切り替える（非ゼロ=オン）。
+	// 渡すと切り替える（整数：0=オフ、非0=オン）。
 	register("fullscreen", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "fullscreen")
 		if err != nil {
 			return Null(), err
 		}
 		if len(args) == 0 {
-			return Bool(wb.IsFullscreen()), nil
+			return IntOfBool(wb.IsFullscreen()), nil
 		}
-		v, err := needInt("fullscreen", args, 0, at)
+		v, err := needTruthy("fullscreen", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		wb.SetFullscreen(v != 0)
+		wb.SetFullscreen(v)
 		return Null(), nil
 	})
 
 	// resizable([v]): 引数なしならウィンドウをドラッグしてリサイズ
-	// できるかを報告（1/0）する。v を渡すと設定する（非ゼロ=オン）。
+	// できるかを報告（1/0）する。v を渡すと設定する（整数：
+	// 0=オフ、非0=オン）。
 	// キャンバスは論理サイズを保ち、大きなウィンドウはビューを
 	// スケールする。
 	register("resizable", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
@@ -322,13 +257,13 @@ func init() {
 			return Null(), err
 		}
 		if len(args) == 0 {
-			return Bool(wb.IsResizable()), nil
+			return IntOfBool(wb.IsResizable()), nil
 		}
-		v, err := needInt("resizable", args, 0, at)
+		v, err := needTruthy("resizable", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		wb.SetResizable(v != 0)
+		wb.SetResizable(v)
 		return Null(), nil
 	})
 
@@ -350,7 +285,7 @@ func init() {
 	})
 
 	// mmplay(id [, loop]): サウンドを再生する。現在の再生があれば
-	// 最初から再開する。
+	// 最初から再開する。loop が非0の場合はループ再生する。
 	register("mmplay", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "mmplay")
 		if err != nil {
@@ -362,11 +297,11 @@ func init() {
 		}
 		loop := false
 		if len(args) == 2 {
-			l, err := needInt("mmplay", args, 1, at)
+			var err error
+			loop, err = needTruthy("mmplay", args, 1, at)
 			if err != nil {
 				return Null(), err
 			}
-			loop = l != 0
 		}
 		if err := wb.MmPlay(int(id), loop); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
@@ -409,6 +344,27 @@ func init() {
 			return Null(), err
 		}
 		if err := wb.MmVolume(int(id), int(vol)); err != nil {
+			return Null(), rtErrf(at, "%s", err.Error())
+		}
+		return Null(), nil
+	})
+
+	// mmpitch(id, pitch): サウンドのピッチ（再生速度）をパーセントで（25..400、既定 100 = 原速）。
+	// 50 で1オクターブ低く半分の速さ、200 で1オクターブ高く倍速になる。
+	register("mmpitch", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "mmpitch")
+		if err != nil {
+			return Null(), err
+		}
+		id, err := needInt("mmpitch", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		pitch, err := needInt("mmpitch", args, 1, at)
+		if err != nil {
+			return Null(), err
+		}
+		if err := wb.MmPitch(int(id), int(pitch)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil

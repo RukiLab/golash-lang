@@ -14,7 +14,7 @@ import (
 // 決定事項:
 //   - 2つの int の `/` は切り捨て整数除算（Go ライク）。どちらかの
 //     オペランドが float なら float になる。`%` は int のみ受け付ける。
-//   - 条件は厳密に bool である。`if 1` はエラー。
+//   - 条件は整数である。0 は偽、非 0 は真（`if 1` は常に真）。
 //   - `;` はパーサに拒否される。
 //   - 配列への書き込みは境界検査される: 確保は dim()、リテラル、
 //     push() で行い、範囲外と基底の欠落はエラーで、自動生成は
@@ -29,9 +29,10 @@ import (
 //     演算、exp/pow の桁あふれ、float("nan"/"inf")、範囲外の int()
 //     変換はすべてエラー。
 //   - 複合代入は対象のアドレスをちょうど一度評価する。
-//   - 代入はその名前を保持する可視スコープを更新し、可視のものが
-//     なければ現在のスコープに宣言する（トップレベル: グローバル。
-//     関数: ローカルスロット）。VM は格納先を実行時に解決する。
+//   - トップレベルでは代入がグローバルを更新・宣言する。関数内で新しい
+//     ローカルを作るには `local name = 式` が必要。`local` なしの代入は
+//     既存のローカル／グローバルを更新し、どちらもなければエラー。
+//     VM は格納先を実行時に解決する。
 //   - 再帰は maxCallDepth で上限を設け、ソースの入れ子は
 //     maxParseDepth で上限を設ける。
 
@@ -67,6 +68,23 @@ type Interp struct {
 	// 実行中のスクリプトファイルのディレクトリ（REPL では ""）:
 	// ファイル系組込での相対パスの基点。
 	scriptDir string
+	// vm は実行中の VM（wbind/wsync 用）。runMain/evalOne が設定し、
+	// 組込からグローバル変数へ触るために使う。スクリプトスレッドのみ。
+	vm *vmachine
+	// curFrame/curProto は組込呼出中のフレーム（ローカル変数解決用）。
+	// vm.loop の OpCallB が設定・復元する。スクリプトスレッドのみ。
+	curFrame *vmFrame
+	curProto *VMProto
+	// wbinds はウィジェット id から内容を入れる変数名への対応（主要値）。
+	// button: pressed(int 0/1) / chkbox: checked(int 0/1) /
+	// inputbox/mesbox: text(string) / listbox/combox: sel(int)。
+	wbinds map[int]string
+	// wbindItems は listbox/combox の項目配列を入れる変数名。
+	wbindItems map[int]string
+	// wlast は前回同期時の主要値（両方向の変更検出用）。
+	wlast map[int]Value
+	// wlastItems は前回同期時の項目（配列要素の複製）。
+	wlastItems map[int][]string
 }
 
 // maxCallDepth はユーザー定義関数の再帰を制限する: 超過はホストの
@@ -144,7 +162,7 @@ func (in *Interp) lookupPath(p string) string {
 
 // resolvePath は組込みのパス引数をマップする: 絶対パスはそのまま通過し、
 // 相対パスはスクリプトディレクトリ、次に作業ディレクトリを優先する
-// （#include と同じ順序）。存在しないパスはスクリプトディレクトリ基準で
+// （include と同じ順序）。存在しないパスはスクリプトディレクトリ基準で
 // 解決されるため、新しいファイルはスクリプトの隣に作られる
 // （REPL 内では指定どおり、つまり作業ディレクトリ基準のまま）。
 func (in *Interp) resolvePath(p string) string {
@@ -170,6 +188,189 @@ func (in *Interp) Backend() Backend {
 	return in.be
 }
 
+// parseVarRef は "name" または "name[idx]" を分解する。
+// idx は 10 進整数のみ。余分な文字があれば ok=false。
+func parseVarRef(s string) (base string, idx int64, hasIdx bool, ok bool) {
+	lb := -1
+	for i := 0; i < len(s); i++ {
+		if s[i] == '[' {
+			lb = i
+			break
+		}
+	}
+	if lb < 0 {
+		if s == "" {
+			return "", 0, false, false
+		}
+		for i := 0; i < len(s); i++ {
+			if s[i] == ']' || s[i] == '[' {
+				return "", 0, false, false
+			}
+		}
+		return s, 0, false, true
+	}
+	if !strings.HasSuffix(s, "]") {
+		return "", 0, false, false
+	}
+	base = s[:lb]
+	inner := s[lb+1 : len(s)-1]
+	if base == "" || inner == "" {
+		return "", 0, false, false
+	}
+	for i := 0; i < len(inner); i++ {
+		if inner[i] < '0' || inner[i] > '9' {
+			if !(i == 0 && (inner[i] == '-' || inner[i] == '+')) {
+				return "", 0, false, false
+			}
+		}
+	}
+	var n int64
+	neg := false
+	j := 0
+	if inner[0] == '-' || inner[0] == '+' {
+		neg = inner[0] == '-'
+		j = 1
+		if len(inner) == 1 {
+			return "", 0, false, false
+		}
+	}
+	for ; j < len(inner); j++ {
+		n = n*10 + int64(inner[j]-'0')
+		if n > 1<<40 {
+			return "", 0, false, false
+		}
+	}
+	if neg {
+		n = -n
+	}
+	return base, n, true, true
+}
+
+// getBoundVar は wbind 用に変数を読む。現在のフレームのローカルを優先し、
+// なければグローバルを見る。"arr[0]" 形式の配列要素も読める。
+func (in *Interp) getBoundVar(name string) (Value, bool) {
+	base, idx, hasIdx, ok := parseVarRef(name)
+	if !ok {
+		return Null(), false
+	}
+	var arrV Value
+	var found bool
+	if in.vm == nil {
+		return Null(), false
+	}
+	if in.curFrame != nil && in.curProto != nil {
+		if s, ok := in.curProto.Slots[base]; ok {
+			if s >= 0 && s < len(in.curFrame.regs) && in.curFrame.regs[s].K != KNull {
+				arrV, found = in.curFrame.regs[s], true
+			}
+		}
+	}
+	if !found {
+		gi, ok := in.vm.globals.index[base]
+		if !ok || !in.vm.globals.has[gi] {
+			return Null(), false
+		}
+		arrV = in.vm.globals.vals[gi]
+		found = true
+	}
+	if !found {
+		return Null(), false
+	}
+	if !hasIdx {
+		return arrV, true
+	}
+	if arrV.K != KArray {
+		return Null(), false
+	}
+	if idx < 0 || idx >= int64(len(arrV.Arr.Elems)) {
+		return Null(), false
+	}
+	return arrV.Arr.Elems[int(idx)], true
+}
+
+// setBoundVar は wbind 用に変数へ書く。"arr[0]" 形式の配列要素にも書ける。
+// ローカルが束縛済みならそこへ、なければグローバルへ。
+func (in *Interp) setBoundVar(name string, v Value, at Pos) error {
+	if err := requireValue(v, at); err != nil {
+		return err
+	}
+	if in.vm == nil {
+		return rtErrf(at, "内部エラー：VM が未初期化です")
+	}
+	base, idx, hasIdx, ok := parseVarRef(name)
+	if !ok {
+		return rtErrf(at, "変数名 %q は不正です", name)
+	}
+	if isBuiltin(base) {
+		return rtErrf(at, "%q に代入できません：組み込み関数です", base)
+	}
+	// 配列要素への書込は共有 Array を直接更新する。
+	if hasIdx {
+		var arrV Value
+		var found bool
+		var slot int = -1
+		var isLocal bool
+		if in.curFrame != nil && in.curProto != nil {
+			if s, ok := in.curProto.Slots[base]; ok {
+				if s >= 0 && s < len(in.curFrame.regs) && in.curFrame.regs[s].K != KNull {
+					arrV = in.curFrame.regs[s]
+					slot = s
+					isLocal = true
+					found = true
+				}
+			}
+		}
+		var gi int
+		if !found {
+			var ok bool
+			gi, ok = in.vm.globals.index[base]
+			if !ok || !in.vm.globals.has[gi] {
+				return rtErrf(at, "未定義の変数 %q です", base)
+			}
+			arrV = in.vm.globals.vals[gi]
+		} else {
+			_ = slot
+		}
+		if arrV.K != KArray {
+			return rtErrf(at, "%q は配列である必要があります。%s です", base, typeNameOf(arrV))
+		}
+		if idx < 0 || idx >= int64(len(arrV.Arr.Elems)) {
+			return rtErrf(at, "インデックス %d は範囲外です（長さ %d）", idx, len(arrV.Arr.Elems))
+		}
+		if isLocal {
+			if in.curFrame.ro != nil && slot < len(in.curFrame.ro) && in.curFrame.ro[slot] {
+				return rtErrf(at, "%q に代入できません：repeat カウンタは読み取り専用です", base)
+			}
+		} else {
+			if in.vm.globals.ro[gi] {
+				return rtErrf(at, "%q に代入できません：repeat カウンタは読み取り専用です", base)
+			}
+		}
+		arrV.Arr.Elems[int(idx)] = v
+		return nil
+	}
+	if in.curFrame != nil && in.curProto != nil {
+		if s, ok := in.curProto.Slots[base]; ok {
+			if s >= 0 && s < len(in.curFrame.regs) && in.curFrame.regs[s].K != KNull {
+				if in.curFrame.ro != nil && s < len(in.curFrame.ro) && in.curFrame.ro[s] {
+					return rtErrf(at, "%q に代入できません：repeat カウンタは読み取り専用です", base)
+				}
+				in.curFrame.regs[s] = v
+				return nil
+			}
+		}
+	}
+	gi, ok := in.vm.globals.index[base]
+	if !ok || !in.vm.globals.has[gi] {
+		return rtErrf(at, "未定義の変数 %q です", base)
+	}
+	if in.vm.globals.ro[gi] {
+		return rtErrf(at, "%q に代入できません：repeat カウンタは読み取り専用です", base)
+	}
+	in.vm.globals.vals[gi] = v
+	return nil
+}
+
 // setIndex は境界内に格納する。範囲外はエラー。
 // 配列の拡大は（あらかじめ）dim() か（末尾に）push() で行う。
 func setIndex(arr *Array, idx int, v Value, at Pos) error {
@@ -180,11 +381,20 @@ func setIndex(arr *Array, idx int, v Value, at Pos) error {
 	return nil
 }
 
-func requireBool(v Value, at Pos) (bool, error) {
-	if v.K != KBool {
-		return false, rtErrf(at, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(v))
+// truthy は条件式の整数値を真偽に解釈する（0=false、非0=true）。
+func truthy(v Value, at Pos) (bool, error) {
+	if v.K != KInt {
+		return false, rtErrf(at, "条件式は整数（0=false、非0=true）である必要があります。%s が指定されました", typeNameOf(v))
 	}
-	return v.B, nil
+	return v.I != 0, nil
+}
+
+// needTruthy は組込みの真偽値引数を整数（0=false、非0=true）として読む。
+func needTruthy(name string, args []Value, i int, at Pos) (bool, error) {
+	if args[i].K != KInt {
+		return false, argErr(name, i, at, "整数（0=false、非0=true）である必要があります。%s が指定されました", typeNameOf(args[i]))
+	}
+	return args[i].I != 0, nil
 }
 
 // requireValue は void を拒否する: 内部的な null がスクリプトに
@@ -223,13 +433,13 @@ func compare(op TokenType, l, r Value, at Pos) (Value, error) {
 	}
 	switch op {
 	case TokLt:
-		return Bool(c < 0), nil
+		return IntOfBool(c < 0), nil
 	case TokLtEq:
-		return Bool(c <= 0), nil
+		return IntOfBool(c <= 0), nil
 	case TokGt:
-		return Bool(c > 0), nil
+		return IntOfBool(c > 0), nil
 	case TokGtEq:
-		return Bool(c >= 0), nil
+		return IntOfBool(c >= 0), nil
 	}
 	return Null(), rtErrf(at, "内部エラー：不正な比較演算子です")
 }
