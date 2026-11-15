@@ -99,8 +99,8 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 }
 
 func TestBuiltinRedefineGuard(t *testing.T) {
-	mustErrIO(t, "def sin(x) {\nreturn x\n}\n", "組み込み関数")
-	mustErrIO(t, "def msg() {\n}\n", "組み込み関数")
+	mustErrIO(t, "def sin(x)\nreturn x\nend\n", "組み込み関数")
+	mustErrIO(t, "def msg()\nend\n", "組み込み関数")
 }
 
 func TestConversions(t *testing.T) {
@@ -236,7 +236,7 @@ func TestSleepEndAssertLogmsg(t *testing.T) {
 	// なくエラーである。
 	mustErrIO(t, "await(9223372036854775807)\n", "大きすぎます")
 	mustOutIO(t, "a = nanotime()\nmsg(a > 0 && nanotime() >= a)\n", "", "1\n")
-	_, _, in, err := runIO(t, "msg(\"hi\")\nend(3)\nmsg(\"bye\")\n", "")
+	_, _, in, err := runIO(t, "msg(\"hi\")\nexit(3)\nmsg(\"bye\")\n", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestSleepEndAssertLogmsg(t *testing.T) {
 	// GUI フロントエンドはループ後の ExitCode() を読むが、スクリプトの
 	// ゴルーチンはまだ動いているかもしれない。並行アクセスは競合がない
 	// 必要がある（-race の下で意味を持つ）。
-	prog, err := Parse("n = 0\nwhile n < 10000 {\nn = n + 1\n}\nend(3)\n")
+	prog, err := Parse("n = 0\nwhile n < 10000\nn = n + 1\nend\nexit(3)\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestSleepEndAssertLogmsg(t *testing.T) {
 		t.Fatalf("logmsg got %q", errout)
 	}
 	// void 引数は msg()/print() と同じくスキップされる。
-	_, errout, _, err = runIO(t, "def f() {\n}\nlogmsg(\"a\", f(), \"b\")\n", "")
+	_, errout, _, err = runIO(t, "def f()\nend\nlogmsg(\"a\", f(), \"b\")\n", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +583,7 @@ func TestPosGetter(t *testing.T) {
 }
 
 func TestConsoleIO(t *testing.T) {
-	mustOutIO(t, "print(\"a\", 1)\nprint(\"b\")\nmsg(\"c\")\n", "", "a 1bc\n")
+	mustOutIO(t, "print(\"a\")\nprint(1)\nprint(\"b\")\nmsg(\"c\")\n", "", "a1bc\n")
 	mustOutIO(t, "cls()\n", "", "\x1b[2J\x1b[H")
 	mustOutIO(t, "color(255, 0, 0)\nmsg(color())\n", "", "\x1b[38;2;255;0;0m[255, 0, 0, 255]\n")
 	mustOutIO(t, "color(255, 0, 0, 128)\nmsg(color())\n", "", "\x1b[38;2;255;0;0m[255, 0, 0, 128]\n")
@@ -597,7 +597,6 @@ func TestConsoleIO(t *testing.T) {
 	mustOutIO(t, "pos(1, 1)\nprint(\"ab\")\npos(4, 1)\nprint(\"cd\")\n", "", "\x1b[2;2Hab\x1b[2;5Hcd")
 	mustOutIO(t, "title(\"T\")\n", "", "\x1b]0;T\x07")
 	mustErrIO(t, "title(\"a\\0b\")\n", "NUL")
-	mustOutIO(t, "print(\"x\", \"bold\")\nprint(\"y\")\n", "", "\x1b[1mx\x1b[22;23;24my")
 	mustErrIO(t, "color(1, 2)\n", "1 個、3 個または 4 個")
 	mustErrIO(t, "color(300, 0, 0)\n", "0 から 255")
 	mustErrIO(t, "color(0x1000000)\n", "0x000000")
@@ -777,20 +776,11 @@ func TestNoteAndFileBuiltinsRemoved(t *testing.T) {
 	}
 }
 
-func TestPeekPoke(t *testing.T) {
-	mustOutIO(t, "a = [0, 0, 0, 0]\npoke(a, 0, 65)\nmsg(peek(a, 0))\nwpoke(a, 1, 16961)\nmsg(wpeek(a, 1))\nlpoke(a, 0, 16909060)\nmsg(lpeek(a, 0))\nmsg(a)\n", "",
-		"65\n16961\n16909060\n[4, 3, 2, 1]\n")
-	mustErrIO(t, "msg(peek([1], 5))\n", "範囲外")
-	mustErrIO(t, "msg(peek([1], -1))\n", "範囲外")
-	mustErrIO(t, "poke([0], 0, 256)\n", "0 から 255")
-	mustErrIO(t, "msg(peek([\"x\"], 0))\n", "バイト")
-	mustErrIO(t, "msg(lpeek([1, 2], 0))\n", "範囲外")
-	// 巨大な添字は Go の panic ではなく範囲エラーでなければならない
-	// （int(i)+n は MaxInt64 でラップし、境界検査を飛ばしていた）。
-	mustErrIO(t, "msg(peek([1], 9223372036854775807))\n", "範囲外")
-	mustErrIO(t, "msg(wpeek([1, 2], 9223372036854775807))\n", "範囲外")
-	mustErrIO(t, "msg(lpeek([1, 2, 3, 4], 9223372036854775804))\n", "範囲外")
-	mustErrIO(t, "poke([0], 9223372036854775807, 1)\n", "範囲外")
+func TestMemoryBuiltinsRemoved(t *testing.T) {
+	// 現行版で peek/poke 系は廃止され、バイト列は binfile / buf* 系に一本化された。
+	for _, name := range []string{"peek", "poke", "wpeek", "wpoke", "lpeek", "lpoke"} {
+		mustErrIO(t, "msg("+name+"(1))\n", "未定義の関数")
+	}
 }
 
 func TestPushPopJoin(t *testing.T) {
@@ -805,22 +795,22 @@ func TestPushPopJoin(t *testing.T) {
 }
 
 func TestArrayExtras(t *testing.T) {
-	mustOutIO(t, "a = [3, 1, 2]\nmsg(sort(a))\n", "", "[1, 2, 3]\n")
-	mustOutIO(t, "a = [\"b\", \"a\"]\nsort(a)\nmsg(a)\n", "", "[a, b]\n")
+	mustOutIO(t, "a = [3, 1, 2]\nmsg(sort(a))\nmsg(a)\n", "", "[1, 2, 0]\n[1, 2, 3]\n")
+	mustOutIO(t, "a = [\"b\", \"a\"]\nmsg(sort(a))\nmsg(a)\n", "", "[1, 0]\n[a, b]\n")
 	mustOutIO(t, "a = [1, 2, 3]\nreverse(a)\nmsg(a)\n", "", "[3, 2, 1]\n")
 	mustOutIO(t, "a = [1, 3]\nmsg(insert(a, 1, 2))\nmsg(a)\n", "", "3\n[1, 2, 3]\n")
 	mustOutIO(t, "a = [1, 2, 3, 4]\nmsg(remove(a, 1, 2))\nmsg(a)\n", "", "[2, 3]\n[1, 4]\n")
 	mustOutIO(t, "a = [1, 2, 3]\nmsg(remove(a, 0))\nmsg(a)\n", "", "[1]\n[2, 3]\n")
 	mustOutIO(t, "a = [1, 2, 3, 4]\nmsg(slice(a, 1, 3))\nmsg(slice(a, -2))\nmsg(slice(a, 0, 3))\n", "", "[2, 3]\n[3, 4]\n[1, 2, 3]\n")
 	mustOutIO(t, "a = [\"x\", \"y\"]\nmsg(find(a, \"y\"))\nmsg(find(a, \"z\"))\nmsg(find(a, 1))\nmsg(find([1, 2, 3], 3, 1))\n", "", "1\n-1\n-1\n2\n")
-	// 連鎖: sort は配列自身を返す。
-	mustOutIO(t, "msg(join(sort([3, 1, 2]), \"-\"))\n", "", "1-2-3\n")
+	// sort は元インデックスの配列を返し、配列自身はその場で並べ替える。
+	mustOutIO(t, "a = [3, 1, 2]\nmsg(join(sort(a), \"-\"))\nmsg(join(a, \"-\"))\n", "", "1-2-0\n1-2-3\n")
 	// sort は整数、浮動小数点数、混合の数値を受け付ける。文字列は別に
 	// ソートされ、それ以外はエラーである。
-	mustOutIO(t, "a = [2.5, 1.5, 10]\nmsg(sort(a))\n", "", "[1.5, 2.5, 10]\n")
-	mustOutIO(t, "a = [2, 1.5, 10]\nmsg(sort(a))\n", "", "[1.5, 2, 10]\n")
+	mustOutIO(t, "a = [2.5, 1.5, 10]\nmsg(sort(a))\nmsg(a)\n", "", "[1, 0, 2]\n[1.5, 2.5, 10]\n")
+	mustOutIO(t, "a = [2, 1.5, 10]\nmsg(sort(a))\nmsg(a)\n", "", "[1, 0, 2]\n[1.5, 2, 10]\n")
 	mustErrIO(t, "sort([1, \"a\"])\n", "すべて数値かすべて文字列")
-	mustOutIO(t, "msg(sort([true]))\n", "", "[1]\n")
+	mustOutIO(t, "msg(sort([true]))\n", "", "[0]\n")
 	mustErrIO(t, "insert([1], 5, 2)\n", "範囲外")
 	mustErrIO(t, "remove([1], 0, 2)\n", "範囲外")
 	// 巨大な添字/個数は Go の panic ではなく範囲エラーでなければ
@@ -842,44 +832,16 @@ func TestStringExtras(t *testing.T) {
 }
 
 func TestVartypeFunc(t *testing.T) {
-	mustErrIO(t, "def f() {\n}\nmsg(vartype(f))\n", "未定義の変数")
-	mustOutIO(t, "def f() {\n}\nmsg(vartype([1]))\nmsg(f())\n", "", "array\n\n")
+	mustErrIO(t, "def f()\nend\nmsg(vartype(f))\n", "未定義の変数")
+	mustOutIO(t, "def f()\nend\nmsg(vartype([1]))\nmsg(f())\n", "", "array\n\n")
 }
 
-func TestLexTokens(t *testing.T) {
-	mustOutIO(t, "t = lextokens(\"x = 1\")\nmsg(len(t))\nmsg(t[0][0])\nmsg(t[0][1])\nmsg(t[1][1])\nmsg(t[2][1])\nmsg(t[0][2])\nmsg(t[0][3])\n", "", "3\nIDENT\nx\n=\n1\n1\n1\n")
-	mustOutIO(t, "t = lextokens(\"if x {\\n}\")\nmsg(t[0][0])\nmsg(t[2][0])\nmsg(t[3][0])\n", "", "IF\nLBRACE\nNEWLINE\n")
-	mustErrIO(t, "lextokens(\"'a'\")\n", "シングルクォート")
-	mustErrIO(t, "lextokens(1)\n", "文字列である必要があります")
-}
-
-// TestSrcAnalyze はエディタが使う1パスで例外を起こさない解析器を
-// 固定する: lextokens/parsetree と同じトークン/木の形状を持つ
-// [errstr, tokens, tree]。壊れたソースでは（例外を起こすのではなく）
-// エラー文字列を返す。
-func TestSrcAnalyze(t *testing.T) {
-	mustOutIO(t, "r = srcanalyze(\"x = 1\\n\")\nmsg(r[0] == \"\")\nmsg(len(r[1]))\nmsg(r[1][0][0])\nmsg(r[2][0])\nmsg(len(r[2][4]))\n", "", "1\n4\nIDENT\nprogram\n1\n")
-	// 字句エラー: メッセージ＋空の tokens/tree。例外は起こさない。
-	mustOutIO(t, "r = srcanalyze(\"msg('a')\")\nmsg(r[0] == \"\")\nmsg(len(r[1]))\nmsg(len(r[2]))\n", "", "0\n0\n0\n")
-	// 解析エラーも同様（途中まで入力されたソース）。
-	mustOutIO(t, "r = srcanalyze(\"msg(\")\nmsg(r[0] == \"\")\nmsg(len(r[1]))\n", "", "0\n0\n")
-	// 生のディレクティブはここでも lextokens と同じく字句エラーである。
-	mustOutIO(t, "r = srcanalyze(\"#define X 1\\n\")\nmsg(r[0] == \"\")\n", "", "0\n")
-	mustErrIO(t, "srcanalyze(1)\n", "文字列である必要があります")
-}
-
-func TestParsetree(t *testing.T) {
-	mustOutIO(t, "t = parsetree(\"def f(a, b) {\\nreturn a\\n}\\nmsg(f(1, 2))\\n\")\nmsg(t[0])\nmsg(len(t[4]))\nmsg(t[4][0][4])\nmsg(t[4][0][5][1][4])\nmsg(t[4][1][0])\nmsg(t[4][0][1])\n", "",
-		"program\n2\nf\nb\ncall\n1\n")
-	// 存在しない省略可能なものは ""（変数へ読み出せ、== で判定できる）。
-	mustOutIO(t, "t = parsetree(\"if true {\\nmsg(1)\\n}\\n\")\nmsg(t[4][0][6] == \"\")\n", "", "1\n")
-	mustOutIO(t, "t = parsetree(\"def f() {\\nreturn\\n}\\n\")\nmsg(t[4][0][6][0][4] == \"\")\n", "", "1\n")
-	mustOutIO(t, "t = parsetree(\"repeat 3 {\\n}\\n\")\nmsg(t[4][0][5] == \"\")\n", "", "1\n")
-	// 演算子はソースの記号を使う。式文は展開される。
-	mustOutIO(t, "t = parsetree(\"x = 1 + 2 * 3\\n\")\nmsg(t[4][0][0])\nmsg(t[4][0][5][4])\nmsg(t[4][0][5][6][0])\n", "", "assign\n+\nbinary\n")
-	mustOutIO(t, "msg(vartype(parsetree(\"x = 1\")))\n", "", "array\n")
-	mustErrIO(t, "parsetree(1)\n", "文字列である必要があります")
-	mustErrIO(t, "msg(parsetree(\"msg(\"))\n", "が必要です")
+func TestEditorAnalysisBuiltinsRemoved(t *testing.T) {
+	// 現行版で Go 側の解析組込は廃止され、エディタは Golash 自身の
+	// lex.gsh（lx_lex）で字句解析する。
+	for _, name := range []string{"lextokens", "srcanalyze", "parsetree"} {
+		mustErrIO(t, "msg("+name+"(1))\n", "未定義の関数")
+	}
 }
 
 func TestStrWidth(t *testing.T) {
