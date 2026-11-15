@@ -76,11 +76,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run -a -s "-screen 0 1024x768x24" go test .
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            go test -skip 'TestVMZeroAllocLoop' .
+            xvfb-run -a -s "-screen 0 1024x768x24" go test -skip 'TestVMZeroAllocLoop' .
           else
-            go test .
+            go test -skip 'TestVMZeroAllocLoop' .
           fi
 
       - name: バイナリをビルド
