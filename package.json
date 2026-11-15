@@ -1,25 +1,27 @@
 {
-  "name": "goulash-lang",
+  "name": "golash-lang",
   "version": "0.9",
-  "description": "> **テスト段階に関する注意:**   > Golash はテスト段階です。そのため、予告なく破壊的変更が行われる可能性があります。   > 仕様・文法・組み込み関数・CLI・GUI API などは変更される場合があります。   > 最新の変更内容は `CHANGELOG.md` を確認してください。",
-  "main": "index.js",
+  "description": "Golash (gsh): an HSP-inspired scripting language with CUI and GUI in a single binary.",
   "directories": {
     "doc": "docs",
     "example": "examples"
   },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RukiLab/goulash-lang.git"
+    "url": "git+https://github.com/RukiLab/golash-lang.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "keywords": [
+    "golash",
+    "gsh",
+    "hsp",
+    "scripting-language",
+    "gui",
+    "ebiten"
+  ],
+  "author": "RukiLab",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/RukiLab/goulash-lang/issues"
+    "url": "https://github.com/RukiLab/golash-lang/issues"
   },
-  "homepage": "https://github.com/RukiLab/goulash-lang#readme"
+  "homepage": "https://github.com/RukiLab/golash-lang#readme"
 }

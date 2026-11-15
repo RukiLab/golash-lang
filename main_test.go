@@ -56,6 +56,8 @@ func TestVersionPinnedEverywhere(t *testing.T) {
 	}
 	// package.json の version も golashVersion に一致させる（VS Code 拡張は
 	// その値がストアの版になるため、処理系と別版にならないようにする）。
+	// VS Code 拡張の manifest は3桁 SemVer を要求するので、`0.9` ではなく
+	// `0.9.0` と書く（意味は同じ。bumpver は接頭辞の置換で追随する）。
 	for _, f := range []string{"package.json", "editors/vscode/package.json"} {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -65,8 +67,12 @@ func TestVersionPinnedEverywhere(t *testing.T) {
 		if m == nil {
 			t.Fatalf("%s lacks a version field", f)
 		}
-		if string(m[1]) != golashVersion {
-			t.Fatalf("%s version %q != golashVersion %q", f, m[1], golashVersion)
+		want := golashVersion
+		if f == "editors/vscode/package.json" {
+			want += ".0"
+		}
+		if string(m[1]) != want {
+			t.Fatalf("%s version %q != %q", f, m[1], want)
 		}
 	}
 	// コード内の版リテラル禁止：ファイル先頭はかつて実行時と食い違う古い版を

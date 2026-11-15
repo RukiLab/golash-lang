@@ -1,16 +1,16 @@
 {
-  "name": "goulash",
+  "name": "golash",
   "displayName": "Golash",
   "description": "Golash (.gsh) language support: syntax highlighting and editing helpers",
-  "version": "0.9",
-  "publisher": "goulash",
+  "version": "0.9.0",
+  "publisher": "golash",
   "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:goulash"
+    "onLanguage:golash"
   ],
   "categories": [
     "Programming Languages"
@@ -18,10 +18,10 @@
   "contributes": {
     "languages": [
       {
-        "id": "goulash",
+        "id": "golash",
         "aliases": [
           "Golash",
-          "goulash"
+          "golash"
         ],
         "extensions": [
           ".gsh"
@@ -31,23 +31,23 @@
     ],
     "grammars": [
       {
-        "language": "goulash",
-        "scopeName": "source.goulash",
-        "path": "./syntaxes/goulash.tmLanguage.json"
+        "language": "golash",
+        "scopeName": "source.golash",
+        "path": "./syntaxes/golash.tmLanguage.json"
       }
     ],
     "commands": [
       {
-        "command": "goulash.run",
+        "command": "golash.run",
           "title": "Golash: 実行",
           "category": "Golash"
       }
     ],
     "keybindings": [
       {
-        "command": "goulash.run",
+        "command": "golash.run",
         "key": "F5",
-        "when": "editorLangId == goulash && editorTextFocus"
+        "when": "editorLangId == golash && editorTextFocus"
       }
     ]
   }
