@@ -2,6 +2,8 @@ name: release
 
 # v* タグの push で Windows / Linux / macOS 向けバイナリをビルドし、
 # GitHub Releases に公開します。
+# 手動実行（workflow_dispatch）ではビルドと成果物のアップロードだけを行い、
+# リリースは作成しません。タグを打つ前のドライランに使えます。
 # GUI 依存（X11 / ALSA / GTK）を各 OS のネイティブ環境で解決するため、
 # ビルドは OS ごとのランナーで行います。
 
@@ -9,6 +11,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -58,6 +61,7 @@ jobs:
             libasound2-dev libgtk-3-dev xvfb
 
       - name: タグと VERSION の一致を検証
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
@@ -113,6 +117,7 @@ jobs:
 
   release:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
