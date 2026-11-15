@@ -9,19 +9,19 @@ import (
 	"testing"
 )
 
-func TestMmLoadErrors(t *testing.T) {
+func TestSndLoadErrors(t *testing.T) {
 	b, err := New(640, 480)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.MmLoad(filepath.Join(t.TempDir(), "missing.wav")); err == nil {
+	if _, err := b.SndLoad(filepath.Join(t.TempDir(), "missing.wav")); err == nil {
 		t.Fatal("expected error for missing file")
 	}
 	bad := filepath.Join(t.TempDir(), "x.txt")
 	if err := os.WriteFile(bad, []byte("hello"), 0o666); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.MmLoad(bad); err == nil {
+	if _, err := b.SndLoad(bad); err == nil {
 		t.Fatal("expected error for unsupported format")
 	}
 }
@@ -52,50 +52,50 @@ func writeSineWAV(t *testing.T, path string) {
 	}
 }
 
-func TestMmWavRoundtrip(t *testing.T) {
+func TestSndWavRoundtrip(t *testing.T) {
 	b, err := New(640, 480)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(t.TempDir(), "tone.wav")
 	writeSineWAV(t, p)
-	id, err := b.MmLoad(p)
+	id, err := b.SndLoad(p)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if id <= 0 {
 		t.Fatalf("bad sound id %d", id)
 	}
-	if err := b.MmPlay(id, false); err != nil {
+	if err := b.SndPlay(id, false); err != nil {
 		t.Skipf("no audio device in this environment: %v", err)
 	}
-	b.MmStop(&id)
-	b.MmStop(nil) // all: 空の場合は何もしない
-	if err := b.MmPlay(9999, false); err == nil {
+	b.SndStop(&id)
+	b.SndStop(nil) // all: 空の場合は何もしない
+	if err := b.SndPlay(9999, false); err == nil {
 		t.Fatal("expected error for unknown sound")
 	}
 }
 
-func TestMmVolume(t *testing.T) {
+func TestSndVolume(t *testing.T) {
 	b, err := New(640, 480)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(t.TempDir(), "tone.wav")
 	writeSineWAV(t, p)
-	id, err := b.MmLoad(p)
+	id, err := b.SndLoad(p)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if err := b.MmVolume(9999, 50); err == nil {
+	if err := b.SndVolume(9999, 50); err == nil {
 		t.Fatal("expected error for unknown sound")
 	}
 	for _, v := range []int{-1, 101} {
-		if err := b.MmVolume(id, v); err == nil {
+		if err := b.SndVolume(id, v); err == nil {
 			t.Fatalf("volume %d should error", v)
 		}
 	}
-	if err := b.MmVolume(id, 50); err != nil {
+	if err := b.SndVolume(id, 50); err != nil {
 		t.Fatalf("store: %v", err)
 	}
 	st := b.audioState()
@@ -106,13 +106,13 @@ func TestMmVolume(t *testing.T) {
 		t.Fatalf("stored vol = %v, want 0.5", vol)
 	}
 	// ライブ調整にはデバイスが必要。デバイスが無い場合は正常にスキップする。
-	if err := b.MmPlay(id, false); err != nil {
+	if err := b.SndPlay(id, false); err != nil {
 		t.Skipf("no audio device in this environment: %v", err)
 	}
-	if err := b.MmVolume(id, 25); err != nil {
+	if err := b.SndVolume(id, 25); err != nil {
 		t.Fatalf("live adjust: %v", err)
 	}
-	b.MmStop(&id)
+	b.SndStop(&id)
 }
 
 func TestKeyDownUnknown(t *testing.T) {

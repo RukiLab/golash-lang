@@ -1,18 +1,17 @@
 // 使い方:
 //
-//	go run ./tools/bumpver.go -set 0.9.0   # 版を 0.9.0 に上げる
-//	go run ./tools/bumpver.go -bump minor # 0.9.0 → 0.10.0
-//	go run ./tools/bumpver.go -bump patch # 0.9.0 → 0.9.1
-//	go run ./tools/bumpver.go -bump major # 0.9.0 → 1.0.0
+//	go run ./tools/bumpver.go -set 0.9   # 版を 0.9 に上げる
+//	go run ./tools/bumpver.go -bump minor # 0.9 → 0.10
+//	go run ./tools/bumpver.go -bump major # 0.9 → 1.0
 //	go run ./tools/bumpver.go -show        # 現在の版だけ表示
 //
-// SemVer（MAJOR.MINOR.PATCH）の版をリポジトリ全体へ一括反映します。
+// 版（MAJOR.MINOR のドット1つ）をリポジトリ全体へ一括反映します。
 // 対象は VERSION（正本）・main.go の golashVersion・ルート package.json と
 // VS Code 拡張の package.json・ドキュメント（MANUAL/DESIGN_VM/README）の
-// `v<X.Y.Z>` 表記・CHANGELOG の見出しです。
+// `v<X.Y>` 表記・CHANGELOG の見出しです。
 //
 // 版の判断基準は README の「バージョン管理」に従います（MAJOR=破壊的変更、
-// MINOR=追加、PATCH=修正）。テスト TestVersionPinnedEverywhere が
+// MINOR=追加・修正）。テスト TestVersionPinnedEverywhere が
 // 反映漏れを検出するので、実行後に go test ./... を回してください。
 package main
 
@@ -26,14 +25,12 @@ import (
 	"strings"
 )
 
-// semverRe は MAJOR.MINOR.PATCH（先頭ゼロなし）のみを受けます。
-// 事前リリースやビルド識別子は付帯情報として別途扱う想定で、ここでは
-// 比較と一括置換を単純化するため3桁 strict にしています。
-var semverRe = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
+// versionRe は MAJOR.MINOR（先頭ゼロなし、ドット1つ）のみを受けます。
+var versionRe = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
 
 func main() {
-	set := flag.String("set", "", "この版に設定する（例: 0.9.0）")
-	bump := flag.String("bump", "", "major/minor/patch のいずれかを1つ上げる")
+	set := flag.String("set", "", "この版に設定する（例: 0.9）")
+	bump := flag.String("bump", "", "major/minor のいずれかを1つ上げる")
 	show := flag.Bool("show", false, "現在の版を表示する")
 	flag.Parse()
 
@@ -55,13 +52,13 @@ func main() {
 			fatal(err)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "使い方: go run ./tools/bumpver.go -set 0.9.0 | -bump major|minor|patch | -show\n")
+		fmt.Fprintf(os.Stderr, "使い方: go run ./tools/bumpver.go -set 0.9 | -bump major|minor | -show\n")
 		os.Exit(2)
 	}
-	if !semverRe.MatchString(next) {
-		fatal(fmt.Errorf("版 %q は SemVer の MAJOR.MINOR.PATCH ではありません", next))
+	if !versionRe.MatchString(next) {
+		fatal(fmt.Errorf("版 %q は MAJOR.MINOR（ドット1つ）ではありません", next))
 	}
-	// ドキュメントは `v<X.Y.Z>` 表記なので v を付け、package.json は版番号のみ。
+	// ドキュメントは `v<X.Y>` 表記なので v を付け、package.json は版番号のみ。
 	oldTag, newTag := "v"+cur, "v"+next
 	for _, f := range docFiles() {
 		if err := rewrite(f, oldTag, newTag); err != nil {
@@ -90,8 +87,8 @@ func readVersion() (string, error) {
 		return "", fmt.Errorf("VERSION の読み込み: %w", err)
 	}
 	v := strings.TrimSpace(string(b))
-	if !semverRe.MatchString(v) {
-		return "", fmt.Errorf("VERSION %q は SemVer の MAJOR.MINOR.PATCH ではありません", v)
+	if !versionRe.MatchString(v) {
+		return "", fmt.Errorf("VERSION %q は MAJOR.MINOR（ドット1つ）ではありません", v)
 	}
 	return v, nil
 }
@@ -101,10 +98,13 @@ func writeVersion(v string) error {
 	return os.WriteFile("VERSION", []byte(v+"\n"), 0o644)
 }
 
-// bumpVersion は SemVer の桁を1つ上げます。
+// bumpVersion は版の桁を1つ上げます。
 func bumpVersion(cur, kind string) (string, error) {
 	parts := strings.Split(cur, ".")
-	n := make([]int, 3)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("版 %q は MAJOR.MINOR ではありません", cur)
+	}
+	n := make([]int, 2)
 	for i, p := range parts {
 		x, err := strconv.Atoi(p)
 		if err != nil {
@@ -114,18 +114,16 @@ func bumpVersion(cur, kind string) (string, error) {
 	}
 	switch kind {
 	case "major":
-		n[0], n[1], n[2] = n[0]+1, 0, 0
+		n[0], n[1] = n[0]+1, 0
 	case "minor":
-		n[1], n[2] = n[1]+1, 0
-	case "patch":
-		n[2]++
+		n[1]++
 	default:
-		return "", fmt.Errorf("-bump は major/minor/patch のいずれかを指定してください（%q）", kind)
+		return "", fmt.Errorf("-bump は major/minor のいずれかを指定してください（%q）", kind)
 	}
-	return fmt.Sprintf("%d.%d.%d", n[0], n[1], n[2]), nil
+	return fmt.Sprintf("%d.%d", n[0], n[1]), nil
 }
 
-// docFiles は `v<X.Y.Z>` 表記を持つドキュメントです。
+// docFiles は `v<X.Y>` 表記を持つドキュメントです。
 func docFiles() []string {
 	return []string{
 		filepath.Join("docs", "MANUAL.md"),

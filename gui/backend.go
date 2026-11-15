@@ -5,13 +5,10 @@ package gui
 
 import (
 	"errors"
-	"image"
 	"image/color"
 	"io/fs"
 	"sync"
 
-	"github.com/ebitenui/ebitenui"
-	"github.com/ebitenui/ebitenui/widget"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/exp/textinput"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -20,36 +17,7 @@ import (
 const (
 	fontSize   = 16.0
 	lineHeight = 16.0
-	// italicShear は疑似イタリックのグリフを傾ける (約11度)。
-	italicShear = 0.2
 )
-
-// TextStyle は mes()/print() 用の疑似テキスト装飾のビットマスク。
-// 単一の読み込み済みフェイスを変形する (異体ファイルは不要):
-// 太字は重ね打ち、斜体はせん断、下線はベースライン下に罫線を引く。
-type TextStyle int
-
-const (
-	StyleBold TextStyle = 1 << iota
-	StyleItalic
-	StyleUnderline
-)
-
-// ParseTextStyle は mes()/print() の末尾キーワードをスタイルフラグに対応付ける。
-// 完全な小文字一致のみなので、通常の単語が出力から消えることはない。
-func ParseTextStyle(s string) (TextStyle, bool) {
-	switch s {
-	case "bold":
-		return StyleBold, true
-	case "italic":
-		return StyleItalic, true
-	case "bolditalic":
-		return StyleBold | StyleItalic, true
-	case "underline":
-		return StyleUnderline, true
-	}
-	return 0, false
-}
 
 // WindowBackend は Ebiten ウィンドウへ描画する Backend。
 // すべての状態は mu で保護され、Ebiten ループとスクリプト goroutine が
@@ -60,7 +28,7 @@ type WindowBackend struct {
 	w, h int
 	// followWindow は resizable() を反映する: ウィンドウをドラッグできる間、
 	// Layout はウィンドウサイズを返すので、描画解像度がそれに追従する
-	// (canvas はウィンドウサイズで作り直され、1:1 ピクセル)。screen() の
+	// (canvas はウィンドウサイズで作り直され、1:1 ピクセル)。screen(w, h) の
 	// サイズに固定して表示を拡大する方式ではない。
 	followWindow bool
 	// テキスト配置状態 (mu で保護)。テキストは pset()/line()/rect() と
@@ -70,16 +38,16 @@ type WindowBackend struct {
 	// キュー済み描画コマンドが適用されるフレーム境界までは何も描かれない。
 	// テキスト配置状態 (mu で保護)、単位はデバイスピクセル: pos() は
 	// テキスト原点を正確に置き (1px 単位、セル丸めなし)、
-	// 各 mes()/print() 断片は実際に描いた幅だけカーソルを進めるため、
+	// 各 msg()/print() 断片は実際に描いた幅だけカーソルを進めるため、
 	// プロポーショナル書体が自然に流れる。
 	curX float64
 	curY float64
 	// lineStartX は現在のテキスト行が始まった x 座標: 全行改行後は 0、
 	// それ以外は pos() の原点。埋め込み改行
 	// (1つの文字列内の改行) は 0 ではなくここへカーソルを戻すため、
-	// 複数行の mes() は起点からのブロックとして印字される。
+	// 複数行の msg() は起点からのブロックとして印字される。
 	lineStartX float64
-	// textBatch はスクリプト側で連続する mes()/print() 呼出を
+	// textBatch はスクリプト側で連続する msg()/print() 呼出を
 	// スプールし、一塊の出力が1つのキュー済みクロージャを共有し、
 	// 隣接する繰返しスクロールを畳めるようにする（mu で保護）。
 	textBatch *textBatch
@@ -95,58 +63,87 @@ type WindowBackend struct {
 	// 初めて画面に届く（publishAtYieldLocked を参照）。
 	yieldedOnce bool
 
-	gx, gy int // グラフィックス用のピクセルカーソル（gcopy の変換先）
+	gx, gy int // テキスト・ウィジェット配置用のピクセルカーソル（pos() の位置）
 	fg     color.NRGBA
 	// フォント状態（mu で保護）: フェイスと、そこから導出される
-	// 行のピッチ（mes()/print() 1行は行高 lineH 分）。サイズは任意。
+	// 行のピッチ（msg()/print() 1行は行高 lineH 分）。サイズは任意。
 	face     *text.GoTextFace
 	fontSize float64
 	lineH    float64
 	fontPath string // 使用中の解決済みフォントファイル（"" は探索の既定）
-	wantDone bool   // スクリプトが終了。ウィンドウは開いたまま
-	wantQuit bool   // end() が呼ばれた。ウィンドウを閉じる
+	// gdiFam/gdiStrikes は埋め込みビットマップ描画 (GDI, Windows 専用) の
+	// 解決結果（mu で保護）。fam="" または strike が無ければ outline 描画。
+	gdiFam     string
+	gdiStrikes map[int]bool
+	wantDone   bool // スクリプトが終了。ウィンドウは開いたまま
+	wantQuit   bool // end() が呼ばれた。ウィンドウを閉じる
 	// キャンバス状態（画像はゲームスレッドのみ）。
 	targets map[int]*ebiten.Image // id 別の描画バッファ。0 はメイン
 	bufs    map[int]bool          // 確保済み id（mu で保護）
-	sel     int                   // 現在の描画対象（mu で保護）
+	// bufSizes は id 別のバッファサイズ（mu で保護）。0 は含めず w/h を
+	// 返す。screen(id, w, h) で作ったバッファと gfxfile(path)/dropload(name) の
+	// 画像が自身のサイズを持ち、gfxsel(id) だけで確保した id は w/h を既定にする。
+	bufSizes map[int][2]int
+	sel      int // 現在の描画対象（mu で保護）
+	// pixelImages は gfxblit() のアップロード先キャッシュ（ゲームスレッドのみ）。
+	// key は DLL バッファ id。サイズが変わったら作り直す。
+	pixelImages map[int]*ebiten.Image
+	// persp は gfxquad() の透視補正シェーダ（ゲームスレッドのみ）。
+	persp    *ebiten.Shader
+	perspErr error
+	// flat は tri() の単色塗り用 1x1 白画像（ゲームスレッドのみ）。
+	flat *ebiten.Image
+	// quadBatch/triBatch は gfxquad()/tri() の内部バッファ（mu で保護）。
+	// スクリプトスレッドが貯め、適切なタイミング（他描画・読戻し・
+	// フレーム境界・上限）でまとめて1つ以上の Draw へ流す。
+	quadBatch *quadBatchState
+	triBatch  *triBatchState
 	// scrollScratch はキャンバス文字のスクロールに使う一時画像を
 	// 再利用し、大量のスクロールで行ごとに新しい GPU 画像を確保しない
 	// ようにする。ゲームスレッドのみ。下記のとおりバッファサイズ
 	// ごとにキー化される。
 	scrollScratch map[[2]int]*ebiten.Image
 	blend         ebiten.CompositeMode
-	// persp は gquad() 用の共有の遠近補正テクスチャシェーダ
-	// （ゲームスレッドで一度だけコンパイル。persp.go を参照）。
-	// perspErr はコンパイル失敗を固定し、以降のすべての描画が毎フレーム
-	// 再試行せずアフィン・フォールバックを取るようにする。
-	persp    *ebiten.Shader
-	perspErr error
-	queue    []func()
+	queue         []func()
 	// pending はフレーム構築中の canvas コマンド置き場。yieldedOnce 以後は
 	// enqueue がここへ溜め、await()/sleep()/end のフレーム境界で queue へ
 	// 一括移動する。これで cls() 直後の空 canvas や描きかけが1フレーム
 	// 表示される撕裂 (ちらつき) が出ない。await 前のスクリプトは高速に
 	// 全コマンドを積み、次の Update で原子的に適用される。
 	pending []func()
-	// drawSel は Draw が読む公開済み可視バッファ。gsel() の途中切替が
+	// drawSel は Draw が読む公開済み可視バッファ。gfxsel(id) の途中切替が
 	// そのまま画面に出て裏バッファの描きかけが見えるのを防ぐ。
 	drawSel int
 	// 入力ラッチ＋音声（G2）。マウスボタンは 0 左、1 中央、2 右で
-	// 番号付けされる（clicked() の番号付け）。
-	mouseDown  [3]bool
-	clickFlag  [3]bool
-	wheelAccum float64 // 未消費の垂直ホイールのデテント
-	audio      *audioState
-	// 描画全体のアルファ 0-255（galpha。図形とブリット）。
+	// 番号付けされる（getkey 0-2 の番号付け）。
+	mouseDown   [3]bool
+	clickFlag   [3]bool
+	releaseFlag [3]bool
+	wheelAccum  float64 // 未消費の垂直ホイールのデテント
+	// keyPrev/keyHit/keyRel は getkey(code, 1/2) の立上り・立下り検出用
+	// （mu で保護）。pumpInput が Update ごとに両エッジをラッチし、
+	// KeyHit/KeyReleased が消費する（getkey(code, 1/2) と同じ消費型）。
+	// getkey(code, 0) のレベル検出はラッチを使わず ebiten を直接読む。
+	keyPrev map[int]bool
+	keyHit  map[int]bool
+	keyRel  map[int]bool
+	// padPrev/padHit/padRel は padbtn(id, btn, 1/2) の立上り・立下り
+	// 検出用（mu で保護）。pumpInput が Update ごとにラッチし、
+	// PadButtonHit/PadButtonReleased が消費する。
+	padPrev map[padKey]bool
+	padHit  map[padKey]bool
+	padRel  map[padKey]bool
+	audio   *audioState
+	// 描画全体のアルファ 0-255（図形とブリット）。
 	alpha uint8
 	// await()/tick() 用のフレームカウンタ（mu で保護）。
 	tick     int64
 	tickWait []chan struct{}
 	// closingArmed は閉じるボタンの処理を有効にする（closing()。保護あり）。
 	closingArmed bool
-	// ドロップされたファイル（dropfiles/dropload。mu で保護）。
+	// ドロップされたファイル（dropload()/dropload(name)。mu で保護）。
 	dropNames []string
-	dropFS    fs.FS // 最後のスナップショット（dropload 用に保持）
+	dropFS    fs.FS // 最後のスナップショット（dropload(name) 用に保持）
 	// 即時入力の繰返し状態（input()。保護あり）。
 	charSt charRep
 	ctrlSt []ctrlState // ctrlKeys の各エントリに1スロット
@@ -169,12 +166,10 @@ type WindowBackend struct {
 	// されることはない。ime(1) または次のボックスフォーカスのエッジで
 	// 解除される。mu で保護される。
 	imeOff bool
-	// 保持されるウィジェット（G3。注記のある箇所を除きゲームスレッドのみ）。
-	ui        *ebitenui.UI
-	root      *widget.Container
-	fixLayout *fixedLayout
-	widgets   map[int]*widgetEntry
-	uiW, uiH  int // 適用されたルートの位置サイズ
+	// 保持されるウィジェット (G3、自前描画。mu で保護)。
+	widgets map[int]*widgetEntry
+	// モーダルダイアログ (自前描画)。
+	dlg *dialogState
 }
 
 // New は w x h 論理ピクセルのウィンドウバックエンドを生成する。
@@ -185,7 +180,13 @@ func New(w, h int) (*WindowBackend, error) {
 	}
 	b := &WindowBackend{
 		w: w, h: h,
-		ctrlSt: make([]ctrlState, len(ctrlKeys)),
+		ctrlSt:  make([]ctrlState, len(ctrlKeys)),
+		keyPrev: make(map[int]bool),
+		keyHit:  make(map[int]bool),
+		keyRel:  make(map[int]bool),
+		padPrev: make(map[padKey]bool),
+		padHit:  make(map[padKey]bool),
+		padRel:  make(map[padKey]bool),
 		// 白いウィンドウ: 既定のフェイスは白地に黒文字で、
 		// Windows 標準のウィジェットテーマに合わせている。
 		fg:       color.NRGBA{0x00, 0x00, 0x00, 0xFF},
@@ -196,9 +197,11 @@ func New(w, h int) (*WindowBackend, error) {
 		// 画像マップは最初の画像操作より前に存在する必要がある:
 		// PicLoad と DropLoad は ensureTarget を通らずに書き込み先を
 		// 書くため、遅延初期化では nil マップで panic する。
-		targets: make(map[int]*ebiten.Image),
-		bufs:    make(map[int]bool),
+		targets:  make(map[int]*ebiten.Image),
+		bufs:     make(map[int]bool),
+		bufSizes: make(map[int][2]int),
 	}
+	b.refreshGDILocked()
 	// 初期フレーム (空 canvas) も Draw に公開しておく。
 	b.mu.Lock()
 	b.publishFrameLocked()
@@ -257,10 +260,10 @@ func (b *WindowBackend) Closed() bool {
 }
 
 // publishFrameLocked は構築中のフレームを確定する: 準備された
-// キャンバス命令（図形も mes()/print() の文字も同様）は1つの塊として
-// ゲームキューへ移り、可視バッファ sel が drawSel にスナップショット
-// される。呼出し側は mu を保持すること。
-// Draw はスナップショットだけを読むため、進行中の cls()/mes() 列の
+// キャンバス命令（図形も msg()/print() の文字も gfxquad()/tri() の貯めた分も
+// 同様）は1つの塊としてゲームキューへ移り、可視バッファ sel が drawSel に
+// スナップショットされる。呼出し側は mu を保持すること。
+// Draw はスナップショットだけを読むため、進行中の cls()/msg() 列の
 // 作業状態が決して描画されない: フレームはスクリプトの yield 地点
 // （Await/Sleep、すなわちフレームが完成した一度）か、スクリプトがまだ
 // yield していない間は Update によって確定される。
@@ -268,6 +271,8 @@ func (b *WindowBackend) Closed() bool {
 // ショットを必要としない: フレームの残りとともに確定され、確定された
 // バッファ（drawSel）はそれまで直前のフレームを保つ。
 func (b *WindowBackend) publishFrameLocked() {
+	b.flushQuadBatchLocked()
+	b.flushTriBatchLocked()
 	b.flushTextBatchLocked()
 	if len(b.pending) > 0 {
 		b.queue = append(b.queue, b.pending...)
@@ -298,9 +303,9 @@ func (b *WindowBackend) Tick() int64 {
 // Await は n フレーム経過までブロックする。スクリプトのゴルーチン
 // から来るべきで、決してゲームスレッドから来てはならない（起こせない）。
 // この呼出がフレーム境界になる: 前回の await 以降に描かれたものすべて
-// （図形も mes()/print() の文字も同様）がここで確定されるため、Draw は
+// （図形も msg()/print() の文字も同様）がここで確定されるため、Draw は
 // 半描画のフレームを決して観測しない。
-// (cls() 直後や mes() 前の状態が画面に出るちらつきの防止).
+// (cls() 直後や msg() 前の状態が画面に出るちらつきの防止).
 // await(0) はそれゆえ「今すぐこのフレームを表示せよ」という明示的な
 // 指示も兼ねる。
 func (b *WindowBackend) Await(n int64) {
@@ -337,26 +342,7 @@ func (b *WindowBackend) Update() error {
 	b.pumpDrops()
 	b.pumpIME()
 	b.pumpInputs()
-	// Root は window 全面。リサイズ反映は Update 側で行い、Draw 中の
-	// SetLocation を避ける (Draw 中のレイアウト変更は ebitenui の描画を
-	// 1フレーム乱し、GUI部品のちらつき・ずれに見えるため)。
-	if b.ui != nil {
-		b.mu.Lock()
-		ww, hh := b.w, b.h
-		needReloc := b.root != nil && (b.uiW != ww || b.uiH != hh)
-		b.mu.Unlock()
-		if needReloc {
-			b.mu.Lock()
-			b.uiW, b.uiH = ww, hh
-			b.mu.Unlock()
-			b.root.SetLocation(image.Rect(0, 0, ww, hh))
-		}
-		if b.fixLayout != nil {
-			b.fixLayout.w, b.fixLayout.h = ww, hh
-		}
-		b.ui.Update()
-	}
-	b.syncWidgetCache()
+	b.pumpWidgets()
 	// フレーム確定は原則ここでは行わない (Draw は確定済みフレームのみ描く)。
 	// await()/sleep() を一度も使わないスクリプトはフレーム境界が無いので、
 	// その場合だけ Update で確定して描画がいつまでも出ないのを防ぐ。
@@ -374,15 +360,15 @@ func (b *WindowBackend) Update() error {
 	return nil
 }
 
-// Draw は確定されたキャンバスフレームに加えウィジェットと入力ボックス
+// Draw は確定されたキャンバスフレームに加え自前ウィジェットと入力ボックス
 // を描画する。文字は図形と同じキャンバスバッファに置かれる
-// （mes()/print() のピクセルは applyTextDraw によってそこへ
+// （msg()/print() のピクセルは applyTextDraw によってそこへ
 // ラスタライズされる）ため、Draw は1層だけをブリットする:
 // スクリプトで最後に描かれたものが勝つ。これは HSP とまったく同じ。
 func (b *WindowBackend) Draw(screen *ebiten.Image) {
 	// 白いウィンドウ: 消去（透明）されたキャンバスは白く見える。
 	screen.Fill(color.White)
-	// Visible canvas: the committed buffer (drawSel). gsel() の途中切替が
+	// Visible canvas: the committed buffer (drawSel). gfxsel(id) の途中切替が
 	// そのまま出ると裏バッファの描きかけが1フレーム見えるため、frame 境界で
 	// 公開された面だけを描く。targets 自体は game thread のみが触る。
 	b.mu.Lock()
@@ -392,9 +378,7 @@ func (b *WindowBackend) Draw(screen *ebiten.Image) {
 		screen.DrawImage(img, nil)
 	}
 
-	if b.ui != nil {
-		b.ui.Draw(screen)
-	}
+	b.drawWidgets(screen)
 	b.drawInputs(screen)
 	b.drawIMEComp(screen)
 }

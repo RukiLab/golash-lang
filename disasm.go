@@ -1,7 +1,7 @@
 // Golash バイトコード逆アセンブラ。
 //
 // `gsh disasm <file.gsh>` が定数プール・レジスタ数・ソース位置付きで出力する。
-// GOULASH_TRACE=1 の実行時トレースも同一フォーマッタを使う。
+// GOLASH_TRACE=1 の実行時トレースも同一フォーマッタを使う。
 package main
 
 import (
@@ -71,6 +71,8 @@ func formatInstrProg(prog *VMProgram, proto *VMProto, pc int) string {
 		return fmt.Sprintf("LOADN %s, N[%s], S%d", r(a), name(d), c)
 	case OpStoreN:
 		return fmt.Sprintf("STOREN %s, N[%s], S%d", r(a), name(d), c)
+	case OpDefN:
+		return fmt.Sprintf("DEFN %s, N[%s], S%d", r(a), name(d), c)
 	case OpCkVal:
 		return fmt.Sprintf("CKVAL %s", r(a))
 	case OpTest:

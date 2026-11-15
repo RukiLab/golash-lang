@@ -6,7 +6,7 @@ const vscode = require('vscode');
 
 function runScript() {
   const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.languageId !== 'goulash') {
+  if (!editor || editor.document.languageId !== 'golash') {
     vscode.window.showWarningMessage('Golash: .gsh ファイルを開いて実行してください');
     return;
   }
@@ -26,7 +26,7 @@ function runScript() {
 
 function activate(context) {
   context.subscriptions.push(
-    vscode.commands.registerCommand('goulash.run', () => runScript())
+    vscode.commands.registerCommand('golash.run', () => runScript())
   );
 }
 

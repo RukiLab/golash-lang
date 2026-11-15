@@ -10,11 +10,11 @@ import (
 // エラーダイアログが出ている間に Draw から描画ピクセルを測る
 // （ReadPixels が許されるのはゲーム実行中だけ）。
 type errDlgGame struct {
-	b                    *WindowBackend
-	frames               int
-	measured             bool
+	b                      *WindowBackend
+	frames                 int
+	measured               bool
 	minX, minY, maxX, maxY int
-	dark                 int
+	dark                   int
 }
 
 func (g *errDlgGame) Update() error {
@@ -61,7 +61,8 @@ func (g *errDlgGame) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 // TestErrorDialogStaysInWindow は最初のフレームで失敗するスクリプトの本番順序を再現する（Update がまだ1回も走っていない）。
-// エラーダイアログはスクリプト側の dialog() と同様に 640x480 ウィンドウ内に完全に収まって描画されなければならない。
+// エラーダイアログは OS ネイティブの dialog() とは別のウィンドウ内表示で、
+// 640x480 ウィンドウ内に完全に収まって描画されなければならない。
 func TestErrorDialogStaysInWindow(t *testing.T) {
 	if loopRan {
 		t.Skip("ebiten allows a single game loop per process")
@@ -71,7 +72,7 @@ func TestErrorDialogStaysInWindow(t *testing.T) {
 	msg := `C:\Users\kocha\Desktop\Dev\GolashProjects\golash-editor\無題.gsh:1:6: 0 による除算です`
 	go func() {
 		// ヘッドレスでは応答されない。計測後にゲームが終了する。
-		_, _ = b.Dialog(msg, "ok")
+		_, _ = b.Dialog(msg, 0)
 	}()
 	ebiten.SetWindowSize(640, 480)
 	ebiten.SetWindowTitle("Golash test")

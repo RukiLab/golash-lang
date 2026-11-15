@@ -1,9 +1,113 @@
 # CHANGELOG
 
-Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）で、git の
-タグ（`v0.8.1`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
-入る予定の変更で、版上げは README の「バージョン管理」または
-`go run ./tools/bumpver.go` を参照してください。
+Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで、git の
+タグ（`v0.9`）と `VERSION` ファイルが対応します。版上げは README の
+「バージョン管理」または `go run ./tools/bumpver.go` を参照してください。
+なお 0.8 以前は SemVer（`MAJOR.MINOR.PATCH`）で管理していました。
+
+## [0.9] - 2026-11-16
+
+### 移行ガイド（0.8 → 0.9）
+
+0.8 からの移行で特に影響の大きい変更です。個別の詳細はこの節の各項目にあります。
+
+| 0.8 | 0.9 |
+| --- | --- |
+| `def f() { ... }` / `if ... { ... }` | `def f()` ... `end` / `if ...` ... `end`（`{` は構文エラー） |
+| `end(code)`（終了） | `exit(code)`（`end` はブロック終端） |
+| `#mode cli` / `#mode gui` | 宣言なし。main から到達可能な GUI 組込で自動判定 |
+| `#define NAME value` / `#ifdef` | `NAME = value`。前処理は `include` のみ |
+| `true` / `false` / `bool` | `1` / `0`（整数） |
+| `msg(a, b)` / `print(a, b)` | `msg(v)` / `print(v)` の1引数。連結は `+ str()` |
+| `sort(a)` がソート済み配列を返す | `sort(a)` は元インデックスを返す（`a` 自体はソート済み） |
+| `strlen` / `length` | `len` |
+| `strmid(s, start, count)` | `slice(s, start, end)`（第3引数は終端） |
+| `instr(s, start, sub)` | `find(s, sub, start)` |
+| `mes` / `mesbox` / `logmes` | `msg` / `msgbox` / `logmsg` |
+| `mmload` / `mmplay` / `mmstop` / `mmvol` / `mmpitch` | `sndload` / `sndplay` / `sndstop` / `sndvol` / `sndpitch` |
+| `gcopy` / `gmode` / `gquad` / `gblit` / `gsel` | `gfxcopy` / `gfxmode` / `gfxquad` / `gfxblit` / `gfxsel` |
+| `buffer` / `screensize` / `winmove` | `screen`（`winmove` は廃止） |
+| `clrobj` | `objdel` |
+| `delete` / `bcopy` | `filedel` / `filecopy` |
+| `noteload` / `notesave` / `bload` / `bsave` | `txtfile` / `binfile` |
+| `cwd` / `direxe` / `mkdir` | `curdir` / `exedir` / `dirmake` |
+| `clipget` / `clipset` / `getenv` / `setenv` / `httpget` / `httppost` / `getcwd` / `chdir` | `clip` / `env` / `http` / `curdir`（引数の有無で get/set） |
+| `wbind` / `wbind_items` / `wunbind` / `wsync` | 廃止。`objset` / `objget` / `objenable` |
+| `peek` / `poke` / `wpeek` / `wpoke` / `lpeek` / `lpoke` | 廃止。`binfile` / `buf*` |
+| `srcanalyze` / `lextokens` / `parsetree` | 廃止。エディタは `lex.gsh` の `lx_lex` を使う |
+| `GOULASH_FONT` / `GOULASH_TRACE` | `GOLASH_FONT` / `GOLASH_TRACE` |
+| UTF-8 BOM は字句エラー | 先頭の BOM を読み飛ばす |
+
+### 追加
+- 文字列の添字アクセス `s[i]` を追加（rune 単位で1文字の文字列を返す。読み取り専用で、`s[0] = "x"` はエラー）。
+- `repeat` の反復対象に文字列を追加（`repeat s as ch` は1文字ずつ、`repeat s as i, ch` は rune 単位の添字と1文字）。旧 `repeat "s"` はエラーだったが、文字列の反復になる。
+- `getkey(code [, mode])` と `padbtn(id, btn [, mode])` の `mode` に `2`（離した瞬間だけ `1` を返す立下り検出。呼び出しで消費）を追加。`mode` は `0`（レベル）、`1`（押した瞬間）、`2`（離した瞬間）のいずれかになり、範囲外はエラー（従来は非0をすべて立上りとして受理）。
+- GUI ウィジェット `slider(id, w, h, min, max [, value] [, orient])` を追加。`orient` で横（0）・縦（1）を切り替えられる。値の取得・変更は `objget` / `objset` で行い、同じ id での再配置では現在値を保つ。つまみ長は固定で、見た目は listbox/msgbox/combox のスクロールバーと共通（同じ溝・つまみ・ホバー/押下色）。
+
+### 削除
+- GUI 組込 `winmove(x, y)` を廃止（未定義関数になる）。
+- GUI 組込 `buffer(id, w, h)` を廃止し `screen(id, w, h)` に統合。`screensize` を廃止し `screen` に統合（未定義関数になる）。
+- 組込 `delete` / `bcopy` を廃止し、`filedel` / `filecopy` に改名（未定義関数になる）。
+- 組込 `notemax(s)` / `noteget(s, i)` / `noteadd(s, i, line)` / `notedel(s, i)` を廃止（未定義関数になる）。行単位の操作は `split(s, "\n")` と `join` / `insert` / `remove` で行う。
+- 組込 `noteload` / `notesave` / `bload` / `bsave` を廃止し、`txtfile` / `binfile` に分離（未定義関数になる）。
+- `button` の画像指定（`buf, sx, sy` の最大4状態）を廃止（`button(id, w, h, label)` のみ）。
+- 組込 `clrobj` を `objdel` に改名（未定義関数になる）。
+- GUI変数バインド（`wbind` / `wbind_items` / `wunbind` / `wsync`）を廃止（未定義関数になる）。
+- 組込 `picload` / `pngsave` を廃止し、`gfxfile` に統合（未定義関数になる）。
+
+### 変更
+- ブロック構文を `{ }` から `end` に変更（`def` / `if` / `while` / `repeat` / `switch`）。`{` は「`{` は使用できません。改行と end を使用してください」エラーになる。
+- 組込 `end(code)` を `exit(code)` に改名（`end` はブロック終端）。`#define` / `#ifdef` / `#mode` などの旧ディレクティブを廃止し、`#` で始まる行は移行エラーになる。
+- ソース先頭の UTF-8 BOM を読み飛ばす（Windows のエディタが付ける BOM 対策）。
+- `getpath()` はビットフラグ方式（`0` / `1` / `2` / `8` / `16` / `32`）を維持し、`mode` 省略時は `0`（全体）とする。
+- ディレクトリ系組込の命名を統一：`cwd([path])` を `curdir([path])`、`direxe()` を `exedir()`、`mkdir(path)` を `dirmake(path)` に改名。旧名は未定義関数になる。
+- `button` の引数順を `button(id, w, h, label)` に変更（ラベルを末尾へ移動）。
+- `objset(id, val)` は変数ではなく値そのものを設定する（変数バインドを廃止）。
+- `pos()` は現在位置 `[x, y]`、`gfxmode()` は現在の `[mode, alpha]`、`font()` は現在の `[spec, size]`、`objenable(id)` は現在の有効状態（`1`/`0`）を返すようにした。
+- `gfxfile(path)` は画像読み込み（バッファ id を返す）、`gfxfile(path, id)` は指定バッファの PNG 保存。
+- `color()` を現在色の取得（`[r, g, b, a]`）に変更。色のリセット機能は廃止。
+- `padbtn(id, btn [, mode])` にモードを追加：省略・`0` はレベル検出、`1` は立上り検出、`2` は立下り検出（`1`/`2` は呼び出しで消費）。
+- `dialog` を OS ネイティブのダイアログに変更：`0`=標準メッセージ＋OK、`1`=警告＋OK、`2`=標準＋はい/いいえ、`3`=警告＋はい/いいえ、`4`=ファイルを開く、`5`=ファイルを保存。旧 `3`/`4` のファイルダイアログは `4`/`5` に移動する。`0`/`1` はウィンドウ内ダイアログから OS のメッセージボックスに変わり、`dialog` は GUI 専用ではなくなった（CUI でも同じ OS ダイアログが開く）。
+- サウンド組込 `mmload` / `mmplay` / `mmstop` / `mmvol` / `mmpitch` を `sndload` / `sndplay` / `sndstop` / `sndvol` / `sndpitch` に改名。旧名は未定義関数になる。
+- 組込 `dropfiles` を `dropload` に統合。`dropload()` は前回呼び出し以降にドロップされたファイル名の配列を返し、`dropload(name)` はその画像を読み込んでバッファIDを返す。旧 `dropfiles` は未定義関数になる。
+- 組込 `mes` を `msg`、GUI組込 `mesbox` を `msgbox`、`logmes` を `logmsg` に改名。旧名は未定義関数になる。
+- 組込 `strlen` / `length` を廃止し、`len` に統合（文字列は rune 数、配列は要素数）。旧名は未定義関数になる。
+- 組込 `strmid` を `slice` に統合し、文字列と配列の共通操作にした：`slice(s | arr, start [, end])`。文字列は rune、配列は要素単位で、範囲は `[start, end)`。`start` / `end` が負なら末尾から数え、`end` を省略すると末尾までを複製する。旧 `strmid(s, start, count)` の第3引数は個数から終端（排他的）に変わる。元の配列は変更しない。旧 `strmid` は未定義関数になる。
+- 組込 `instr` を `find` に統合し、文字列と配列の共通操作にした：`find(s | arr, needle [, start])`。文字列は rune 単位の絶対位置、配列は添字を返し、見つからなければ `-1`。3引数形は `instr(s, start, sub)` から `find(s, sub, start)` に引数順が変わる。旧 `instr` は未定義関数になる。
+- 配列を破壊的に変更する `push` / `pop` / `sort` / `reverse` / `insert` / `remove` は統合せず、個別の関数のまま残す（`slice` / `find` は非破壊）。
+- 添字エラーの文言を配列・文字列共通に変更：`配列のインデックスは…` ではなく `インデックスは…`。文字列への添字代入は `文字列はインデックスで変更できません` になる。
+- 組込 `padcount` / `padname` を廃止し、`pad()` に統合（接続中のゲームパッド名の配列を返す。要素数が接続数、`pad()[i]` が名前）。旧名は未定義関数になる。
+- ファイル入出力を `txtfile` / `binfile` に分離：`txtfile(path)` はテキスト読み込み（`\r\n` は `\n` に正規化）、`txtfile(path, s)` はテキスト保存、`binfile(path)` はバイト配列読み込み、`binfile(path, arr)` / `binfile(path, arr, size)` はバイト列保存（`size` は先頭から書き込むバイト数）。
+- GUI 描画系の接頭辞を整理：`gcopy` / `gmode` / `gquad` / `gblit` は `gfxcopy` / `gfxmode` / `gfxquad` / `gfxblit` に改名。`galpha` は `gfxmode(mode [, alpha])` に統合（`alpha` 省略時は現在の不透明度を維持）、`gsel` は `gfxsel(id)` に改名。旧名はすべて未定義関数になる。
+- `mousex()` / `mousey()` を `mouse()` に統合し、カーソル位置を `[x, y]`（ウィンドウピクセル）の配列で返すように変更。旧名は未定義関数になる。
+- `touchcount()` / `touchx(i)` / `touchy(i)` を `touch()` に統合し、接触中の各タッチ位置を `[[x, y], ...]`（ウィンドウピクセル）の配列で返すように変更。接触がなければ `[]`。旧名は未定義関数になる。
+- 描画関数のサイズに負値を許容。`rect(x,y,w,h)` は従来通り逆向きに正規化、`ellipse(x,y,w,h)` は左上原点のため `rect` と同じく負の `w`・`h` を左上へ拡張する向きに正規化（`0` は無描画）。`gfxcopy` はコピー元を逆向きに正規化し、コピー先サイズの負は逆向きに正規化＋反転描画（等倍時は `w`・`h` の負が反転）。`gfxblit` は `w`・`h` の負を絶対値で解釈し、コピー先サイズの負は反転描画。いずれも `0` はエラー（`ellipse` の `0` は無描画のまま）。
+- 画面サイズの取得・変更・バッファ作成を `screen` に集約：`screen()` は OS ウィンドウ、`screen(id)` は描画バッファ（`0` はメインキャンバス）の `[幅, 高さ]`。`screen(w, h)` はウィンドウ／メインキャンバスのリサイズ、`screen(id, w, h)` はバッファの作成・置換（`id` が `0` ならメインのリサイズ）。描画バッファの選択は `screen(id)` から分離した `gfxsel(id)` で行う。
+- get/set 系を `val` の有無で統合：`clip([s])`・`env(name [, val])`・`http(url [, val])`・`curdir([path])` に一本化。`val`（`s`・`val`・`path`）があれば set（設定・送信・変更）、なければ get（取得）になる。旧 `clipget` / `clipset`・`getenv` / `setenv`・`httpget` / `httppost`・`getcwd` / `chdir` は廃止し、未定義関数になる。`http` の送信は `application/json` 固定で、`val` は文字列で渡す。応答は常に本文を文字列で返す（JSON の解釈はしない）。ファイル保存（`path`）・`contentType` 指定は廃止し、保存は `txtfile(path, http(url))` を使うこと。
+- 版管理を SemVer（`MAJOR.MINOR.PATCH`）から `MAJOR.MINOR` のドット1つに変更し、`0.9` を採用。`VERSION`・処理系の `golashVersion`・ルート `package.json`・各ドキュメントの `v<X.Y>` 表記を `TestVersionPinnedEverywhere` が検査します（VS Code 拡張の manifest だけは3桁 SemVer が必要なため `0.9.0`）。`tools/bumpver.go` は `-bump major|minor` のみ（`-bump patch` 廃止）。`gsh version` の出力から `(SemVer)` 表示と `-json` の `"semver"` 欄を廃止（例 `Golash v0.9`・`{"name":"Golash","version":"0.9"}`）。0.8 以前の `## [0.8.x]` 見出しは履歴として残します。
+- `bool` 型を廃止。`true` は整数 `1`、`false` は整数 `0` の糖衣構文になり、比較・論理演算・条件式・真偽を返す組込はすべて `int` の `1`/`0` を返す。条件式と論理演算子の左右は整数（`0`=偽、非0=真）。二値引数（`cursor([v])`・`fullscreen([v])`・`resizable([v])`・`ime([v])`・`getkey(code [, mode])`・`ellipse(x, y, w, h [, fill])`・`sndplay(id [, loop])`・`objset(id, val)` の `chkbox` 状態変更・`objenable`・`chkbox`）は整数で指定し、状態は `1`/`0` で返す。`getkey` の `mode` は省略・0 = レベル検出、1 = 立上り検出、2 = 立下り検出。`dialog` の `mode`（`0`〜`5`）など多値の引数は従来通り整数。`dlldef` の旧 `bool` 型は `int` の別名として受理する。
+- `srcanalyze(src)` / `lextokens(src)` / `parsetree(src)` を廃止（未定義エラー）。字句解析は Golash 自体で書く（`GolashProjects/golash-editor/lex.gsh` の `lx_lex`）。エディタは Go 側の字句解析器を使わず、すべて `lx_lex` で解析する。
+- ブロックコメント（`/* */`、入れ子可）を廃止。`/*` はコメントではなく `SLASH` + `STAR` の2トークンとして扱う。
+- エディタの再解析は画面に表示されている行のみ字句解析するように変更（`hl_vis_rows` 行の窓解析。スクロール・リサイズは即時再解析）。アウトラインは全行走査の `hl_scan_defs` で保つため表示外の定義も消えず、保存・実行時の診断（`hl_check_mem`）も従来通り全文で行う。
+- エディタの include行走査を版数キャッシュ化（`hl_buffer_includes`）。`hl_build_funcs` が毎回全行を走査していたのを同タブ・同版・同パスなら使い回し、スクロール時の再解析を軽くする。
+- エディタの再解析はスクロール・リサイズだけなら構造（アウトライン・関数・変数）を作り直さず窓のハイライトだけ更新するように変更。版数不変では定義が変わり得ないため。併せてアウトライン走査（`hl_scan_defs`）は `"def "/"def\t"` を含む行だけ精査する事前絞り込みを追加。画面内ハイライトは 8ms 以内（1585行で実測 5ms）。
+
+## [0.8.2] - 2026-10-20
+
+### 追加
+- `gflat(xs, ys, cols)`（G7、GUI、`docs/MANUAL.md` GUI描画）：単色四角形を一括で塗る（透視補正なし）。`xs`/`ys` は1面4要素の平坦配列、`cols` は面毎1要素の `0xRRGGBB`。2三角形分割のため縮退・裏返りでもエラーにしない（背面カリングは呼出し側）。テクスチャ面 `gquad` に対する単色面の高速経路
+- DLL呼び出し（CUI/GUI共通、`docs/MANUAL.md` DLL呼び出し）：C ABI の DLL を purego 経由で呼ぶ（CGO 不要・Windows/Linux/macOS 共通）。`dlload(path)` で開き（同じパスは共用）、`dllcall(h, name, "戻り値(引数1,引数2,...)", args...)` で呼ぶ（型は int/float/string/bool/buf/void、引数15個まで）。短い呼び出し名は `#dll "path"`＋`#dlldef NAME "symbol" "sig"` で付ける。連続バッファ（`bufnewf`/`bufnewi`/`buflen`/`bufget`/`bufset`/`bufpackf`/`bufpacki`/`bufunpack`）で境界を一括で越える。呼び出しは one-way。g3d の収集は外部 DLL（`GolashProjects/g3d/g3daccel`＋`g3daccel.gsh`）が行い、2024面ベンチでフレーム全体 29.7ms → 1.4ms（VM 実装との全要素一致は `zz_parity.gsh` で検証）
+
+### 削除
+- `fastgen` 一式を廃止（`#fast`/`#endfast`、`gsh fastgen`、`*.nat.gsh`、`gsh run --fast`、`GOULASH_FAST*`）。`#fast` を含むスクリプトは「不明なディレクティブ」エラーになる。高速化は DLL呼び出しを使うこと
+- 組込 `g3dquads` を廃止（3D 専用組込は外部 DLL へ移管）。`GolashProjects/g3d/g3daccel`＋`g3daccel.gsh` の `acc_upload`/`acc_collect` を使うこと（使い方は `bench_2024.gsh` mode 4 を参照）
+
+### 変更
+- `exist()` を廃止し `fileinfo()` に一本化。旧 `exist(path)` 相当は `fileinfo(path)[0] != -1`。
+- `filetime()` を廃止し `fileinfo()` に一本化。旧 `filetime(path)` 相当は `fileinfo(path)[1]`（存在しなければ `0`）。
+- `exec()` をコンソールなしの切り離し起動に一本化。旧 `exec()`（親コンソール共有）および `execgui()` 名を廃止。旧 `execgui()` 相当が新 `exec()`。
+- `pipeexec()` を `[終了コード, 標準出力, 標準エラー]` 返却に一本化。旧 `pipeexec()`（標準出力のみ返却・失敗時エラー）および `piperun()` 名を廃止。旧 `piperun()` 相当が新 `pipeexec()`（起動失敗は `[-1, "", メッセージ]` で値として返す）。
+- `gquad()` の空・折り返し・特異な面はエラーにせず描画を飛ばすように変更。真横から見た面（重み非正）やカード裏返し途中の潰れ（特異な写像）は空の面と同様に何も描かない（裏で捨てる）。バッチ内に有効な面があればそれだけ描く。
 
 ## [0.8.1]
 
@@ -46,6 +150,7 @@ Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）�
 - `listbox` に縦スクロールバーを表示するようにした（横は非表示のまま）。ホイール専用では操作手段が見えなかったため。つまみはドラッグでき、ホイールもリスト側で処理されるようになった（従来はホイールが捨てられていた）。項目の `...` 省略はバー幅16px＋左右余白を差し引いた幅で行う
 - `listbox` / `combox` の選択行背景が1pxの枠線の上に描かれていた不具合を修正。スクロールコンテナに1pxの内側余白を設け、選択・ホバー・フォーカスの背景が枠内に収まるようにした
 - `listbox` / `combox` のエントリ文字を中央揃えから左上揃え（`TextPositionStart`）に変更。中央揃えはスクロールオフセットの丸めに加えて `int((行高-文字高)/2)` の丸めが重なり、行のベースラインが1pxずれてガタついて見えることがあったため。自前描画のアウトラインと同じ見た目になります
+- `combox` の右端の V 字矢印が、2本の線を重ねた描画で左腕だけ1px高くガタつき、全体も約0.3px左にずれて見えていたのを修正。1本のパスをアンチエイリアス付きで描き、奇数高のコンボでも上下中央になるようにした
 - `listbox` のキー操作を無効化。フォーカス中のリストが矢印・Enterを横取りし、スクリプト側のキー処理と二重に動く問題を解消（スクリプトが `selected()` で読む方式に一本化。Tabフォーカス移動の廃止と同趣旨）
 - `button` の文字パディングを4pxから2pxに縮小（16px級フォントで高さ18pxの短いタブバーでもラベルが欠けないように）
 
@@ -54,7 +159,7 @@ Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）�
 - `objprm()` の `"textcolor"`・`"backcolor"`（別名 `"color"`・`"bgcolor"`）を廃止。ウィジェットテーマ固定化に伴いキーは `"enable"` のみ。不明なキーとしてエラーになる
 - `imepos()` / `imepos(x, y)` を廃止。IME候補窓・変換中文字列は画面左上に固定表示し（caret追従・手動指定なし）、呼び出しは未定義関数エラーになる
 - `imeget()` / `imeclause()` を廃止。変換中文字列・文節は画面左上の固定欄に常時表示するため、取得関数は不要に。呼び出しは未定義関数エラーになる
-- ウィジェットテーマをダークからWindows標準（白背景・1px灰色枠・黒文字・水色アクセント）に固定。選択ハイライト・押下は水色、ホバーは淡青、無効は白系＋灰文字。チェックボックスは白地＋黒チェック
+- ウィジェットテーマをダークから Windows 10 標準コントロール（Aero2）相当に固定。ボタンは `#F0F0F0` の面・`#D0D0D0` の1px枠・内側の白ハイライト、ホバーは `#E5F1FB`＋`#0078D7` 枠、押下は `#CCE4F7`＋濃青枠、無効は灰文字。入力欄・リスト・コンボは白地＋`#ABADB3` 枠で、フォーカス時も背景は白のまま枠だけアクセント青。選択行は `#0078D7`＋白文字、チェックボックスは14pxでチェック時は青地＋白チェック、スクロールバーは17pxの灰色溝＋枠なしつまみ、ダイアログは `#F0F0F0` 面＋既定ボタンの青枠
 - GUI `cls()` のウィジェット消去（`clrobj()` 相当）を廃止。`cls()` はキャンバス/テキストのみ消去し、ウィジェットは `clrobj()` でのみ消去する。描画ループ内で毎フレーム `cls()` してもウィジェットが残る
 - Tab / Shift+Tab によるウィジェットのフォーカス移動（ebitenui の既定動作）を廃止。Tab はキー入力（`keypush(9)`・自前エディタのタブ挿入）として使える。クリックによるフォーカスは従来通り
 
@@ -143,7 +248,7 @@ Golash 処理系の変更履歴です。版は SemVer（`MAJOR.MINOR.PATCH`）�
 - GUI実行時エラーでプロセスを終了するように変更（従来は検査用にウィンドウを開いたままにしていた。メッセージは標準エラー出力へ出し、終了コード `1`。正常終了時は開いたまま）
 - `mes()` / `print()` の末尾が装飾キーワードと完全一致する場合は印刷されず装飾指定になります（例：`mes("a", "bold")` は `a` を太字表示）
 - `getpath()` のビットマスク数値を廃止し、部位キーワードの複数引数に変更（`getpath(p, "dir", "base")` 等。数値指定はエラー）
-- 表面nullの排除：void値の使用（代入・引数・配列要素・`==`・switch値）はエラー。`mes()` / `print()` / `logmes()` は黙って飛ばす。`input()` のEOF・ダイアログcancel・未設定`getenv()` は `""`。`parsetree` の欠落部も `""`（`== ""` で判定可）
+- 表面nullの排除：void値の使用（代入・引数・配列要素・`==`・switch値）はエラー。`mes()` / `print()` / `logmes()` は黙って飛ばす。`input()` のEOF・ダイアログcancel・未設定`env()` は `""`。`parsetree` の欠落部も `""`（`== ""` で判定可）
 - `map` 型を完全削除（リテラル・ドット/`[]`アクセス・`keys`/`has`/`del`・比較・`vartype`）。`{"a":1}`・`m.a` はパースエラー。`lextokens` は `[type, text, line, col]` 配列に、`parsetree` は位置タプル配列に変更
 - ネスト関数を廃止（`def` はトップレベルのみ）。クロージャも廃止し、呼び出しはグローバル変数を参照
 - 関数は値として扱えなくなり、`KFunc` 型を削除（関数名の参照・代入・`vartype` は未定義変数エラー）

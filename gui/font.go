@@ -15,7 +15,7 @@ import (
 // システムフォントの探索。
 //
 // 文字は OS のシステムフォントで描画される。フォントファイルは
-// バンドルされない。GOULASH_FONT（.ttf/.otf/.ttc ファイルへのパス）が
+// バンドルされない。GOLASH_FONT（.ttf/.otf/.ttc ファイルへのパス）が
 // 探索を上書きする。さもなくば現在の OS に対する読み込めて解析できる
 // 最初の候補が採用される。候補は行のピッチへの適合を優先して並ぶ:
 // テキスト1行は lineHeight の高さ（既定の16pxフェイスで16px）である
@@ -27,7 +27,7 @@ import (
 // は自然に流れ、等幅よりは端末らしく見えないだけである。マシンに
 // 無いフォントは飛ばされ、次に OS の UI フォント、最後にラテン文字
 // のみのフォールバックが使われる。
-const fontEnvOverride = "GOULASH_FONT"
+const fontEnvOverride = "GOLASH_FONT"
 
 // systemFontCandidates は優先順にフォントファイルを列挙する。
 func systemFontCandidates() []string {
@@ -101,7 +101,7 @@ func systemFontSource() (*text.GoTextFaceSource, string, error) {
 	if p := os.Getenv(fontEnvOverride); p != "" {
 		src, err := loadFontFile(p)
 		if err != nil {
-			fontErr = fmt.Errorf("font: GOULASH_FONT %q: %w", p, err)
+			fontErr = fmt.Errorf("font: GOLASH_FONT %q: %w", p, err)
 			return nil, "", fontErr
 		}
 		fontSrc, fontPath = src, p
@@ -115,7 +115,7 @@ func systemFontSource() (*text.GoTextFaceSource, string, error) {
 		fontSrc, fontPath = src, p
 		return fontSrc, fontPath, nil
 	}
-	fontErr = fmt.Errorf("font: no usable system font found (set GOULASH_FONT to a .ttf/.otf/.ttc file)")
+	fontErr = fmt.Errorf("font: no usable system font found (set GOLASH_FONT to a .ttf/.otf/.ttc file)")
 	return nil, "", fontErr
 }
 

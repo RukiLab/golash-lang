@@ -29,8 +29,9 @@ func restoreIfMinimized() {
 }
 
 // showErrorInWindow は msg をウィンドウ内のモーダルダイアログに表示する
-// （dialog() 組込と同じ外観）。これによりゲームウィンドウの陰に隠れる
-// ことが決してない。dialog() と同じく応答があるまでブロックする。
+// （OS ネイティブの dialog() 組込とは別の、エラー表示専用の経路）。
+// これによりゲームウィンドウの陰に隠れることが決してない。
+// 応答があるまでブロックする。
 // 尋問中は最小化されていればウィンドウを復元し、フローティングにする:
 // 切り離された GUI 子プロセスは他のウィンドウの陰や最小化状態で
 // 起動しうるため、ユーザーからエラーウィンドウに気づかれないという
@@ -41,13 +42,13 @@ func showErrorInWindow(wb *gui.WindowBackend, msg string) {
 	restoreIfMinimized()
 	ebiten.SetWindowFloating(true)
 	defer ebiten.SetWindowFloating(false)
-	_, _ = wb.Dialog(msg, "ok")
+	_, _ = wb.Dialog(msg, 0)
 }
 
 // reportGUIError は GUI モードの失敗を標準エラー出力とネイティブ
 // ダイアログの両方に報告する。これはウィンドウが無い場合の失敗
 // （解析エラー、ウィンドウ生成失敗）向けである: GUI プログラムは
-// しばしば切り離されて起動される（エディタの execgui、ダブルクリック
+// しばしば切り離されて起動される（エディタの exec、ダブルクリック
 // された windowsgui 実行ファイル）ためコンソールがなく、標準エラー
 // 出力だけでは見えない。ダイアログが確実な伝達経路である。
 func reportGUIError(msg string) {

@@ -1,9 +1,11 @@
 // P2 組み込み関数：文字列操作。
 //
+// 文字列と配列に共通する非破壊の操作（len/slice/find）は builtin_seq.go。
+//
 // HSP との違い（文書化・現代化済み）：
 //   - 長さとインデックスはバイトではなく文字（ルーン）単位で数えるため、日本語
 //     テキストは1グリフ＝1文字として扱われる。
-//   - instr は絶対インデックスを返す（HSP は開始位置からの相対インデックスを返す）。
+//   - find は絶対インデックスを返す（HSP の instr は開始位置からの相対）。
 //   - split/getpath/strf は out 引数への書き込みではなく戻り値を返す。
 package main
 
@@ -15,82 +17,6 @@ import (
 )
 
 func init() {
-	// strlen(s)：文字数を数える。
-	register("strlen", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("strlen", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		return Int(int64(len([]rune(s)))), nil
-	})
-
-	// strmid(s, start, count)：文字インデックス（0始まり）で部分文字列を取り出す。
-	// 負の start は末尾からの位置になる（HSP と同様）。
-	register("strmid", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("strmid", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		start, err := needInt("strmid", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		count, err := needInt("strmid", args, 2, at)
-		if err != nil {
-			return Null(), err
-		}
-		if count < 0 {
-			return Null(), argErr("strmid", 2, at, "count は 0 以上である必要があります。%d が指定されました", count)
-		}
-		r := []rune(s)
-		if start < 0 {
-			start += int64(len(r))
-		}
-		if start < 0 || start > int64(len(r)) {
-			return Null(), argErr("strmid", 1, at, "start %d は範囲外です（長さ %d）", args[1].I, len(r))
-		}
-		end := start + count
-		// 長さを超えた終端はエラーにし、黙って切り詰めない
-		//（end < start は start+count が巨大な count で桁あふれしたことを意味する）。
-		if end > int64(len(r)) || end < start {
-			return Null(), argErr("strmid", 2, at, "start %d から count %d は長さ %d を超えています", args[1].I, count, len(r))
-		}
-		return Str(string(r[start:end])), nil
-	})
-
-	// instr(s, sub)／instr(s, start, sub)：start 以降で最初に sub が現れる
-	// 絶対インデックスを返す。見つからない場合は -1。
-	register("instr", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("instr", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		var start int64
-		subIdx := 1
-		if len(args) == 3 {
-			start, err = needInt("instr", args, 1, at)
-			if err != nil {
-				return Null(), err
-			}
-			subIdx = 2
-		}
-		sub, err := needString("instr", args, subIdx, at)
-		if err != nil {
-			return Null(), err
-		}
-		r := []rune(s)
-		// 範囲外の start はエラーにし、黙って切り詰めない
-		//（2引数形式は既定で 0 になるため常に有効）。
-		if start < 0 || start > int64(len(r)) {
-			return Null(), argErr("instr", 1, at, "start %d は範囲外です（長さ %d）", start, len(r))
-		}
-		rel := strings.Index(string(r[start:]), sub)
-		if rel < 0 {
-			return Int(-1), nil
-		}
-		return Int(start + int64(len([]rune(string(r[start:])[:rel])))), nil
-	})
-
 	// strtrim(s [, chars] [, mode])：両端から文字を取り除く（mode が
 	// 0 の場合は両端、1 は左のみ、2 は右のみ）。chars 省略時は空白文字。
 	register("strtrim", 1, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
@@ -159,7 +85,8 @@ func init() {
 		return Str(strings.ReplaceAll(s, old, nw)), nil
 	})
 
-	// upper(s)／lower(s)：ASCII の大文字・小文字変換（日本語テキストには影響しない）。
+	// upper(s)／lower(s)：Unicode の大文字・小文字変換
+	//（日本語テキストには影響しない）。
 	register("upper", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("upper", args, 0, at)
 		if err != nil {
@@ -244,41 +171,25 @@ func init() {
 		return Str(fmt.Sprintf(format, fargs...)), nil
 	})
 
-	// getpath(path, mode)：パス分解。モードは HSP に準拠し加算で組み合わせる：
-	// 0 はコピー、1 は拡張子除去、2 は拡張子のみ（ドット付き）、
-	// 8 はディレクトリ除去、16 は小文字化、32 はディレクトリのみ。
-	register("getpath", 1, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// getpath(path [, mode])：パス分解。mode は HSP 準拠のビットフラグで
+	// 加算して組み合わせる：1 は拡張子除去、2 は拡張子のみ（ドット付き）、
+	// 8 はディレクトリ除去、16 は小文字化（修飾子）、32 はディレクトリのみ。
+	// 0 または省略時は全体を返す。32 > 2 > 8 > 1 の優先順で、16 は結果に適用する。
+	register("getpath", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("getpath", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		// 部位は合成できる：「dir」＋「base」は dir/base になり、「lower」は
-		// 選択結果を小文字化する。部位指定なしはフルパスになる。
-		//（「file」は既に拡張子を含むため、「file」＋「base」
-		// の同時指定は矛盾として拒否される。）
-		var dirSel, fileSel, baseSel, extSel, lower bool
-		for i := range args[1:] {
-			s, err := needString("getpath", args, i+1, at)
+		mode := 0
+		if len(args) == 2 {
+			v, err := needInt("getpath", args, 1, at)
 			if err != nil {
 				return Null(), err
 			}
-			switch s {
-			case "dir":
-				dirSel = true
-			case "file":
-				fileSel = true
-			case "base":
-				baseSel = true
-			case "ext":
-				extSel = true
-			case "lower":
-				lower = true
-			default:
-				return Null(), argErr("getpath", i+1, at, "parts は dir/file/base/ext/lower のいずれかである必要があります。%q が指定されました", s)
-			}
+			mode = int(v)
 		}
-		if fileSel && baseSel {
-			return Null(), argErr("getpath", 0, at, "file と base は同時に指定できません")
+		if mode < 0 || mode&^(1|2|8|16|32) != 0 {
+			return Null(), argErr("getpath", 1, at, "mode は 1/2/8/16/32 の組み合わせである必要があります。%d が指定されました", mode)
 		}
 		// 分解用に区切り文字を正規化し、その後で元の形式に戻す。
 		win := strings.Contains(p, "\\")
@@ -286,22 +197,25 @@ func init() {
 		dir, file := filepath.Split(slash)
 		ext := filepath.Ext(file)
 		base := strings.TrimSuffix(file, ext)
-		out := p
-		if dirSel || fileSel || baseSel || extSel {
-			out = ""
-			if dirSel {
-				out += dir
+
+		var out string
+		switch {
+		case mode&32 != 0:
+			out = dir
+		case mode&2 != 0:
+			out = ext
+		case mode&8 != 0:
+			if mode&1 != 0 {
+				out = base
+			} else {
+				out = file
 			}
-			if fileSel {
-				out += file
-			} else if baseSel {
-				out += base
-			}
-			if extSel && !fileSel {
-				out += ext
-			}
+		case mode&1 != 0:
+			out = joinDir(dir, base)
+		default:
+			out = p
 		}
-		if lower {
+		if mode&16 != 0 {
 			out = strings.ToLower(out)
 		}
 		if win {
@@ -337,6 +251,14 @@ func init() {
 		}
 		return Str(string(rune(c))), nil
 	})
+}
+
+// joinDir は slash 形式の dir とファイル部位を再結合する。
+func joinDir(dir, file string) string {
+	if dir == "" {
+		return file
+	}
+	return dir + file
 }
 
 // parseStrfVerbs は strf 書式から動詞列を取り出す。

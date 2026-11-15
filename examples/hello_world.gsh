@@ -1,1 +1,1 @@
-mes("Hello, World!")
+msg("Hello, World!")

@@ -20,13 +20,13 @@ import (
 	"gsh/gui"
 )
 
-// golashVersion は処理系の版（SemVer の X.Y.Z）です。唯一の正本は
+// golashVersion は処理系の版（MAJOR.MINOR のドット1つ）です。唯一の正本は
 // リポジトリ直下の VERSION ファイルで、この変数はその値と同じものを
 // 持ちます (TestVersionPinnedEverywhere が VERSION・各 package.json・
-// ドキュメントとの一致と SemVer 形式を検査します)。
+// ドキュメントとの一致と版形式を検査します)。
 //
 // 版上げ手順: VERSION を書き換えて tools/bumpver.go を実行する
-// (go run ./tools/bumpver.go -set 0.9.0)。それが this 変数・
+// (go run ./tools/bumpver.go -set 0.9)。それが this 変数・
 // package.json・ドキュメントの見出しを一括更新します。
 //
 // var にしているのは、リリースビルドで版を埋め込めるようにするためです。
@@ -36,7 +36,7 @@ import (
 // ldflags を与えない通常ビルドではこの既定値（= VERSION と同値）が
 // 使われます。コメント・コード内に版リテラルは書かないこと (同テストが
 // 検出する)。バンドル形式の codecVersion とは独立した番号です。
-var golashVersion = "0.8.1"
+var golashVersion = "0.9"
 
 // runProgram はレジスタVM上で prog を実行します。
 func runProgram(in *Interp, prog *Program) error {
@@ -56,13 +56,13 @@ var usage = `gsh: Golash v` + golashVersion + ` インタプリタ
   gsh parse <file.gsh>                  構文木（AST）を出力します（デバッグ用）
   gsh disasm <file.gsh>                 バイトコードを逆アセンブルします（VM用）
   gsh build <file.gsh> [-o out.exe]     単一exeを生成します（バイトコード連結）
-  gsh version                           版（SemVer）を出力します
+  gsh version                           版を出力します
 
 既定はレジスタVMバックエンドです（コンパイルして実行）。
-GOULASH_TRACE=1 でVM命令トレースを標準エラー出力します。
+GOLASH_TRACE=1 でVM命令トレースを標準エラー出力します。
 
-実行モードはコード内の #mode cli/gui で指定します（省略時は gui で
-ウィンドウを開きます）。`
+実行モードは完全自動判定です（GUI専用組込みが到達可能なら gui、なければ cli）。
+mode 宣言による固定はありません。`
 
 func main() {
 	// 単一exe（バンドル）実行：自 exe 末尾にバイトコードが連結されていれば、
@@ -116,6 +116,10 @@ func cmdRun(args []string) {
 			verbatim = true
 			continue
 		}
+		if file == "" && (a == "--fast" || a == "-fast") {
+			fmt.Fprintf(os.Stderr, "gsh run: --fast は廃止しました（DLL呼び出しを使ってください）\n")
+			os.Exit(2)
+		}
 		if file == "" && strings.HasPrefix(a, "-") {
 			fmt.Fprintf(os.Stderr, "不明なフラグ %q です\n", a)
 			os.Exit(2)
@@ -135,18 +139,11 @@ func cmdRun(args []string) {
 	}
 	prog, mode, err := ParseFileMode(file)
 	if err != nil {
-		// ParseFileMode はエラー時でも意図したモードを返すため、
-		// GUI スクリプトはダイアログを得る（ウィンドウはまだ存在せず、
-		// 切り離し起動では見える標準エラー出力がない）。
-		if mode == "gui" {
-			reportGUIError(err.Error())
-		} else {
-			fmt.Fprintln(os.Stderr, "エラー:", err)
-		}
+		// 構文・読み込みエラー時は自動判定できないため、端末へ出す。
+		fmt.Fprintln(os.Stderr, "エラー:", err)
 		os.Exit(1)
 	}
-	// #mode cli はコンソールを実行し、それ以外（gui または指定なし）は
-	// ウィンドウを開く。
+	// 自動判定が cli ならコンソール、gui ならウィンドウで実行する。
 	guiMode := mode == "gui"
 	if guiMode {
 		runGUI(file, prog, scriptArgs)
@@ -170,7 +167,7 @@ func cmdRun(args []string) {
 func cmdVersion(args []string) {
 	for _, a := range args {
 		if a == "-json" {
-			fmt.Printf("{\"name\":\"Golash\",\"version\":%q,\"semver\":true}\n", golashVersion)
+			fmt.Printf("{\"name\":\"Golash\",\"version\":%q}\n", golashVersion)
 			return
 		}
 		if a == "-h" || a == "--help" {
@@ -180,7 +177,7 @@ func cmdVersion(args []string) {
 		fmt.Fprintf(os.Stderr, "不明なフラグ %q です\n\n使い方: gsh version [-json]\n", a)
 		os.Exit(2)
 	}
-	fmt.Printf("Golash v%s (SemVer)\n", golashVersion)
+	fmt.Printf("Golash v%s\n", golashVersion)
 }
 
 // scriptDirOf は file を含む絶対ディレクトリを返す（決定できない場合は
@@ -259,7 +256,7 @@ func runGUIWith(scriptDir string, scriptArgs []string, run func(in *Interp) erro
 			}()
 			if runErr != nil {
 				// 端末に報告し、それをウィンドウ自体にも表示する
-				// （dialog() と同じ外観）: ネイティブのポップアップは
+				// （ウィンドウ内ダイアログ）: ネイティブのポップアップは
 				// ゲームウィンドウの陰に隠れうる。そして終了する:
 				// 正常終了（ウィンドウは開いたまま）と違い、エラーは
 				// ウィンドウを閉じる。下記の終了コードは 1。
@@ -287,7 +284,7 @@ func runGUIWith(scriptDir string, scriptArgs []string, run func(in *Interp) erro
 }
 
 // runBundled は連結バイトコードを実行する。引数は -- を除き
-// すべてスクリプト引数になる。#mode はビルド時に記録したものを使う。
+// すべてスクリプト引数になる。モードはビルド時に解決したものを使う。
 // 相対パスの基準は exe のあるディレクトリ。
 func runBundled(exePath string, payload []byte, args []string) {
 	prog, mode, err := UnmarshalVMProgram(payload)
@@ -393,11 +390,10 @@ func cmdBuild(args []string) {
 	} else {
 		out = final
 	}
-	// GUI モード (#mode gui・省略時) はコンソールなし (windowsgui)
-	// で出す。コンソール付きのままだとダブルクリック起動で黒窓が
-	// 開き、それを閉じると同コンソールの全プロセスが道連れに
-	// 終了する (エディタ本体＋実行した子)。#mode cli は端末用に
-	// コンソール付きのまま。
+	// GUI モードはコンソールなし (windowsgui) で出す。コンソール付きの
+	// ままだとダブルクリック起動で黒窓が開き、それを閉じると同コンソールの
+	// 全プロセスが道連れに終了する (エディタ本体＋実行した子)。
+	// CLI モードは端末用にコンソール付きのまま。
 	if mode == "gui" {
 		if err := SetPEGuiSubsystem(out); err != nil {
 			fmt.Fprintln(os.Stderr, "エラー:", err)
@@ -430,7 +426,7 @@ func cmdLex(args []string) {
 		fmt.Fprintln(os.Stderr, "lex はファイルを 1 つだけ指定してください")
 		os.Exit(2)
 	}
-	toks, err := CombineFile(args[0])
+	toks, err := LoadFile(args[0])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "エラー:", err)
 		os.Exit(1)
@@ -487,7 +483,7 @@ func cmdRepl() {
 		}
 		buf.WriteString(line)
 		src := buf.String()
-		toks, err := CombineSource("", src, "")
+		toks, err := Lex(src)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "エラー:", err)
 			buf.Reset()
@@ -507,6 +503,11 @@ func cmdRepl() {
 		}
 		prog, err := ParseTokens(toks)
 		if err != nil {
+			msg := err.Error()
+			if strings.Contains(msg, "'end' が必要") || strings.Contains(msg, "閉じられていません") {
+				prompt = ">> "
+				continue
+			}
 			fmt.Fprintln(os.Stderr, "エラー:", err)
 			buf.Reset()
 			prompt = "> "
@@ -540,14 +541,16 @@ func cmdRepl() {
 	}
 }
 
-// bracketDepth はトークン列中の閉じられていない (, [, { を数える。
+// bracketDepth はトークン列中の閉じられていない (, [ を数える。
+// 波括弧 `{`/`}` は廃止された（改行〜end を使う）。未閉じブロックは
+// Parse 時の「'end' が必要／閉じられていません」エラーで継続判定する。
 func bracketDepth(toks []Token) int {
 	d := 0
 	for _, t := range toks {
 		switch t.Type {
-		case TokLParen, TokLBracket, TokLBrace:
+		case TokLParen, TokLBracket:
 			d++
-		case TokRParen, TokRBracket, TokRBrace:
+		case TokRParen, TokRBracket:
 			d--
 		}
 	}

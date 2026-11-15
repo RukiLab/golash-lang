@@ -9,11 +9,15 @@ import (
 )
 
 // ドロップされたファイル (A7)。ebiten は Update ごとの仮想 FS スナップショットで報告する（アイドル時は nil）ため、pumpDrops が到着時に名前を集め、
-// dropfiles() がそれを取り出す。スナップショットは dropload 用に保持される。
+// dropload() がそれを取り出す。スナップショットは dropload(name) 用に保持される。
 
 // pumpDrops は新しくドロップされたファイル名のスナップショットを取る。Update から呼ばれる。
+// モーダルダイアログ表示中は破棄する (閉じた後に背後へ流れ込ませない)。
 func (b *WindowBackend) pumpDrops() {
 	fsys := ebiten.DroppedFiles()
+	if b.isDialogActive() {
+		return
+	}
 	if fsys == nil {
 		return
 	}
@@ -33,8 +37,8 @@ func (b *WindowBackend) pumpDrops() {
 	b.dropNames = append(b.dropNames, names...)
 }
 
-// DropFiles は保留中のドロップされたファイル名を返す（取り出し後に消費される）。
-func (b *WindowBackend) DropFiles() []string {
+// DropNames は保留中のドロップされたファイル名を返す（取り出し後に消費される）。
+func (b *WindowBackend) DropNames() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	names := b.dropNames
@@ -42,7 +46,7 @@ func (b *WindowBackend) DropFiles() []string {
 	return names
 }
 
-// DropLoad はドロップされたファイル（dropfiles 由来の名前で指定）をデコードして新しい
+// DropLoad はドロップされたファイル（dropload() が返した名前で指定）をデコードして新しい
 // バッファに入れ、その id を返す。
 func (b *WindowBackend) DropLoad(name string) (int, error) {
 	b.mu.Lock()

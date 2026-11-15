@@ -14,7 +14,7 @@ import (
 // 決定事項:
 //   - 2つの int の `/` は切り捨て整数除算（Go ライク）。どちらかの
 //     オペランドが float なら float になる。`%` は int のみ受け付ける。
-//   - 条件は厳密に bool である。`if 1` はエラー。
+//   - 条件は整数である。0 は偽、非 0 は真（`if 1` は常に真）。
 //   - `;` はパーサに拒否される。
 //   - 配列への書き込みは境界検査される: 確保は dim()、リテラル、
 //     push() で行い、範囲外と基底の欠落はエラーで、自動生成は
@@ -29,9 +29,10 @@ import (
 //     演算、exp/pow の桁あふれ、float("nan"/"inf")、範囲外の int()
 //     変換はすべてエラー。
 //   - 複合代入は対象のアドレスをちょうど一度評価する。
-//   - 代入はその名前を保持する可視スコープを更新し、可視のものが
-//     なければ現在のスコープに宣言する（トップレベル: グローバル。
-//     関数: ローカルスロット）。VM は格納先を実行時に解決する。
+//   - トップレベルでは代入がグローバルを更新・宣言する。関数内で新しい
+//     ローカルを作るには `local name = 式` が必要。`local` なしの代入は
+//     既存のローカル／グローバルを更新し、どちらもなければエラー。
+//     VM は格納先を実行時に解決する。
 //   - 再帰は maxCallDepth で上限を設け、ソースの入れ子は
 //     maxParseDepth で上限を設ける。
 
@@ -144,7 +145,7 @@ func (in *Interp) lookupPath(p string) string {
 
 // resolvePath は組込みのパス引数をマップする: 絶対パスはそのまま通過し、
 // 相対パスはスクリプトディレクトリ、次に作業ディレクトリを優先する
-// （#include と同じ順序）。存在しないパスはスクリプトディレクトリ基準で
+// （include と同じ順序）。存在しないパスはスクリプトディレクトリ基準で
 // 解決されるため、新しいファイルはスクリプトの隣に作られる
 // （REPL 内では指定どおり、つまり作業ディレクトリ基準のまま）。
 func (in *Interp) resolvePath(p string) string {
@@ -180,16 +181,25 @@ func setIndex(arr *Array, idx int, v Value, at Pos) error {
 	return nil
 }
 
-func requireBool(v Value, at Pos) (bool, error) {
-	if v.K != KBool {
-		return false, rtErrf(at, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(v))
+// truthy は条件式の整数値を真偽に解釈する（0=false、非0=true）。
+func truthy(v Value, at Pos) (bool, error) {
+	if v.K != KInt {
+		return false, rtErrf(at, "条件式は整数（0=false、非0=true）である必要があります。%s が指定されました", typeNameOf(v))
 	}
-	return v.B, nil
+	return v.I != 0, nil
+}
+
+// needTruthy は組込みの真偽値引数を整数（0=false、非0=true）として読む。
+func needTruthy(name string, args []Value, i int, at Pos) (bool, error) {
+	if args[i].K != KInt {
+		return false, argErr(name, i, at, "整数（0=false、非0=true）である必要があります。%s が指定されました", typeNameOf(args[i]))
+	}
+	return args[i].I != 0, nil
 }
 
 // requireValue は void を拒否する: 内部的な null がスクリプトに
 // 使える値として現れてはならない（代入/引数/オペランドはここで
-// 失敗する。mes() と print() は代わりに void を無音でスキップする）。
+// 失敗する。msg() と print() は代わりに void を無音でスキップする）。
 func requireValue(v Value, at Pos) error {
 	if v.K == KNull {
 		return rtErrf(at, "void値を使用できません")
@@ -223,13 +233,13 @@ func compare(op TokenType, l, r Value, at Pos) (Value, error) {
 	}
 	switch op {
 	case TokLt:
-		return Bool(c < 0), nil
+		return IntOfBool(c < 0), nil
 	case TokLtEq:
-		return Bool(c <= 0), nil
+		return IntOfBool(c <= 0), nil
 	case TokGt:
-		return Bool(c > 0), nil
+		return IntOfBool(c > 0), nil
 	case TokGtEq:
-		return Bool(c >= 0), nil
+		return IntOfBool(c >= 0), nil
 	}
 	return Null(), rtErrf(at, "内部エラー：不正な比較演算子です")
 }

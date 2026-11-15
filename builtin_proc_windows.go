@@ -13,9 +13,8 @@ import (
 // 継承（端末起動時）してしまう。そのコンソールウィンドウを閉じると
 // それに接続された全プロセスが終了するため、スクリプトを実行する
 // GUI エディタは子プロセスと一緒に死んでしまう。パイプを使う
-// capture 系の組込（piperun/pipeexec）はコンソールを必要とせず、
-// 対話的な exec() はそれを保つ（切り離された双子については
-// execgui() を参照）。
+// capture 系の組込（pipeexec）はコンソールを必要とせず、
+// 非同期の exec() は切り離して起動するため影響を受けない。
 func detachConsole(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		// DETACHED_PROCESS: コンソールは生成も継承もされない。

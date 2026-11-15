@@ -127,33 +127,63 @@ func (b *WindowBackend) focusedLocked() *inputState {
 }
 
 // AddInput は初期テキスト（キャレットは末尾）付きのテキスト入力を
-// 作成（または置換）する。カスタム描画: ebitenui の子は持たない。
+// 作成（または置換）する。自前描画で、同期的に状態だけを更新する。
+// 配置後は自動で改行する (x=0, y+h)。
+//
+// 同一 id/矩形の繰返し呼出は再利用し、編集中の内容・フォーカス・
+// キャレットを保つ。初期テキスト引数が変わった場合のみ内容を置換する。
 func (b *WindowBackend) AddInput(id, x, y, w, h int, text string) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("inputbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
 	}
-	rs := []rune(text)
-	st := &inputState{rect: image.Rect(x, y, x+w, y+h), text: rs, caret: len(rs)}
 	b.mu.Lock()
-	oldDis := false
-	if old, ok := b.widgets[id]; ok && old.kind == wInput {
-		oldDis = old.disabled
+	defer b.mu.Unlock()
+	if old, ok := b.widgets[id]; ok && old.kind == wInput && old.edit != nil &&
+		old.gx == x && old.gy == y && old.gw == w && old.gh == h {
+		if old.inputInit == text {
+			// 初期値同一: 編集中のまま何もしない。
+			b.advanceWidgetCursorLocked(y, h)
+			return nil
+		}
+		// 初期値が明示的に変わった: 内容を置換 (objset と同じく即時)。
+		rs := []rune(text)
+		old.edit.text = rs
+		old.edit.caret = len(rs)
+		old.edit.rect = image.Rect(x, y, x+w, y+h)
+		old.inputInit = text
+		b.advanceWidgetCursorLocked(y, h)
+		return nil
 	}
-	b.mu.Unlock()
-	b.runOnLoop(func() {
-		b.placeCustom(id, &widgetEntry{id: id, kind: wInput, selIdx: -1, edit: st, gx: x, gy: y, gw: w, gh: h, disabled: oldDis})
-	})
+	var focused bool
+	var dis bool
+	if old, ok := b.widgets[id]; ok && old.kind == wInput {
+		dis = old.disabled
+		if old.edit != nil {
+			focused = old.edit.focused
+		}
+	}
+	rs := []rune(text)
+	st := &inputState{rect: image.Rect(x, y, x+w, y+h), text: rs, caret: len(rs), focused: focused}
+	if b.widgets == nil {
+		b.widgets = map[int]*widgetEntry{}
+	}
+	b.widgets[id] = &widgetEntry{id: id, kind: wInput, selIdx: -1, edit: st, gx: x, gy: y, gw: w, gh: h, disabled: dis, inputInit: text}
+	b.advanceWidgetCursorLocked(y, h)
 	return nil
 }
 
 // SetInputText は単一行入力の内容を置き換える（キャレットは末尾）。
 // カスタム描画のため mu 下での即時更新で足りる。
+// 同一内容なら何もしない。
 func (b *WindowBackend) SetInputText(id int, text string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wInput || e.edit == nil {
 		return fmt.Errorf("objset：不明な inputbox %d です", id)
+	}
+	if string(e.edit.text) == text {
+		return nil
 	}
 	rs := []rune(text)
 	e.edit.text = rs
@@ -194,7 +224,7 @@ type editFocusPlan struct {
 }
 
 // planEditFocus は1回の押下/観測に対する IME フィールドの動きを決める。
-// press は実際の押下エッジ（ラッチされた clicked() レベルではない）。
+// press は実際の押下エッジ（ラッチされた getkey(0, true) レベルではない）。
 // hit は押下が有効な inputbox の内側に入ったか、hadFocus は押下前に
 // ボックスがフォーカスされていたか、boxFocused は今フォーカス中のものが
 // あるか、fieldFocused/imeOff は現在の IME フィールドの状態。純粋な
@@ -233,14 +263,36 @@ func editKeysOwnedByField(imeOn bool, comp, fieldText, pending string) bool {
 
 // pumpInputs はゲームスレッドでフォーカスと編集を処理する（pumpIME の
 // 後の Update から呼ばれる）。クリックは消費されず観測される。
+// モーダルダイアログ表示中は背後の inputbox を一切触らせない:
+// フォーカス移動・文字挿入・編集キーを行わず、その間に来た文字入力は
+// 破棄する (閉じた後に背後へ流れ込ませない)。
 func (b *WindowBackend) pumpInputs() {
+	if b.isDialogActive() {
+		// ebiten 内部の文字キューを吸い出して捨てる。
+		_ = ebiten.AppendInputChars(nil)
+		b.mu.Lock()
+		// IME 確定の保留も捨てる (pumpIME が今ティック積んだ分も含む)。
+		b.imePending = ""
+		for _, e := range b.widgets {
+			if e.kind == wInput && e.edit != nil {
+				e.edit.repKey = 0
+			}
+			// ドラッグ等の途中状態が残らないよう tastes を切る。
+			e.dragging = false
+			e.downInside = false
+		}
+		b.mu.Unlock()
+		// Enter/Escape 等のエッジは inpututil のティック内エッジのため
+		// ここで無視すれば破棄される (ラッチしない)。
+		return
+	}
 	x, y := ebiten.CursorPosition()
-	// ラッチされた clicked() フラグではなく押下エッジ: clickFlag は
+	// ラッチされた getkey(0, true) フラグではなく押下エッジ: clickFlag は
 	// スクリプトが消費するまで設定されたままなので、ラッチされた
 	// レベルだと、マウスが外にある間の後続フレームでボックス（と IME
 	// フィールド）をぼかし、ime(0) の直後に変換を再有効化してしまう。
 	// エッジは押下を観測した Update の間だけ持続し、それは必ず実行
-	// されるため、スクリプトがその間に clicked() を消費しても
+	// されるため、スクリプトがその間に getkey(0, true) を消費しても
 	// クリックは見逃されない。
 	press := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 
@@ -387,6 +439,7 @@ func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 		descent  float64
 		lineH    float64
 		tick     int64
+		gdi      gdiSnap
 	}
 	b.mu.Lock()
 	var ss []snap
@@ -394,7 +447,7 @@ func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 		if e.kind != wInput || e.edit == nil {
 			continue
 		}
-		s := snap{id: id, st: *e.edit, disabled: e.disabled, face: b.face, tick: b.tick}
+		s := snap{id: id, st: *e.edit, disabled: e.disabled, face: b.face, tick: b.tick, gdi: b.gdiSnapLocked()}
 		if b.face != nil {
 			m := b.face.Metrics()
 			s.ascent, s.descent = m.HAscent, m.HDescent
@@ -404,7 +457,7 @@ func (b *WindowBackend) drawInputs(screen *ebiten.Image) {
 	}
 	b.mu.Unlock()
 	for i := range ss {
-		drawInput(screen, &ss[i].st, ss[i].disabled, ss[i].face, ss[i].ascent, ss[i].descent, ss[i].tick)
+		drawInput(screen, &ss[i].st, ss[i].disabled, ss[i].face, ss[i].ascent, ss[i].descent, ss[i].tick, ss[i].gdi)
 	}
 	// scroll は Draw で確定するが、コピーへの調整を捨てると毎フレーム
 	// 0 から再計算して行端で前後振動 (ちらつき) するため書き戻す。
@@ -466,6 +519,7 @@ func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 		ascent, descent = m.HAscent, m.HDescent
 		lineH = b.lineH
 	}
+	gs := b.gdiSnapLocked()
 	b.mu.Unlock()
 	if comp == "" || face == nil {
 		return
@@ -482,23 +536,19 @@ func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 	// ボックスはベースライン + ディセントの半分で終わるため、3px の
 	// 句の下線が枠からはみ出てしまう。
 	const imeCompExtraH = 2.0
-	w := measureInput(face, rsRunes)
+	w := measureWithSnap(comp, face, gs)
 	bw, bh := w+pad*2, lineH+imeCompExtraH
 	const x, y = 0.0, 0.0
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(bw), float32(bh), themeWhite, false)
 	vector.StrokeRect(screen, float32(x)+0.5, float32(y)+0.5, float32(bw)-1, float32(bh)-1, 1, themeFrame, false)
-	op := &text.DrawOptions{}
 	tx := x + pad
 	// 領域の上端はバーの上端に乗る（drawTextFrag と同じ text/v2 の
 	// 意味論）。ベースラインはその ascent 下に位置する。
-	op.GeoM.Translate(tx, y)
-	op.ColorScale.Reset()
-	op.ColorScale.ScaleWithColor(themeInk)
-	text.Draw(screen, comp, face, op)
+	drawFaceText(screen, comp, face, tx, y, themeInk, gs)
 	uy := float32(y + ascent + descent*0.5)
 	cx := float32(tx)
 	for _, sp := range compSpans(len(rsRunes), rs, re) {
-		sw, _ := text.Measure(string(rsRunes[sp.start:sp.end]), face, 0)
+		sw := measureWithSnap(string(rsRunes[sp.start:sp.end]), face, gs)
 		th := float32(1)
 		if sp.thick {
 			th = 3
@@ -508,8 +558,9 @@ func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 	}
 }
 
-// inputFaceColors はエディタの面を選ぶ: フォーカスは背景を青枠の淡青
-// に染め、無効は灰色化する（フォーカスより優先）。純粋な論理で、
+// inputFaceColors はエディタの面を選ぶ。Windows 10 のテキスト欄と同じく
+// 背景はフォーカスでも白のまま、枠だけがアクセント青に変わる。無効時は
+// 灰色の面と薄い枠にする（無効がフォーカスより優先）。純粋な論理で、
 // ユニットテスト済み。
 func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
 	bg, frameC = themeWhite, themeFrame
@@ -517,7 +568,7 @@ func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
 		bg, frameC = themeFocusBg, themeFocusFrame
 	}
 	if disabled {
-		bg, frameC = themeFaceDis, themeFrame
+		bg, frameC = themeFaceDis, themeFieldFrameDis
 	}
 	return bg, frameC
 }
@@ -527,7 +578,7 @@ func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
 // 描かれる（drawIMEComp）。固定の Windows 標準色（白、灰色の枠、黒い
 // 文字。フォーカスは淡青/青の面）。純粋な描画（バックエンド非依存）
 // で、注記のある箇所はユニットテスト可能。
-func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.GoTextFace, ascent, descent float64, tick int64) {
+func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.GoTextFace, ascent, descent float64, tick int64, gs gdiSnap) {
 	r := st.rect
 	bg, frameC := inputFaceColors(st.focused, disabled)
 	vector.DrawFilledRect(screen, float32(r.Min.X), float32(r.Min.Y), float32(r.Dx()), float32(r.Dy()), bg, false)
@@ -540,6 +591,11 @@ func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.G
 		return
 	}
 	caretX := measureInput(face, st.text[:st.caret])
+	if gs.use {
+		if w, ok := gdiMeasureWidth(gs.fam, gs.size, string(st.text[:st.caret])); ok {
+			caretX = w
+		}
+	}
 	visX := caretX - float64(st.scroll)
 	// キャレットを見えるままに保つ。
 	if visX > float64(inner.Dx()) {
@@ -561,14 +617,11 @@ func drawInput(screen *ebiten.Image, st *inputState, disabled bool, face *text.G
 	if disabled {
 		fg = themeGrey
 	}
-	op := &text.DrawOptions{}
 	// 垂直方向は中央揃え（領域の上端は原点に乗るため、残った内側の
 	// 高さの半分だけずらす）。
-	op.GeoM.Translate(float64(inner.Min.X)-float64(st.scroll),
-		float64(inner.Min.Y)+(float64(inner.Dy())-(ascent+descent))/2)
-	op.ColorScale.Reset()
-	op.ColorScale.ScaleWithColor(fg)
-	text.Draw(dst, string(st.text), face, op)
+	drawFaceText(dst, string(st.text), face,
+		float64(inner.Min.X)-float64(st.scroll),
+		float64(inner.Min.Y)+(float64(inner.Dy())-(ascent+descent))/2, fg, gs)
 	// キャレットの点滅（約2Hz）。
 	if st.focused && !disabled && tick/30%2 == 0 {
 		cx := float32(inner.Min.X) + float32(visX)

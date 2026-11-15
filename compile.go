@@ -52,8 +52,6 @@ func constKey(v Value) string {
 		return fmt.Sprintf("f%x", v.F)
 	case KString:
 		return "s" + v.S
-	case KBool:
-		return fmt.Sprintf("b%v", v.B)
 	}
 	return "?"
 }
@@ -205,7 +203,7 @@ func (f *fcomp) reset(m int) { f.tempTop = m }
 // NullLit・呼出・変数・添字・単項・二項は void またはエラーの可能性があり対象外。
 func nonVoidLit(x Expr) bool {
 	switch x.(type) {
-	case *IntLit, *FloatLit, *StringLit, *BoolLit, *ArrayLit:
+	case *IntLit, *FloatLit, *StringLit, *ArrayLit:
 		return true
 	}
 	return false
@@ -220,8 +218,6 @@ func constLiteral(x Expr) (Value, bool) {
 		return Float(n.Value), true
 	case *StringLit:
 		return Str(n.Value), true
-	case *BoolLit:
-		return Bool(n.Value), true
 	}
 	return Null(), false
 }
@@ -289,6 +285,18 @@ func (f *fcomp) stmt(s Stmt) error {
 			f.emit(OpCkVal, rv, 0, 0, 0, n.Target.Pos())
 		}
 		return f.assign(n.Target, rv)
+	case *VarStmt:
+		rv, err := f.expr(n.Value)
+		if err != nil {
+			return err
+		}
+		if !nonVoidLit(n.Value) {
+			f.emit(OpCkVal, rv, 0, 0, 0, n.At)
+		}
+		return f.defineVar(n.Name, rv, n.At)
+	case *IncludeStmt, *DllStmt:
+		// 宣言のみ。include / dll はファイル実行時にローダが処理する。
+		return nil
 	case *CompoundAssignStmt:
 		return f.compoundStmt(n)
 	case *DefStmt:
@@ -314,6 +322,9 @@ func (f *fcomp) stmt(s Stmt) error {
 }
 
 func (f *fcomp) def(n *DefStmt) error {
+	if isLegacyDllName(n.Name) {
+		return fmt.Errorf("%s: %s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", n.At.String(), n.Name)
+	}
 	// 本体は今コンパイルするが、登録（重複・組込検査つき）は実行時。
 	sub := &fcomp{g: f.g, isMain: false, slots: map[string]int{}}
 	for i, p := range n.Params {
@@ -347,9 +358,10 @@ func (f *fcomp) def(n *DefStmt) error {
 	return nil
 }
 
-// collectSlots は関数内で束縛されうる名前をすべて集める。
-// （読出・代入・callee 名・repeat 変数。漏れは LOADN の未定義誤爆になるため
-// 過剰に集める。余分なスロットは無害。）
+// collectSlots は関数内で現れうる名前をすべて集める。
+// 読出・代入・local 宣言・callee 名・repeat 変数が対象。スロットは
+// 「作成済みならローカル、未作成ならグローバル」の動的解決に使うため、
+// 読出だけの名前にも割り当てる（余分なスロットは無害）。
 func collectSlots(b *BlockStmt, slots map[string]int) {
 	add := func(name string) {
 		if _, ok := slots[name]; !ok {
@@ -387,6 +399,9 @@ func collectSlots(b *BlockStmt, slots map[string]int) {
 			walkE(n.X)
 		case *AssignStmt:
 			walkE(n.Target)
+			walkE(n.Value)
+		case *VarStmt:
+			add(n.Name)
 			walkE(n.Value)
 		case *CompoundAssignStmt:
 			walkE(n.Target)
@@ -544,10 +559,10 @@ func (f *fcomp) repeat(n *RepeatStmt) error {
 	if err != nil {
 		return err
 	}
-	arrayPath := f.nextLabel()
+	seqPath := f.nextLabel()
 	afterAll := f.nextLabel()
-	// REPDISP：配列なら arrayPath、整数なら継続、それ以外はエラー（Count 位置）。
-	f.emitJump(OpRepDisp, cv, arrayPath, n.Count.Pos())
+	// REPDISP：配列・文字列なら seqPath、整数なら継続、それ以外はエラー（Count 位置）。
+	f.emitJump(OpRepDisp, cv, seqPath, n.Count.Pos())
 	if n.HasItem {
 		// 整数形の as i,x は無条件エラー（n.At 位置）。
 		f.emit(OpRepIntErr, 0, 0, 0, 0, n.At)
@@ -595,8 +610,8 @@ func (f *fcomp) repeat(n *RepeatStmt) error {
 	f.emit(OpPopLoop, 0, 0, 0, 0, n.At)
 	f.emitJump(OpJmp, 0, afterAll, n.At)
 
-	// 配列形。
-	f.bindLabel(arrayPath)
+	// 配列・文字列形。
+	f.bindLabel(seqPath)
 	f.emit(OpForAPrep, cv, 0, 0, 0, n.Count.Pos())
 	indexVar, elemVar := "", ""
 	if n.HasItem {
@@ -842,9 +857,28 @@ func (f *fcomp) storeVar(name string, src uint8, at Pos) error {
 	return nil
 }
 
+// defineVar は `local name = RHS済` を発行する（CKVAL は呼出側で発行済み）。
+// 関数内でのみ使用でき、常にローカルスロットへ束縛する
+// （DEFN。同名グローバルを隠す）。トップレベルではエラー。
+func (f *fcomp) defineVar(name string, src uint8, at Pos) error {
+	ni, err := f.nameIdx(name)
+	if err != nil {
+		return err
+	}
+	if f.isMain {
+		return fmt.Errorf("%s: local は関数内でのみ使用できます", at.String())
+	}
+	slot, ok := f.slots[name]
+	if !ok {
+		return fmt.Errorf("内部エラー：スロット未割当 %q", name)
+	}
+	f.emit(OpDefN, src, 0, uint8(slot), ni, at)
+	return nil
+}
+
 // assign は `target = RHS済` を発行する（RHS の CKVAL は呼出側で発行済み）。
-// 通常代入は可視定義の更新、なければ宣言になる（トップレベル：グローバル、
-// 関数内：ローカルスロット。実行時に STOREG/STOREN が解決する）。
+// 通常代入は既存のローカル／グローバルの更新で、新しいローカルは作らない。
+// トップレベルでは未定義名への代入がグローバル宣言を兼ねる。
 func (f *fcomp) assign(target Expr, rv uint8) error {
 	switch t := target.(type) {
 	case *VarExpr:
@@ -1201,8 +1235,6 @@ func (f *fcomp) expr(x Expr) (uint8, error) {
 		return f.loadConst(Float(n.Value), n.At)
 	case *StringLit:
 		return f.loadConst(Str(n.Value), n.At)
-	case *BoolLit:
-		return f.loadConst(Bool(n.Value), n.At)
 	case *NullLit:
 		return f.loadConst(Null(), n.At)
 	case *VarExpr:
@@ -1289,7 +1321,7 @@ func (f *fcomp) unary(n *UnaryExpr) (uint8, error) {
 	case TokMinus:
 		f.emit(OpNeg, dst, xv, 0, 0, n.At)
 	case TokBang:
-		// requireBool(v, n.X.Pos())：NOT 自身の位置を X 位置にする。
+		// 条件式の型検査（整数）は X の位置で行う。
 		f.emit(OpNot, dst, xv, 0, 0, n.X.Pos())
 	case TokBitNot:
 		f.emit(OpBitNot, dst, xv, 0, 0, n.At)
@@ -1358,7 +1390,8 @@ func (f *fcomp) binary(n *BinaryExpr) (uint8, error) {
 	return dst, nil
 }
 
-// logical は短絡評価（strict bool）を発行する。
+// logical は短絡評価を発行する。条件は整数（0=false、非0=true）で、
+// 結果は 1/0 に正規化される（OpTest が正規化する）。
 func (f *fcomp) logical(n *BinaryExpr) (uint8, error) {
 	dst, err := f.alloc()
 	if err != nil {
@@ -1371,7 +1404,7 @@ func (f *fcomp) logical(n *BinaryExpr) (uint8, error) {
 	f.emit(OpTest, lv, 0, 0, 0, n.L.Pos())
 	shortLabel := f.nextLabel()
 	endLabel := f.nextLabel()
-	fci, err := f.constIdx(Bool(n.Op == TokOr))
+	fci, err := f.constIdx(IntOfBool(n.Op == TokOr))
 	if err != nil {
 		return 0, err
 	}
@@ -1394,15 +1427,19 @@ func (f *fcomp) logical(n *BinaryExpr) (uint8, error) {
 }
 
 // call は呼出を発行する。引数は左→右に連続レジスタへ評価する。
-// void 検査は mes/print/logmes 以外の組込・ユーザ関数で各引数位置に発行する。
+// void 検査は msg/print/logmsg 以外の組込・ユーザ関数で各引数位置に発行する。
 func (f *fcomp) call(n *CallExpr) (uint8, error) {
 	dst, err := f.alloc()
 	if err != nil {
 		return 0, err
 	}
 	if v, ok := n.Callee.(*VarExpr); ok {
+		// 廃止した公開組込は移行エラーにする（未定義関数より先に）。
+		if isLegacyDllName(v.Name) {
+			return 0, fmt.Errorf("%s: %s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", n.At.String(), v.Name)
+		}
 		checkVoid := true
-		if isBuiltin(v.Name) && (v.Name == "mes" || v.Name == "print" || v.Name == "logmes") {
+		if isBuiltin(v.Name) && (v.Name == "msg" || v.Name == "print" || v.Name == "logmsg") {
 			checkVoid = false
 		}
 		// CKCALL：解決順序（関数→変数→組込→未定義）と arity を

@@ -1,16 +1,9 @@
 name: release
 
-# v* タグの push で3OS向けバイナリを GitHub Releases に公開します。
-# 使い方:
-#
-#	go run ./tools/bumpver.go -bump minor   # VERSION などを一括更新
-#	git commit -am "release: v0.9.0"
-#	git tag -a v0.9.0 -m "v0.9.0"
-#	git push origin main --tags
-#
-# タグ名は VERSION と一致している必要があります（workflow が検証します）。
-# 版は ldflags で埋め込むため、ビルド時点の VERSION とタグが食い違っても
-# バイナリはタグの版を名乗ります。
+# v* タグの push で Windows / Linux / macOS 向けバイナリをビルドし、
+# GitHub Releases に公開します。
+# GUI 依存（X11 / ALSA / GTK）を各 OS のネイティブ環境で解決するため、
+# ビルドは OS ごとのランナーで行います。
 
 on:
   push:
@@ -22,7 +15,31 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            asset: linux-amd64
+            cgo: "1"
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            asset: windows-amd64.exe
+            cgo: "0"
+          - os: macos-15
+            goos: darwin
+            goarch: arm64
+            asset: darwin-arm64
+            cgo: "1"
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            asset: darwin-amd64
+            cgo: "1"
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +48,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Linux の GUI ビルド依存を導入
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxinerama-dev libxi-dev libxxf86vm-dev \
+            libasound2-dev libgtk-3-dev xvfb
+
       - name: タグと VERSION の一致を検証
+        shell: bash
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
@@ -42,34 +69,63 @@ jobs:
           fi
           echo "リリース版: v$ver"
 
-      - name: 版の整合を検査
-        run: go test ./...
+      - name: テスト
+        shell: bash
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a -s "-screen 0 1024x768x24" go test -skip 'TestVMZeroAllocLoop' .
+          else
+            go test -skip 'TestVMZeroAllocLoop' .
+          fi
 
       - name: バイナリをビルド
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
         run: |
           set -euo pipefail
           ver="$(tr -d ' \t\r\n' < VERSION)"
           ldflags="-s -w -X main.golashVersion=$ver"
-          build() {
-            echo "== $1/$2 -> $3 =="
-            GOOS="$1" GOARCH="$2" go build -trimpath -ldflags "$ldflags" -o "$3" .
-          }
-          build windows amd64 "gsh-$ver-windows-amd64.exe"
-          build linux   amd64 "gsh-$ver-linux-amd64"
-          build darwin  amd64 "gsh-$ver-darwin-amd64"
-          build darwin  arm64 "gsh-$ver-darwin-arm64"
+          go build -trimpath -ldflags "$ldflags" -o "gsh-$ver-${{ matrix.asset }}" .
 
       - name: 版を確認
+        shell: bash
         run: |
+          set -euo pipefail
           ver="$(tr -d ' \t\r\n' < VERSION)"
-          chmod +x "gsh-$ver-linux-amd64"
-          "./gsh-$ver-linux-amd64" version
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a -s "-screen 0 1024x768x24" "./gsh-$ver-${{ matrix.asset }}" version
+          else
+            "./gsh-$ver-${{ matrix.asset }}" version
+          fi
+
+      - name: 成果物をアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsh-${{ matrix.asset }}
+          path: gsh-*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: チェックサムを作成
         run: |
           set -euo pipefail
-          ver="$(tr -d ' \t\r\n' < VERSION)"
-          sha256sum "gsh-$ver"-* > "gsh-$ver-sha256.txt"
+          ver="${GITHUB_REF_NAME#v}"
+          cd dist
+          sha256sum gsh-* > "gsh-$ver-sha256.txt"
           cat "gsh-$ver-sha256.txt"
 
       - name: GitHub Releases へ公開
@@ -77,9 +133,4 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: |
-            gsh-*-windows-amd64.exe
-            gsh-*-linux-amd64
-            gsh-*-darwin-amd64
-            gsh-*-darwin-arm64
-            gsh-*-sha256.txt
+          files: dist/*

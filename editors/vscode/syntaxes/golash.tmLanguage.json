@@ -1,0 +1,141 @@
+{
+  "name": "Golash",
+  "scopeName": "source.golash",
+  "fileTypes": [
+    "gsh"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#preprocessor"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#builtins"
+    },
+    {
+      "include": "#functionCalls"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.golash",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "keyword.control.directive.golash",
+          "match": "^\\s*(include|dll|dlldef)\\b"
+        },
+        {
+          "name": "invalid.deprecated.directive.golash",
+          "match": "^\\s*#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.golash",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.golash",
+              "match": "\\\\(\\\\|\"|n|t|r|0)"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.golash",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.golash",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.golash",
+          "match": "\\b0[oO][0-7]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.golash",
+          "match": "\\b\\d+\\.\\d+([eE][+-]?\\d+)?\\b|\\b\\.\\d+\\b|\\b\\d+[eE][+-]?\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.golash",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.golash",
+          "match": "\\b(def|if|elseif|else|end|repeat|while|switch|case|default|as|break|continue|return|local)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.golash",
+          "match": "\\b(true|false|null)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.golash",
+          "match": "\\b(abs|args|asc|assert|atan|await|binfile|button|chkbox|chr|clip|closing|cls|color|combox|curdir|cursor|dialog|dim|dirlist|dirmake|dropload|ellipse|env|exec|exedir|exit|exp|filecopy|filedel|find|float|font|fullscreen|getkey|getpath|gettime|gfxblit|gfxcopy|gfxfile|gfxmode|gfxquad|homedir|http|ime|input|inputbox|insert|int|join|len|limit|line|listbox|log|logmsg|lower|max|msg|msgbox|min|sndload|sndplay|sndpitch|sndstop|sndvol|mouse|mousewheel|nanotime|objdel|objenable|objget|objset|open|pad|padaxis|padbtn|pipeexec|pop|pos|pow|print|pget|pset|push|randomize|rect|remove|replace|resizable|reverse|rnd|screen|gfxsel|sleep|slice|slider|sort|split|sqrt|str|strf|strtrim|strwidth|tick|title|tmpdir|touch|tri|txtfile|upper|vartype)\\b"
+        }
+      ]
+    },
+    "functionCalls": {
+      "patterns": [
+        {
+          "name": "entity.name.function.golash",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.golash",
+          "match": "<<=|>>=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|==|!=|<=|>=|<<|>>|&&|\\|\\||[+\\-*/%=&|^~!<>]=?"
+        },
+        {
+          "name": "punctuation.golash",
+          "match": "[.,;:()\\[\\]]"
+        }
+      ]
+    }
+  }
+}

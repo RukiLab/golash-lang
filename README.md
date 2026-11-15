@@ -5,8 +5,8 @@
 > 仕様・文法・組み込み関数・CLI・GUI API などは変更される場合があります。  
 > 最新の変更内容は `CHANGELOG.md` を確認してください。
 
-Golash は、HSPに影響を受けた、ツリーウォーク型のスクリプト言語処理系です。
-同一ランタイムで CUI と GUI（Ebiten ウィンドウ）が動作します。v0.8.1（テスト段階）。
+Golash は、HSPに影響を受けた、レジスタ型VMで動作するスクリプト言語処理系です。
+同一ランタイムで CUI と GUI（Ebiten ウィンドウ）が動作します。v0.9（テスト段階）。
 
 ## 必要環境
 
@@ -36,13 +36,38 @@ gsh parse <file.gsh>                   構文木を出力します（デバッ�
 gsh run examples/falling.gsh
 ```
 
+ソースは UTF-8（先頭の BOM 可）として読み込みます。
+
+## モード・定数・include
+
+実行モードは完全自動判定です。GUI 専用の組込み（`screen` / `gfxsel` / `button` など）が
+main から到達可能なコードにあれば GUI、なければ CUI になります。モードを固定する
+宣言も判定クエリもありません。
+
+```gsh
+MAX = 100
+Color_Red = 0
+Color_Green = 1
+Color_Blue = 2
+LOW = 0
+MID = 10
+HIGH = 11
+
+include "lib.gsh"
+dll "user32.dll"
+dlldef winmsgbox "MessageBoxA" "int(int,string,string,int)"
+```
+
+`#define` / `#ifdef` / `#mode` などの旧ディレクティブは廃止されました。
+`#` で始まる行は移行エラーになります。
+
 ## サンプル
 
 `examples/` に実行可能なサンプルがあります（言語の回帰用フィクスチャは `testdata/parity/` に分離しています）。
 
 | ファイル | 内容 |
 | --- | --- |
-| `falling.gsh` | 落ちものパズル（`#define` 使用例。素材は `assets/mino.png`） |
+| `falling.gsh` | 落ちものパズル（素材は `assets/mino.png`） |
 
 ## テスト
 
@@ -52,13 +77,14 @@ go test ./...
 
 ## バージョン管理
 
-版は [SemVer](https://semver.org/lang/ja/) の `MAJOR.MINOR.PATCH` です。
-現在の版は `VERSION` ファイルが唯一の正本で、`v0.8.1`（0.x はテスト段階のため
-破壊的変更がありえます）。
+版は `MAJOR.MINOR` のドット1つです（例 `0.9`）。
+現在の版は `VERSION` ファイルが唯一の正本で、`v0.9`（0.x はテスト段階のため
+破壊的変更がありえます）。0.8 以前は SemVer（`MAJOR.MINOR.PATCH`）でしたが、
+0.9 からドット1つに統一しました。
 
 ```sh
-gsh version          # 処理系の版（Golash v0.8.1 (SemVer)）
-gsh version -json    # {"name":"Golash","version":"0.8.0","semver":true}
+gsh version          # 処理系の版（Golash v0.9）
+gsh version -json    # {"name":"Golash","version":"0.9"}
 ```
 
 ### 版を上げる
@@ -68,23 +94,21 @@ gsh version -json    # {"name":"Golash","version":"0.8.0","semver":true}
 
 ```sh
 go run ./tools/bumpver.go -show            # 現在の版を表示
-go run ./tools/bumpver.go -bump minor      # 0.8.0 → 0.9.0
-go run ./tools/bumpver.go -bump patch      # 0.8.0 → 0.8.1
-go run ./tools/bumpver.go -bump major      # 0.8.0 → 1.0.0
-go run ./tools/bumpver.go -set 0.9.0       # 任意の版へ
+go run ./tools/bumpver.go -bump minor      # 0.9 → 0.10
+go run ./tools/bumpver.go -bump major      # 0.9 → 1.0
+go run ./tools/bumpver.go -set 0.10        # 任意の版へ
 ```
 
 更新されるのは `VERSION`・`main.go` の `golashVersion`・ルート `package.json`・
 `editors/vscode/package.json`・`docs/MANUAL.md`・`docs/DESIGN_VM.md`・
-`README.md`・`CHANGELOG.md` の `v<X.Y.Z>` 表記です。実行後に
-`CHANGELOG.md` の見出し（`## [0.9.0] - 日付`）と内容を整え、`go test ./...` を
+`README.md`・`CHANGELOG.md` の `v<X.Y>` 表記です。実行後に
+`CHANGELOG.md` の見出し（`## [0.9] - 日付`）と内容を整え、`go test ./...` を
 回してください（`TestVersionPinnedEverywhere` が取りこぼしを指摘します）。
 
 ### どの桁を上げるか
 
 - **MAJOR** — 後方互換のない変更（文法・組込み関数の削除や意味変更）
-- **MINOR** — 後方互換を保つ追加（新しい組込み関数・機能）
-- **PATCH** — 後方互換な不具合修正
+- **MINOR** — 後方互換を保つ追加・修正（新しい組込み関数・機能、不具合修正）
 
 ### リリース
 
@@ -95,8 +119,8 @@ go run ./tools/bumpver.go -set 0.9.0       # 任意の版へ
 ```sh
 go run ./tools/bumpver.go -bump minor
 # CHANGELOG.md を編集
-git commit -am "release: v0.8.1"
-git tag -a v0.8.1 -m "v0.8.1"
+git commit -am "release: v0.9"
+git tag -a v0.9 -m "v0.9"
 git push origin main --tags
 ```
 

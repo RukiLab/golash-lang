@@ -15,18 +15,15 @@ import (
 // バー用に映される。バー/描画のコードは Field 自体がゲームスレッドで
 // しか安全でないため、mu で保護されたミラーを読む。
 
-// IMEState は IME フィールドがフォーカスされていれば 1、なければ 0 を
+// IMEState は IME フィールドがフォーカスされていれば true、なければ false を
 // 報告する。
-func (b *WindowBackend) IMEState() int {
-	if b.imeField.IsFocused() {
-		return 1
-	}
-	return 0
+func (b *WindowBackend) IMEState() bool {
+	return b.imeField.IsFocused()
 }
 
-// IMESet は IME フィールドをフォーカス（on != 0）またはぼかし、状態を
+// IMESet は IME フィールドをフォーカスまたはぼかし、状態を
 // 返す。
-func (b *WindowBackend) IMESet(on bool) int {
+func (b *WindowBackend) IMESet(on bool) bool {
 	if on {
 		b.mu.Lock()
 		b.imeOff = false
@@ -115,7 +112,61 @@ func imeCandidateBounds(lh float64) image.Rectangle {
 
 // pumpIME は IME フィールドを進める。ゲームスレッドのみ（Update から
 // 呼ばれる）。
+// モーダルダイアログ表示中は確定テキストを背後に流さない:
+// フィールドの入力は消費だけして破棄し (閉じた後の入力バッファ化を
+// 防ぐ)、変換中表示も出さない。
 func (b *WindowBackend) pumpIME() {
+	if b.isDialogActive() {
+		if !b.imeField.IsFocused() {
+			b.mu.Lock()
+			b.imePending = ""
+			if b.imeComposing != "" {
+				b.imeComposing = ""
+			}
+			if b.imeClause != "" {
+				b.imeClause = ""
+				b.imeClauseStart, b.imeClauseEnd = 0, 0
+			}
+			b.mu.Unlock()
+			return
+		}
+		b.mu.Lock()
+		lh := b.lineH
+		b.mu.Unlock()
+		bounds := imeCandidateBounds(lh)
+		if _, err := b.imeField.HandleInputWithBounds(bounds); err != nil {
+			b.mu.Lock()
+			b.imePending = ""
+			b.imeComposing = ""
+			b.imeClause = ""
+			b.imeClauseStart, b.imeClauseEnd = 0, 0
+			b.imePrev = ""
+			b.mu.Unlock()
+			return
+		}
+		full := b.imeField.Text()
+		start, _ := b.imeField.Selection()
+		ulen := b.imeField.UncommittedTextLengthInBytes()
+		_ = start
+		_ = ulen
+		b.mu.Lock()
+		// 差分を飲み込んで捨てる: 末尾の削除で背後のエディタを
+		// 削らず、追加分も保留に積まない。
+		b.imePrev = full
+		b.imePending = ""
+		b.imeComposing = ""
+		b.imeClause = ""
+		b.imeClauseStart, b.imeClauseEnd = 0, 0
+		// アイドルならフィールドを空に戻し、次の入力がクリーンに始まる。
+		if ulen == 0 && full != "" {
+			b.mu.Unlock()
+			b.imeField.SetTextAndSelection("", 0, 0)
+			b.mu.Lock()
+			b.imePrev = ""
+		}
+		b.mu.Unlock()
+		return
+	}
 	if !b.imeField.IsFocused() {
 		// 非フォーカスは合成が無いことを意味する
 		// （UncommittedTextLengthInBytes は定義により 0）: 古いミラーを

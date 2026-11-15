@@ -1,8 +1,8 @@
-// 配列の組込: スタック/キューと形状変更の操作。
+// 配列の組込: 生成・文字列化・破壊的変更の操作。
 //
 // 配列は参照値である: push/pop/insert/remove/sort/reverse は
-// （poke と同じく）その場で変更する。問い合わせ系の関数
-// （join/slice）は新しい値を返す。
+// その場で変更する。これらは統合せず、個別の関数のままにする。
+// 非破壊の len/slice/find は文字列と共通のため builtin_seq.go にある。
 package main
 
 import (
@@ -101,17 +101,20 @@ func init() {
 		return Str(strings.Join(parts, delim)), nil
 	})
 
-	// sort(arr): その場でソート（整数か文字列。混合はエラー）。
-	// 連鎖のため配列を返す。
+	// sort(arr): その場でソートし、元インデックスの配列を返す
+	// （整数か文字列。混合はエラー）。
+	// 例: a = [30, 10, 20]; idx = sort(a) -> a は [10, 20, 30]、
+	// idx は [1, 2, 0]。
 	register("sort", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("sort", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		if err := sortElems(arr.Elems); err != nil {
+		idx, err := sortWithIndices(arr.Elems)
+		if err != nil {
 			return Null(), argErr("sort", 0, at, "%s", err.Error())
 		}
-		return args[0], nil
+		return ArrayOf(idx), nil
 	})
 
 	// reverse(arr): その場で反転。連鎖のため配列を返す。
@@ -126,7 +129,7 @@ func init() {
 		return args[0], nil
 	})
 
-	// insert(arr, i, v...): インデックス i (0..length) に値を挿入する。
+	// insert(arr, i, v...): インデックス i (0..len) に値を挿入する。
 	register("insert", 2, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("insert", args, 0, at)
 		if err != nil {
@@ -174,58 +177,14 @@ func init() {
 		return ArrayOf(out), nil
 	})
 
-	// slice(arr, start [, end]): 要素 [start, end) の複製。
-	// 負のインデックスは末尾から数える。
-	register("slice", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		arr, err := needArray("slice", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		n := int64(len(arr.Elems))
-		start, err := needInt("slice", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		end := n
-		if len(args) == 3 {
-			var err error
-			end, err = needInt("slice", args, 2, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		if start < 0 {
-			start += n
-		}
-		if end < 0 {
-			end += n
-		}
-		if start < 0 || end < 0 || start > n || end > n || start > end {
-			return Null(), argErr("slice", 1, at, "範囲 %d から %d は範囲外です（長さ %d）", args[1].I, end, n)
-		}
-		return ArrayOf(append([]Value(nil), arr.Elems[int(start):int(end)]...)), nil
-	})
-
-	// find(arr, v): == による v のインデックス。無ければ -1。
-	register("find", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		arr, err := needArray("find", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		for i, e := range arr.Elems {
-			if valuesEqual(e, args[1]) {
-				return Int(int64(i)), nil
-			}
-		}
-		return Int(-1), nil
-	})
 }
 
-// sortElems は数値（int/float 混合）またはすべて文字列の要素を
-// （安定）ソートする。それ以外はエラー。
-func sortElems(elems []Value) error {
+// sortWithIndices は数値（int/float 混合）またはすべて文字列の要素を
+// （安定）ソートし、ソート後の各位置に対応する元インデックスの配列を
+// 返す。elems 自体はその場で並べ替えられる。それ以外はエラー。
+func sortWithIndices(elems []Value) ([]Value, error) {
 	if len(elems) == 0 {
-		return nil
+		return []Value{}, nil
 	}
 	allInt, allNum, allString := true, true, true
 	for _, e := range elems {
@@ -239,15 +198,28 @@ func sortElems(elems []Value) error {
 			allString = false
 		}
 	}
+	var less func(a, b Value) bool
 	switch {
 	case allInt:
-		sort.SliceStable(elems, func(i, j int) bool { return elems[i].I < elems[j].I })
+		less = func(a, b Value) bool { return a.I < b.I }
 	case allNum:
-		sort.SliceStable(elems, func(i, j int) bool { return toFloat(elems[i]) < toFloat(elems[j]) })
+		less = func(a, b Value) bool { return toFloat(a) < toFloat(b) }
 	case allString:
-		sort.SliceStable(elems, func(i, j int) bool { return elems[i].S < elems[j].S })
+		less = func(a, b Value) bool { return a.S < b.S }
 	default:
-		return fmt.Errorf("要素はすべて数値かすべて文字列である必要があります")
+		return nil, fmt.Errorf("要素はすべて数値かすべて文字列である必要があります")
 	}
-	return nil
+	idx := make([]int, len(elems))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(i, j int) bool { return less(elems[idx[i]], elems[idx[j]]) })
+	sorted := make([]Value, len(elems))
+	idxVals := make([]Value, len(elems))
+	for newPos, oldPos := range idx {
+		sorted[newPos] = elems[oldPos]
+		idxVals[newPos] = Int(int64(oldPos))
+	}
+	copy(elems, sorted)
+	return idxVals, nil
 }

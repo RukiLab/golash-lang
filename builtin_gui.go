@@ -15,40 +15,85 @@ func guiBE(in *Interp, at Pos, name string) (*gui.WindowBackend, error) {
 	return wb, nil
 }
 
+// guiResizeScreen は screen(w, h) / screen(0, w, h) の共通処理。
+func guiResizeScreen(wb *gui.WindowBackend, w, h int64, at Pos) (Value, error) {
+	if w <= 0 || h <= 0 {
+		return Null(), rtErrf(at, "screen のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
+	}
+	// 巨大なキャンバスはループ用ゴルーチン内でエンジン内部でパニックし（捕捉不可）、
+	// ここでスクリプトエラーとして上限を設ける。
+	if w > int64(gui.MaxImageDim) || h > int64(gui.MaxImageDim) {
+		return Null(), rtErrf(at, "screen のサイズは上限 %d x %d までです", gui.MaxImageDim, gui.MaxImageDim)
+	}
+	wb.ResizeCanvas(int(w), int(h))
+	return Null(), nil
+}
+
 func init() {
-	// screen(w, h): ウィンドウをリサイズしキャンバスを再初期化する。
-	register("screen", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// screen(): OS ウィンドウの [幅, 高さ]。
+	// screen(id): 描画バッファ id の [幅, 高さ]（0 はメインキャンバス）。
+	// screen(w, h): ウィンドウ/メインキャンバスを w x h にリサイズ。
+	// screen(id, w, h): バッファ id を作成・置換（0 はメインのリサイズ）。
+	register("screen", 0, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "screen")
 		if err != nil {
 			return Null(), err
 		}
-		w, err := needInt("screen", args, 0, at)
-		if err != nil {
-			return Null(), err
+		switch len(args) {
+		case 0:
+			w, h := gui.WindowSize()
+			return ArrayOf([]Value{Int(int64(w)), Int(int64(h))}), nil
+		case 1:
+			id, err := needInt("screen", args, 0, at)
+			if err != nil {
+				return Null(), err
+			}
+			w, h, err := wb.BufferSize(int(id))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return ArrayOf([]Value{Int(int64(w)), Int(int64(h))}), nil
+		case 2:
+			w, err := needInt("screen", args, 0, at)
+			if err != nil {
+				return Null(), err
+			}
+			h, err := needInt("screen", args, 1, at)
+			if err != nil {
+				return Null(), err
+			}
+			return guiResizeScreen(wb, w, h, at)
+		default:
+			id, err := needInt("screen", args, 0, at)
+			if err != nil {
+				return Null(), err
+			}
+			w, err := needInt("screen", args, 1, at)
+			if err != nil {
+				return Null(), err
+			}
+			h, err := needInt("screen", args, 2, at)
+			if err != nil {
+				return Null(), err
+			}
+			if id == 0 {
+				return guiResizeScreen(wb, w, h, at)
+			}
+			if err := wb.NewBuffer(int(id), int(w), int(h)); err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return Null(), nil
 		}
-		h, err := needInt("screen", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		if w <= 0 || h <= 0 {
-			return Null(), rtErrf(at, "screen のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
-		}
-		// 巨大なキャンバスはループ用ゴルーチン内でエンジン内部でパニックし（捕捉不可）、
-		// ここでスクリプトエラーとして上限を設ける。
-		if w > int64(gui.MaxImageDim) || h > int64(gui.MaxImageDim) {
-			return Null(), rtErrf(at, "screen のサイズは上限 %d x %d までです", gui.MaxImageDim, gui.MaxImageDim)
-		}
-		wb.ResizeCanvas(int(w), int(h))
-		return Null(), nil
 	})
 
-	// gsel(id): 描画バッファを切り替える（0 = メイン、表示対象）。
-	register("gsel", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "gsel")
+	// gfxsel(id) は描画バッファを選択する（0 はメイン、表示対象）。
+	// サイズの取得・変更は screen で行う。
+	register("gfxsel", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxsel")
 		if err != nil {
 			return Null(), err
 		}
-		id, err := needInt("gsel", args, 0, at)
+		id, err := needInt("gfxsel", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
@@ -58,81 +103,68 @@ func init() {
 		return Null(), nil
 	})
 
-	// buffer(id, w, h): 空の描画バッファを作成（または置換）する。
-	// 表示キャンバス（id 0）は screen() のまま。buffer() は
-	// スクリプトが gsel() で切り替えるオフスクリーン id を管理する。
-	register("buffer", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "buffer")
-		if err != nil {
-			return Null(), err
-		}
-		id, err := needInt("buffer", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		w, err := needInt("buffer", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		h, err := needInt("buffer", args, 2, at)
-		if err != nil {
-			return Null(), err
-		}
-		if err := wb.NewBuffer(int(id), int(w), int(h)); err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Null(), nil
-	})
-
-	// pget(): pos() の位置から1ピクセルを読み取る。
+	// pget(x, y): 指定座標から1ピクセルを読み取る。
 	// 色を 0xRRGGBB 整数（r*65536+g*256+b）で返す。範囲外はエラー。
-	register("pget", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
+	register("pget", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pget")
 		if err != nil {
 			return Null(), err
 		}
-		x, y := wb.CursorPixels()
-		c, err := wb.GetPixel(x, y)
+		x, err := needInt("pget", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		y, err := needInt("pget", args, 1, at)
+		if err != nil {
+			return Null(), err
+		}
+		c, err := wb.GetPixel(int(x), int(y))
 		if err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Int(int64(c[0])*65536 + int64(c[1])*256 + int64(c[2])), nil
 	})
 
-	// pset(): pos() の位置に現在の色で1ピクセルを描く。
-	register("pset", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// pset(x, y): 指定座標に現在の色で1ピクセルを描く。
+	register("pset", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "pset")
 		if err != nil {
 			return Null(), err
 		}
-		x, y := wb.CursorPixels()
-		wb.SetPixel(x, y, wb.Foreground())
+		x, err := needInt("pset", args, 0, at)
+		if err != nil {
+			return Null(), err
+		}
+		y, err := needInt("pset", args, 1, at)
+		if err != nil {
+			return Null(), err
+		}
+		wb.SetPixel(int(x), int(y), wb.Foreground())
 		return Null(), nil
 	})
 
-	// line(x2, y2): pos() の位置から (x2, y2) へ現在の色で
-	// 1ピクセル幅の直線を引く。pos() 自体は移動しない。
-	register("line", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// line(x1, y1, x2, y2): (x1, y1) から (x2, y2) へ現在の色で
+	// 1ピクセル幅の直線を引く。
+	register("line", 4, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "line")
 		if err != nil {
 			return Null(), err
 		}
-		x1, y1 := wb.CursorPixels()
-		x2, err := needInt("line", args, 0, at)
-		if err != nil {
-			return Null(), err
+		nums := make([]int, 4)
+		for i := range nums {
+			v, err := needInt("line", args, i, at)
+			if err != nil {
+				return Null(), err
+			}
+			nums[i] = int(v)
 		}
-		y2, err := needInt("line", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		wb.StrokeLine(x1, y1, int(x2), int(y2), wb.Foreground())
+		wb.StrokeLine(nums[0], nums[1], nums[2], nums[3], wb.Foreground())
 		return Null(), nil
 	})
 
-	// rect(): 画面全体を塗りつぶす。rect(w, h): pos() の位置を
+	// rect(): 画面全体を塗りつぶす。rect(x, y, w, h): (x, y) を
 	// 左上として w x h の矩形を塗りつぶす（負の辺は逆向きに正規化される）。
-	register("rect", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	register("rect", 0, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "rect")
 		if err != nil {
 			return Null(), err
@@ -142,146 +174,179 @@ func init() {
 			wb.FillRect(0, 0, w, h, wb.Foreground())
 			return Null(), nil
 		}
-		if len(args) != 2 {
-			return Null(), rtErrf(at, "rect は引数を 0 個または 2 個必要としますが、%d 個が渡されました", len(args))
+		if len(args) != 4 {
+			return Null(), rtErrf(at, "rect は引数を 0 個または 4 個必要としますが、%d 個が渡されました", len(args))
 		}
-		w, err := needInt("rect", args, 0, at)
-		if err != nil {
-			return Null(), err
+		nums := make([]int64, 4)
+		for i := range nums {
+			v, err := needInt("rect", args, i, at)
+			if err != nil {
+				return Null(), err
+			}
+			nums[i] = v
 		}
-		h, err := needInt("rect", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		x, y := wb.CursorPixels()
+		x, y, w, h := nums[0], nums[1], nums[2], nums[3]
 		if w < 0 {
-			x += int(w)
+			x += w
 			w = -w
 		}
 		if h < 0 {
-			y += int(h)
+			y += h
 			h = -h
 		}
-		wb.FillRect(x, y, int(w), int(h), wb.Foreground())
+		wb.FillRect(int(x), int(y), int(w), int(h), wb.Foreground())
 		return Null(), nil
 	})
 
-	// ellipse(w, h [, fill]): pos() の位置を中心に全幅 w・全高 h の
-	// 楕円を現在の色で描く（w == h で真円）。w・h は 0 以上。
-	register("ellipse", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// ellipse(x, y, w, h [, fill]): (x, y) を左上とする w x h の
+	// 楕円を現在の色で描く（w == h で真円）。負の w/h は左上へ
+	// 拡張する向きに正規化する（rect と同じ）。w/h が 0 は何も描画しない。
+	// fill が非0なら塗り潰し（0=false、非0=true）。
+	register("ellipse", 4, 5, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "ellipse")
 		if err != nil {
 			return Null(), err
 		}
-		w, err := needInt("ellipse", args, 0, at)
+		x, err := needInt("ellipse", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		h, err := needInt("ellipse", args, 1, at)
+		y, err := needInt("ellipse", args, 1, at)
 		if err != nil {
 			return Null(), err
 		}
-		if w < 0 || h < 0 {
-			return Null(), argErr("ellipse", 0, at, "大きさは 0 以上である必要があります。%d x %d が指定されました", w, h)
+		w, err := needInt("ellipse", args, 2, at)
+		if err != nil {
+			return Null(), err
 		}
+		h, err := needInt("ellipse", args, 3, at)
+		if err != nil {
+			return Null(), err
+		}
+		// 負の w/h は左上へ拡張する向きに正規化する（バックエンドで吸収）。
+		// 0 は何も描画しない（エラーにしない）。
 		fill := false
-		if len(args) == 3 {
-			f, err := needInt("ellipse", args, 2, at)
-			if err != nil {
-				return Null(), err
+		if len(args) == 5 {
+			if args[4].K != KInt {
+				return Null(), argErr("ellipse", 4, at, "整数（0=false、非0=true）である必要があります。%s が指定されました", typeNameOf(args[4]))
 			}
-			fill = f != 0
+			fill = args[4].I != 0
 		}
-		x, y := wb.CursorPixels()
-		wb.Ellipse(x, y, int(w), int(h), fill, wb.Foreground())
+		wb.Ellipse(int(x), int(y), int(w), int(h), fill, wb.Foreground())
 		return Null(), nil
 	})
 
-	// gcopy(src, sx, sy, w, h [, zx, zy [, deg]]): バッファの
-	// 領域をカーソル位置に転送する。引数5個は単純コピー。zx, zy は
-	// 拡大縮小（旧 gzoom）。deg はさらに領域中心を軸に回転し
-	// （旧 grotate）、中心をカーソル位置に保つ。
-	register("gcopy", 5, 8, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "gcopy")
+	// gfxcopy(src, sx, sy, w, h, dx, dy [, dw, dh]): バッファの
+	// 領域を (dx, dy) に転送する。引数7個は等倍コピー。dw, dh は
+	// コピー先サイズ。コピー元は (sx, sy) を角とした |w| x |h|（負は
+	// 逆向きに正規化）、コピー先は (dx, dy) を角とした |dw| x |dh|
+	//（等倍時は |w| x |h|。負は逆向きに正規化した上で反転描画）。
+	// w/h/dw/dh が 0 はエラー。
+	register("gfxcopy", 7, 9, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxcopy")
 		if err != nil {
 			return Null(), err
 		}
-		if len(args) == 6 {
-			return Null(), rtErrf(at, "gcopy は引数を 5 個、7 個または 8 個必要としますが、%d 個が渡されました", len(args))
+		if len(args) == 8 {
+			return Null(), rtErrf(at, "gfxcopy は引数を 7 個または 9 個必要としますが、%d 個が渡されました", len(args))
 		}
-		nums := make([]int, 5)
+		nums := make([]int, 7)
 		for i := range nums {
-			v, err := needInt("gcopy", args, i, at)
+			v, err := needInt("gfxcopy", args, i, at)
 			if err != nil {
 				return Null(), err
 			}
 			nums[i] = int(v)
 		}
-		if nums[3] <= 0 || nums[4] <= 0 {
-			return Null(), rtErrf(at, "gcopy のサイズは正の値である必要があります。%d x %d が指定されました", nums[3], nums[4])
+		if nums[3] == 0 || nums[4] == 0 {
+			return Null(), rtErrf(at, "gfxcopy のサイズは 0 以外である必要があります。%d x %d が指定されました", nums[3], nums[4])
 		}
-		dx, dy := wb.CursorPixels()
-		if len(args) == 5 {
+		dx, dy := nums[5], nums[6]
+		if len(args) == 7 {
 			if err := wb.Blit(nums[0], nums[1], nums[2], nums[3], nums[4], dx, dy); err != nil {
 				return Null(), rtErrf(at, "%s", err.Error())
 			}
 			return Null(), nil
 		}
-		zx, err := needFloat("gcopy", args, 5, at)
+		dw, err := needInt("gfxcopy", args, 7, at)
 		if err != nil {
 			return Null(), err
 		}
-		zy, err := needFloat("gcopy", args, 6, at)
+		dh, err := needInt("gfxcopy", args, 8, at)
 		if err != nil {
 			return Null(), err
 		}
-		if len(args) == 7 {
-			if err := wb.BlitScaled(nums[0], nums[1], nums[2], nums[3], nums[4], zx, zy, dx, dy); err != nil {
-				return Null(), rtErrf(at, "%s", err.Error())
-			}
-			return Null(), nil
-		}
-		deg, err := needFloat("gcopy", args, 7, at)
-		if err != nil {
-			return Null(), err
-		}
-		if err := wb.BlitRotate(nums[0], nums[1], nums[2], nums[3], nums[4], deg, zx, zy, dx, dy); err != nil {
+		if err := wb.BlitScaled(nums[0], nums[1], nums[2], nums[3], nums[4], int(dw), int(dh), dx, dy); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil
 	})
 
-	// gmode(mode): 0 通常描画、1 加算合成。
-	register("gmode", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "gmode")
+	// gfxmode(): 現在の [mode, alpha] を返す。
+	// gfxmode(mode [, alpha]): 合成モードと描画全体のアルファを設定する。
+	// mode は 0 通常描画、1 加算合成、2 乗算合成。alpha は 0-255 で、
+	// 省略時は現在の値を維持する（図形とブリットに適用。文字は不透明なまま）。
+	register("gfxmode", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxmode")
 		if err != nil {
 			return Null(), err
 		}
-		m, err := needInt("gmode", args, 0, at)
+		if len(args) == 0 {
+			m, a := wb.Mode()
+			return ArrayOf([]Value{Int(int64(m)), Int(int64(a))}), nil
+		}
+		m, err := needInt("gfxmode", args, 0, at)
 		if err != nil {
 			return Null(), err
+		}
+		hasAlpha := len(args) == 2
+		var a int64
+		if hasAlpha {
+			a, err = needInt("gfxmode", args, 1, at)
+			if err != nil {
+				return Null(), err
+			}
+			if a < 0 || a > 255 {
+				return Null(), argErr("gfxmode", 1, at, "不透明度は 0 から 255 の範囲で指定してください。%d が指定されました", a)
+			}
 		}
 		if err := wb.SetBlend(int(m)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
+		if hasAlpha {
+			if err := wb.SetAlpha(int(a)); err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+		}
 		return Null(), nil
 	})
 
-	// picload(path): 画像を新しいバッファに読み込み、その id を返す。
-	register("picload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "picload")
+	// gfxfile(path): 画像を読み込み、画像バッファ id を返す。
+	// gfxfile(path, id): バッファ id を PNG として保存する。
+	register("gfxfile", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxfile")
 		if err != nil {
 			return Null(), err
 		}
-		p, err := needString("picload", args, 0, at)
+		p, err := needString("gfxfile", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		id, err := wb.PicLoad(in.resolvePath(p))
+		if len(args) == 1 {
+			id, err := wb.PicLoad(in.resolvePath(p))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return Int(int64(id)), nil
+		}
+		id, err := needInt("gfxfile", args, 1, at)
 		if err != nil {
+			return Null(), err
+		}
+		if err := wb.SavePNG(in.resolvePath(p), int(id)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
-		return Int(int64(id)), nil
+		return Null(), nil
 	})
 
 }

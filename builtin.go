@@ -2,17 +2,19 @@
 //
 // HSP 由来の関数はすべてここ（または builtin_*.go）にあり、evalCall から
 // ディスパッチされる。命名は HSP 流（短縮形）を踏襲し、シグネチャは近代化している：
-// out パラメータは戻り値になり、述語は bool を返し、失敗は実行時エラーになる。
+// out パラメータは戻り値になり、述語は整数 1/0（true=1、false=0）を返し、
+// 失敗は実行時エラーになる。
 //
 // GUI ワードは builtin_gui*.go（G1-G6）にある：
-// screen, gsel, pset, pget, line, rect, ellipse, gcopy, gquad, gmode,
-// picload, pngsave, paint, font,
-// getkey, mousex, mousey, clicked,
-// mmload, mmplay, mmstop, mmvol, button, inputbox,
-// listbox, clrobj, dialog,
-// chkbox, combox, mesbox, objset, objget, objenable。
+// screen, gfxsel, pset, pget, line, rect, ellipse, gfxcopy, gfxblit, gfxmode,
+// gfxfile, font,
+// gfxquad, tri,
+// getkey, mouse, touch, dropload,
+// sndload, sndplay, sndstop, sndvol, sndpitch, button, inputbox,
+// listbox, objdel,
+// chkbox, slider, combox, msgbox, objset, objget, objenable。
+// OS ネイティブの dialog は builtin_dialog.go にある。
 // palette は意図的に未対応（truecolor バックエンドにパレットがないため）。
-// 将来用に予約：mplay。
 package main
 
 import (
@@ -22,22 +24,20 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"gsh/gui"
 )
 
 // Backend は入出力を抽象化し、将来 GUI バックエンドに差し替え可能にする。
-// ConsoleBackend は ANSI シーケンス＋標準入出力による実装。
 type Backend interface {
-	Print(s string, style gui.TextStyle)
-	Println(s string, style gui.TextStyle)
+	Print(s string)
+	Println(s string)
 	Out() io.Writer
 	ReadLine(prompt string) (line string, ok bool)
 	Clear()
 	SetColor(r, g, b, a int)
-	ResetColor()
+	Color() [4]int
 	SetTitle(s string)
 	MoveTo(x, y int)
+	Position() (x, y int)
 	Sleep(ms int64)
 	// Awaitはnフレーム分待機する（GUI：Update刻み、CUI：1回約16ms）。
 	Await(n int64)
@@ -60,38 +60,21 @@ type immediateReader interface {
 type ConsoleBackend struct {
 	out io.Writer
 	in  *bufio.Reader
+	fg  [4]int
+	x   int
+	y   int
 }
 
 // NewConsoleBackendはスクリプト入出力用にout/inを包む。
 func NewConsoleBackend(out io.Writer, in io.Reader) *ConsoleBackend {
-	return &ConsoleBackend{out: out, in: bufio.NewReader(in)}
+	return &ConsoleBackend{out: out, in: bufio.NewReader(in), fg: [4]int{0, 0, 0, 255}}
 }
 
-func (b *ConsoleBackend) Print(s string, style gui.TextStyle) {
-	fmt.Fprint(b.out, styledCUI(s, style))
+func (b *ConsoleBackend) Print(s string) {
+	fmt.Fprint(b.out, s)
 }
-func (b *ConsoleBackend) Println(s string, style gui.TextStyle) {
-	fmt.Fprint(b.out, styledCUI(s, style)+"\n")
-}
-
-// styledCUIはsをSGR装飾コードで包み、後で装飾だけを解除する
-// （永続テキスト色には触れない。22/23/24は
-// 太字・斜体・下線の解除のみ）。style 0は従来の素出力とバイト同一。
-func styledCUI(s string, style gui.TextStyle) string {
-	if style == 0 {
-		return s
-	}
-	codes := ""
-	if style&gui.StyleBold != 0 {
-		codes += "\x1b[1m"
-	}
-	if style&gui.StyleItalic != 0 {
-		codes += "\x1b[3m"
-	}
-	if style&gui.StyleUnderline != 0 {
-		codes += "\x1b[4m"
-	}
-	return codes + s + "\x1b[22;23;24m"
+func (b *ConsoleBackend) Println(s string) {
+	fmt.Fprint(b.out, s+"\n")
 }
 
 // Outは生の出力ストリームを公開する（exec受渡し用）。
@@ -119,20 +102,27 @@ func (b *ConsoleBackend) ReadLine(prompt string) (string, bool) {
 func (b *ConsoleBackend) Clear() { fmt.Fprint(b.out, "\x1b[2J\x1b[H") }
 
 // SetColorは以降のテキスト色を設定する（チャンネル毎0-255）。
-// 端末にテキストの透明度はないため、aは受け取って無視する。
+// 端末にテキストの透明度はないためaは描画に使わないが、color()の
+// 取得値にはそのまま保持する。
 func (b *ConsoleBackend) SetColor(r, g, b2, a int) {
-	_ = a
-	fmt.Fprintf(b.out, "\x1b[38;2;%d;%d;%dm", clamp8(r), clamp8(g), clamp8(b2))
+	b.fg = [4]int{clamp8(r), clamp8(g), clamp8(b2), clamp8(a)}
+	fmt.Fprintf(b.out, "\x1b[38;2;%d;%d;%dm", b.fg[0], b.fg[1], b.fg[2])
 }
 
-// ResetColorは既定のテキスト色に戻す。
-func (b *ConsoleBackend) ResetColor() { fmt.Fprint(b.out, "\x1b[0m") }
+// Colorは現在のテキスト色を[r, g, b, a]で返す。
+func (b *ConsoleBackend) Color() [4]int { return b.fg }
 
 // SetTitleは端末にタイトル変更を依頼する（ベストエフォート）。
 func (b *ConsoleBackend) SetTitle(s string) { fmt.Fprintf(b.out, "\x1b]0;%s\x07", s) }
 
 // MoveToはカーソルを0始まりの(x, y)に置く。
-func (b *ConsoleBackend) MoveTo(x, y int) { fmt.Fprintf(b.out, "\x1b[%d;%dH", y+1, x+1) }
+func (b *ConsoleBackend) MoveTo(x, y int) {
+	b.x, b.y = x, y
+	fmt.Fprintf(b.out, "\x1b[%d;%dH", y+1, x+1)
+}
+
+// Positionは最後にMoveToで設定した位置を返す。
+func (b *ConsoleBackend) Position() (int, int) { return b.x, b.y }
 
 // Sleepはmsミリ秒だけ停止する。
 func (b *ConsoleBackend) Sleep(ms int64) { time.Sleep(time.Duration(ms) * time.Millisecond) }
@@ -251,43 +241,15 @@ func needArray(name string, args []Value, i int, at Pos) (*Array, error) {
 	return args[i].Arr, nil
 }
 
-// splitStyleArgs は末尾の mes()/print() スタイルキーワード
-// （"bold", "italic", "bolditalic", "underline"、完全一致）を消費し、
-// 残りの引数と合成したスタイルを返す。通常の語（文字列でないものも
-// 含む）は常に印字対象のまま扱われる。
-func splitStyleArgs(args []Value) ([]Value, gui.TextStyle) {
-	var st gui.TextStyle
-	n := len(args)
-	for n > 0 {
-		a := args[n-1]
-		if a.K != KString {
-			break
-		}
-		s, ok := gui.ParseTextStyle(a.S)
-		if !ok {
-			break
-		}
-		st |= s
-		n--
-	}
-	return args[:n], st
-}
-
-// mes は基本出力関数（可変長・空白連結＋改行）。
-// 末尾のスタイルキーワード（"bold", "italic", "bolditalic",
-// "underline"）は印字されず装飾として消費される。void 引数は
-// 無音でスキップされる（何も寄与せず、区切りも生じない）。
+// msg は基本出力関数（単一引数＋改行）。
+// void 引数は無音でスキップされる（改行のみ出力）。
 func init() {
-	register("mes", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		rest, st := splitStyleArgs(args)
-		parts := make([]string, 0, len(rest))
-		for _, a := range rest {
-			if a.K == KNull {
-				continue
-			}
-			parts = append(parts, Stringify(a))
+	register("msg", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		if args[0].K == KNull {
+			in.be.Println("")
+			return Null(), nil
 		}
-		in.be.Println(strings.Join(parts, " "), st)
+		in.be.Println(Stringify(args[0]))
 		return Null(), nil
 	})
 }

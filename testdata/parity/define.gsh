@@ -1,39 +1,30 @@
-#mode cli
-// 連番定数の作例（#define 無値形）
-#define Color_Red
-#define Color_Green
-#define Color_Blue
-mes(Color_Red)
-mes(Color_Green)
-mes(Color_Blue)
+// 定数（変数への代入で代用）の作例
+Color_Red = 0
+Color_Green = 1
+Color_Blue = 2
+msg(Color_Red)
+msg(Color_Green)
+msg(Color_Blue)
 
-#define Low
-#define High 10
-#define Max
-mes(Low)
-mes(High)
-mes(Max)
+Low = 3
+High = 10
+Max = 11
+msg(Low)
+msg(High)
+msg(Max)
 
-#define Dir_North
-#define Dir_South
-#define Dir_East
-#define Dir_West
-mes(Dir_West)
+Dir_North = 12
+Dir_South = 13
+Dir_East = 14
+Dir_West = 15
+msg(Dir_West)
 
 d = Dir_South
-switch d {
-    case Dir_North {
-        mes("north")
-    }
-    case Dir_South {
-        mes("south")
-    }
-    default {
-        mes("other")
-    }
-}
-
-// 字句解析の作例（エディタ支援向け）
-t = lextokens("x = 1")
-mes(t[0][0])
-mes(t[0][1])
+switch d
+    case Dir_North
+        msg("north")
+    case Dir_South
+        msg("south")
+    default
+        msg("other")
+end

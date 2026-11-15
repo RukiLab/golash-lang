@@ -2,7 +2,7 @@
 //
 // runtime.go との観測一致が最優先：純粋な値演算は runtime.go の関数
 // （add/arith/bitwise/shift/compare/valuesEqual/applyBinary/setIndex
-// requireValue/requireBool）を直接呼び出すため、文言・条件がずれない。
+// requireValue/truthy）を直接呼び出すため、文言・条件がずれない。
 // 評価順序・検査位置は compile.go 側の発行順序で再現する。
 package main
 
@@ -81,6 +81,9 @@ type vmachine struct {
 	depth   int
 	argsBuf []Value
 	trace   bool
+	// fastOK はネイティブ検証の機械ごとの覚え (名前→一致したか)。
+	// ハッシュ計算は初回呼出しの1回だけ。以後はここを見る。
+	fastOK map[string]bool
 	// フレームプール：呼出毎の make を避ける（再帰の高速化）。
 	// サイズ別に保持し、返却時は参照解放のためクリアする。
 	// 添字はサイズそのもの（map 検索を避けるためスライス化）。
@@ -175,8 +178,8 @@ func (m *vmachine) giveRO(ro []bool) {
 }
 
 func newVmachine(in *Interp) *vmachine {
-	m := &vmachine{in: in, funcs: map[string]*VMProto{}}
-	if os.Getenv("GOULASH_TRACE") == "1" {
+	m := &vmachine{in: in, funcs: map[string]*VMProto{}, fastOK: map[string]bool{}}
+	if os.Getenv("GOLASH_TRACE") == "1" {
 		m.trace = true
 	}
 	return m
@@ -249,7 +252,8 @@ func (m *vmachine) addProg(prog *VMProgram) {
 }
 
 // lookupVar は「スロット（作成済み）→グローバル」の順で探す。
-// 見つかれば値・真、なければ偽（呼出解決・LOADN 用）。
+// local 宣言・仮引数・repeat 変数はスロット、それ以外の未作成名は
+// グローバルとして解決する。見つかれば値・真、なければ偽。
 func (m *vmachine) lookupVar(fr *vmFrame, name string, slot int) (Value, bool) {
 	if slot >= 0 && slot < len(fr.regs) && fr.regs[slot].K != KNull {
 		return fr.regs[slot], true
@@ -436,8 +440,7 @@ func (m *vmachine) loop(pc int) error {
 				}
 				m.globals.vals[gi] = v
 			} else {
-				// `let` 廃止後：未定義への代入は宣言になる
-				// （見える定義の更新、なければ現在のスコープに作成）。
+				// 未定義へのトップレベル代入はグローバル宣言になる。
 				m.globals.vals[gi] = v
 				m.globals.has[gi] = true
 				m.globals.ro[gi] = false
@@ -476,11 +479,27 @@ func (m *vmachine) loop(pc int) error {
 					}
 					m.globals.vals[gi] = v
 				} else {
-					// `let` 廃止後：可視定義がなければ関数ローカルに作る。
-					regs[slot] = v
-					fr.ro[slot] = false
+					// local なしの代入は既存グローバルだけを更新する。
+					// 新しいローカルを作るには DEFN（local 宣言）が必要。
+					return rtErrf(pos, "未定義の変数 %q です", name)
 				}
 			}
+		case OpDefN:
+			// `local` 宣言：同名グローバルがあっても常にローカルへ束縛する。
+			name := proto.Names[d]
+			slot := int(c)
+			v := regs[a]
+			if err := requireValue(v, pos); err != nil {
+				return err
+			}
+			if isBuiltin(name) {
+				return rtErrf(pos, "%q に代入できません：組み込み関数です", name)
+			}
+			if fr.ro[slot] {
+				return rtErrf(pos, "%q に代入できません：repeat カウンタは読み取り専用です", name)
+			}
+			regs[slot] = v
+			fr.ro[slot] = false
 
 		case OpCkVal:
 			// requireValue のインライン化（文言同一）。
@@ -488,49 +507,70 @@ func (m *vmachine) loop(pc int) error {
 				return rtErrf(pos, "void値を使用できません")
 			}
 		case OpTest:
-			// requireBool のインライン化（文言同一、値は保持）。
-			if regs[a].K != KBool {
-				return rtErrf(pos, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(regs[a]))
+			// 条件式は整数（0=false、非0=true）。値を 1/0 に正規化する。
+			ok, err := truthy(regs[a], pos)
+			if err != nil {
+				return err
 			}
+			regs[a] = IntOfBool(ok)
 		case OpJmp:
 			next = pc + 1 + int(int32(d))
 		case OpJmpT:
-			if regs[a].B {
+			if regs[a].I != 0 {
 				next = pc + 1 + int(int32(d))
 			}
 		case OpJmpF:
-			if !regs[a].B {
+			if regs[a].I == 0 {
 				next = pc + 1 + int(int32(d))
 			}
 		case OpCkInt:
 			if regs[a].K != KInt {
-				return rtErrf(pos, "配列のインデックスは整数である必要があります。%s が指定されました", typeNameOf(regs[a]))
+				return rtErrf(pos, "インデックスは整数である必要があります。%s が指定されました", typeNameOf(regs[a]))
 			}
 		case OpCkNeg:
 			if regs[a].I < 0 {
-				return rtErrf(pos, "配列のインデックスは 0 以上である必要があります。%d が指定されました", regs[a].I)
+				return rtErrf(pos, "インデックスは 0 以上である必要があります。%d が指定されました", regs[a].I)
 			}
 		case OpCkArr:
+			if regs[a].K == KString {
+				return rtErrf(pos, "文字列はインデックスで変更できません（文字列は不変です）")
+			}
 			if regs[a].K != KArray {
 				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列に対応しています）", typeNameOf(regs[a]))
 			}
 		case OpCkBnd:
 			idx := regs[a].I
-			arr := regs[b].Arr
-			if idx < 0 || int(idx) >= len(arr.Elems) {
-				return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idx, len(arr.Elems))
+			var n int
+			switch regs[b].K {
+			case KArray:
+				n = len(regs[b].Arr.Elems)
+			case KString:
+				n = len([]rune(regs[b].S))
+			default:
+				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列または文字列に対応しています）", typeNameOf(regs[b]))
+			}
+			if idx < 0 || int(idx) >= n {
+				return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idx, n)
 			}
 		case OpGetI:
 			base := regs[b]
 			idxv := regs[c]
 			if idxv.K != KInt {
-				return rtErrf(pos, "配列のインデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
+				return rtErrf(pos, "インデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
 			}
-			if base.K != KArray {
-				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列に対応しています）", typeNameOf(base))
+			if base.K != KArray && base.K != KString {
+				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列または文字列に対応しています）", typeNameOf(base))
 			}
 			if idxv.I < 0 {
-				return rtErrf(pos, "配列のインデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
+				return rtErrf(pos, "インデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
+			}
+			if base.K == KString {
+				r := []rune(base.S)
+				if int(idxv.I) >= len(r) {
+					return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idxv.I, len(r))
+				}
+				regs[a] = Str(string(r[int(idxv.I)]))
+				break
 			}
 			if int(idxv.I) >= len(base.Arr.Elems) {
 				return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idxv.I, len(base.Arr.Elems))
@@ -540,13 +580,16 @@ func (m *vmachine) loop(pc int) error {
 			base := regs[a]
 			idxv := regs[b]
 			if idxv.K != KInt {
-				return rtErrf(pos, "配列のインデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
+				return rtErrf(pos, "インデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
+			}
+			if base.K == KString {
+				return rtErrf(pos, "文字列はインデックスで変更できません（文字列は不変です）")
 			}
 			if base.K != KArray {
 				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列に対応しています）", typeNameOf(base))
 			}
 			if idxv.I < 0 {
-				return rtErrf(pos, "配列のインデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
+				return rtErrf(pos, "インデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
 			}
 			if err := setIndex(base.Arr, int(idxv.I), regs[c], pos); err != nil {
 				return err
@@ -703,7 +746,7 @@ func (m *vmachine) loop(pc int) error {
 			if op == OpNe {
 				eq = !eq
 			}
-			regs[a] = Bool(eq)
+			regs[a] = IntOfBool(eq)
 		case OpLt, OpLe, OpGt, OpGe:
 			if l, r := regs[b], regs[c]; l.K == KInt && r.K == KInt {
 				// compare() は数値間を float64 で比較するため同一式で再現する。
@@ -726,7 +769,7 @@ func (m *vmachine) loop(pc int) error {
 				default:
 					out = c >= 0
 				}
-				regs[a] = Bool(out)
+				regs[a] = IntOfBool(out)
 				break
 			} else {
 				var v Value
@@ -747,10 +790,11 @@ func (m *vmachine) loop(pc int) error {
 				regs[a] = v
 			}
 		case OpNot:
-			if regs[b].K != KBool {
-				return rtErrf(pos, "条件式は bool 型である必要があります。%s が指定されました", typeNameOf(regs[b]))
+			ok, err := truthy(regs[b], pos)
+			if err != nil {
+				return err
 			}
-			regs[a] = Bool(!regs[b].B)
+			regs[a] = IntOfBool(!ok)
 		case OpNeg:
 			if v := regs[b]; v.K == KInt {
 				regs[a] = Int(-v.I)
@@ -768,18 +812,18 @@ func (m *vmachine) loop(pc int) error {
 		case OpRepDisp:
 			v := regs[a]
 			switch v.K {
-			case KArray:
+			case KArray, KString:
 				next = pc + 1 + int(int32(d))
 			case KInt:
 			default:
-				return rtErrf(pos, "repeat は整数または配列が必要です。%s が指定されました", typeNameOf(v))
+				return rtErrf(pos, "repeat は整数・配列・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
 		case OpRepIntErr:
-			return rtErrf(pos, "整数の repeat では変数は 1 つまでです（as i, item は配列専用です）")
+			return rtErrf(pos, "整数の repeat では変数は 1 つまでです（as i, item は配列・文字列用です）")
 		case OpForIPrep:
 			v := regs[a]
 			if v.K != KInt {
-				return rtErrf(pos, "repeat は整数または配列が必要です。%s が指定されました", typeNameOf(v))
+				return rtErrf(pos, "repeat は整数・配列・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
 			if v.I < 0 {
 				return rtErrf(pos, "repeat の回数は 0 以上である必要があります。%d が指定されました", v.I)
@@ -792,10 +836,19 @@ func (m *vmachine) loop(pc int) error {
 			}
 		case OpForAPrep:
 			v := regs[a]
-			if v.K != KArray {
-				return rtErrf(pos, "repeat は整数または配列が必要です。%s が指定されました", typeNameOf(v))
+			var snap []Value
+			switch v.K {
+			case KArray:
+				snap = append([]Value(nil), v.Arr.Elems...)
+			case KString:
+				rs := []rune(v.S)
+				snap = make([]Value, len(rs))
+				for i, r := range rs {
+					snap[i] = Str(string(r))
+				}
+			default:
+				return rtErrf(pos, "repeat は整数・配列・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
-			snap := append([]Value(nil), v.Arr.Elems...)
 			m.pushLoop(fr, vmLoop{isArray: true, idx: -1, snap: snap})
 		case OpSaveVar:
 			flags := b
@@ -997,6 +1050,9 @@ func (m *vmachine) loop(pc int) error {
 				}
 				seen[p] = true
 			}
+			if isLegacyDllName(proto2.Name) {
+				return rtErrf(pos, "%s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", proto2.Name)
+			}
 			if isBuiltin(proto2.Name) {
 				return rtErrf(pos, "%q を再定義できません：組み込み関数です", proto2.Name)
 			}
@@ -1007,6 +1063,9 @@ func (m *vmachine) loop(pc int) error {
 		case OpCkCall:
 			name := proto.Names[d]
 			argc := int(c)
+			if isLegacyDllName(name) {
+				return rtErrf(pos, "%s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", name)
+			}
 			if callee, ok := m.funcs[name]; ok {
 				want := len(callee.Params)
 				if argc != want {

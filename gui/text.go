@@ -12,7 +12,6 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // Out は exec の透過用に os.Stdout を公開する（GUI モード）。
@@ -20,12 +19,12 @@ func (b *WindowBackend) Out() io.Writer {
 	return os.Stdout
 }
 
-// tabSpaces は mes()/print() におけるタブの GUI 描画: 半角セル4つ分の
+// tabSpaces は msg()/print() におけるタブの GUI 描画: 半角セル4つ分の
 // 空白。固定の送り幅でありタブストップではないため、セルの計算は現在の
 // 桁位置に依存しない。
 const tabSpaces = "    "
 
-// textOp は1回の mes()/print() 呼出の順序付き1ステップ: 任意の
+// textOp は1回の msg()/print() 呼出の順序付き1ステップ: 任意の
 // バッファ消去または上方スクロール、その後ろに任意のテキスト断片。
 // 呼出1回全体は順序どおり1つのゲームスレッド・クロージャとして
 // 適用されるため、文字は pset()/line()/rect() とキャンバス層を共有する:
@@ -38,10 +37,12 @@ type textOp struct {
 	x, y     int  // 断片のピクセル原点（全ピクセル）
 	s        string
 	fg       color.NRGBA
-	st       TextStyle
 	face     *text.GoTextFace
 	lineH    float64
 	fontSize float64
+	gdi      bool   // GDI 埋め込みビットマップで描く
+	gdiFam   string // GDI ファミリ名
+	gdiSize  int    // GDI ピクセルサイズ
 }
 
 // textDraw は対象バッファに結び付けられた1回の Print/Println 呼出。
@@ -51,7 +52,7 @@ type textDraw struct {
 }
 
 // textBatch はゲームスレッドへ渡される前の連続する Print/Println 呼出
-// を蓄える。mes()/print() 呼出の一塊は1つの順序付き操作列（通常は1つの
+// を蓄える。msg()/print() 呼出の一塊は1つの順序付き操作列（通常は1つの
 // キュー済みクロージャ）に統合されるが、他の描画・即時のフレーム読み
 // 出し・yield・対象切り替えは先にフラッシュし、スクリプトの呼出順が
 // 保たれるようにする。まとめた呼出はアトミックではない: 繰返しのための
@@ -87,22 +88,24 @@ func (x *textBatch) merge(sel int, ops []textOp) {
 
 // Print は改行なしでテキストを追加し、他の描画と同じく現在のキャンバス
 // バッファにラスタライズする。
-func (b *WindowBackend) Print(s string, st TextStyle) {
-	b.printRaw(s, st, false)
+func (b *WindowBackend) Print(s string) {
+	b.printRaw(s, false)
 }
 
 // Println は末尾改行付きでテキストを追加し、他の描画と同じく現在の
-// キャンバスバッファにラスタライズする。
-func (b *WindowBackend) Println(s string, st TextStyle) {
-	b.printRaw(s, st, true)
+// キャンバスバッファにラスタライズする。msg() は常に自動で改行する。
+func (b *WindowBackend) Println(s string) {
+	b.printRaw(s, true)
 }
 
 // printRaw は1回の呼出をセルグリッド上に配置し、保留中のテキスト
 // バッチに準備する（何も見えない場合は nil）。描画を返すため、テストは
-// 断片の位置とスタイルを検査できる。
-func (b *WindowBackend) printRaw(s string, st TextStyle, newline bool) *textDraw {
+// 断片の位置を検査できる。貯めた gfxquad()/tri() を先に流して呼出順を保つ。
+func (b *WindowBackend) printRaw(s string, newline bool) *textDraw {
 	b.mu.Lock()
-	d := b.layoutTextLocked(s, st, newline)
+	b.flushQuadBatchLocked()
+	b.flushTriBatchLocked()
+	d := b.layoutTextLocked(s, newline)
 	if d != nil {
 		if b.textBatch == nil {
 			b.textBatch = &textBatch{}
@@ -133,9 +136,9 @@ func (b *WindowBackend) flushTextBatchLocked() {
 // （文字とグラフィックスは HSP と同じく1画面を共有する）。呼出し側は
 // mu を保持すること。返される描画は描画状態をすべて捉えるため、後続の
 // font()/color() 呼出が既にキュー済みの文字に影響することはない。
-func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *textDraw {
+func (b *WindowBackend) layoutTextLocked(s string, newline bool) *textDraw {
 	sel := b.sel
-	// 文字は自身のアルファに全体のアルファ（galpha）を掛けたものを
+	// 文字は自身のアルファに全体のアルファを掛けたものを
 	// 尊重する。図形に対する fillColor() とまったく同じである。
 	fg := color.NRGBA{R: b.fg.R, G: b.fg.G, B: b.fg.B,
 		A: uint8(uint16(b.fg.A) * uint16(b.alpha) / 255)}
@@ -143,6 +146,10 @@ func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *
 	if lineH <= 0 {
 		lineH = lineHeight
 	}
+	// 埋め込みビットマップ strike があるサイズは GDI で描く
+	// (MS ゴシック等・Windows 専用)。送り幅も GDI 実測に合わせる。
+	gdiSize := int(fontSize + 0.5)
+	gdiFam, useGDI := b.gdiForSize(gdiSize)
 	h := b.h
 	// lastY はその行ボックスがまだキャンバスに収まる最下の原点。
 	// それより下のカーソルはスクロールする（巨大なジャンプでは消去）。
@@ -199,19 +206,33 @@ func (b *WindowBackend) layoutTextLocked(s string, st TextStyle, newline bool) *
 			ln = expandTabs(ln)
 			d.ops = append(d.ops, textOp{frag: true,
 				x: pxRound(b.curX), y: pxRound(b.curY), s: ln,
-				fg: fg, st: st, face: face, lineH: lineH, fontSize: fontSize})
+				fg: fg, face: face, lineH: lineH, fontSize: fontSize,
+				gdi: useGDI, gdiFam: gdiFam, gdiSize: gdiSize})
 			// 実際に描かれた幅で送るため、次の断片（継続の print()、
 			// または1呼出1文字でエコーされる CJK）が、この断片が
 			// 終わったちょうどその位置に、どのフェイスのメトリックでも
-			// 収まるようにする。
-			adv, _ := text.Measure(ln, face, 0)
+			// 収まるようにする。GDI 描画中は GDI 実測を使う。
+			var adv float64
+			if useGDI {
+				if w, ok := gdiMeasureWidth(gdiFam, gdiSize, ln); ok {
+					adv = w
+				} else {
+					adv, _ = text.Measure(ln, face, 0)
+				}
+			} else {
+				adv, _ = text.Measure(ln, face, 0)
+			}
 			b.curX += adv
 		}
 	}
 	if newline {
+		// msg() は常に自動で改行する。テキスト・グラフィックス両カーソルを
+		// 次行の x=0 へ移す。
 		b.curY += lineH
 		b.curX, b.lineStartX = 0, 0
 		scrollForRow()
+		b.gx = 0
+		b.gy = pxRound(b.curY)
 	}
 	if len(d.ops) == 0 {
 		return nil
@@ -270,50 +291,62 @@ func (b *WindowBackend) scrollCanvasUp(img *ebiten.Image, px int) {
 	img.DrawImage(tmp, nil)
 }
 
-// drawTextFrag は断片1つをフォークスのテキストスタイル（単一の変形
-// フェイス: ボールドは重ね打ち、イタリックはシアー、下線はベース
-// ライン下の罫線）でキャンバスバッファにラスタライズする。キャンバスに
-// 直接書き込むため、呼出順に応じて図形が文字を覆ったり、文字が図形を
-// 覆ったりできる。
+// drawTextFrag は断片1つをキャンバスバッファにラスタライズする。
+// キャンバスに直接書き込むため、呼出順に応じて図形が文字を覆ったり、
+// 文字が図形を覆ったりできる。GDI 指定の断片は埋め込みビットマップで
+// 描き、失敗時のみ outline へ落とす。
 func drawTextFrag(img *ebiten.Image, op textOp) {
-	if op.s == "" || op.face == nil || op.lineH <= 0 {
+	if op.s == "" || op.lineH <= 0 {
 		return
 	}
-	baseX, baseY := float64(op.x), float64(op.y)
-	italic := op.st&StyleItalic != 0
-	draw := func(dx float64) {
-		dop := &text.DrawOptions{}
-		// 領域の上端は原点に乗る。グリフはその下にぶら下がる。
-		dop.GeoM.Translate(baseX+dx, baseY)
-		if italic {
-			// 要素 (0,1) は x' = a*x + b*y + tx の b である:
-			// ペンの位置を中心にグリフを右に傾斜させる。
-			dop.GeoM.SetElement(0, 1, italicShear)
-		}
-		// ColorScale のゼロ値は透明。まず恒等にリセットする。
-		dop.ColorScale.Reset()
-		dop.ColorScale.ScaleWithColor(op.fg)
-		text.Draw(img, op.s, op.face, dop)
+	if op.gdi && gdiDrawFrag(img, op) {
+		return
 	}
-	draw(0)
-	if op.st&StyleBold != 0 {
-		dx := 1.0
-		if op.fontSize >= 40 {
-			dx = 2
-		}
-		draw(dx)
+	if op.face == nil {
+		return
 	}
-	if op.st&StyleUnderline != 0 {
-		w, _ := text.Measure(op.s, op.face, op.lineH)
-		ascent := op.face.Metrics().HAscent
-		descent := op.face.Metrics().HDescent
-		th := float32(1)
-		if op.fontSize >= 32 {
-			th = 2
-		}
-		y := float32(baseY + ascent + descent*0.5) // ベースライン + ディセントの半分
-		vector.StrokeLine(img, float32(baseX), y, float32(baseX+w), y, th, op.fg, false)
+	dop := &text.DrawOptions{}
+	// 領域の上端は原点に乗る。グリフはその下にぶら下がる。
+	dop.GeoM.Translate(float64(op.x), float64(op.y))
+	// ColorScale のゼロ値は透明。まず恒等にリセットする。
+	dop.ColorScale.Reset()
+	dop.ColorScale.ScaleWithColor(op.fg)
+	text.Draw(img, op.s, op.face, dop)
+}
+
+// drawFaceText は1文字列を描く。GDI 指定時は埋め込みビットマップで
+// 描き (整数ピクセルへ丸める)、失敗時・非指定時は outline 描画。
+// GDI で描けたら true。ウィジェット・入力欄・IME バー・ダイアログの共通口。
+func drawFaceText(dst *ebiten.Image, s string, face *text.GoTextFace, x, y float64, fg color.NRGBA, gs gdiSnap) bool {
+	if s == "" {
+		return false
 	}
+	if gs.use {
+		if gdiDrawFrag(dst, textOp{s: s, fg: fg, x: pxRound(x), y: pxRound(y),
+			gdi: true, gdiFam: gs.fam, gdiSize: gs.size}) {
+			return true
+		}
+	}
+	if face == nil {
+		return false
+	}
+	dop := &text.DrawOptions{}
+	dop.GeoM.Translate(x, y)
+	dop.ColorScale.Reset()
+	dop.ColorScale.ScaleWithColor(fg)
+	text.Draw(dst, s, face, dop)
+	return false
+}
+
+// measureWithSnap は描画時スナップで文字列幅を測る。
+func measureWithSnap(s string, face *text.GoTextFace, gs gdiSnap) float64 {
+	if gs.use {
+		if w, ok := gdiMeasureWidth(gs.fam, gs.size, s); ok {
+			return w
+		}
+	}
+	w, _ := text.Measure(s, face, 0)
+	return w
 }
 
 // ReadLine は Backend インタフェースのスタブ: GUI にはブロックする
@@ -331,7 +364,7 @@ func (b *WindowBackend) ReadLine(prompt string) (string, bool) {
 
 // Clear は現在のキャンバスバッファを消去する（文字は他の描画と同じく
 // そこに焼き込まれるため、一緒に消える）。ウィジェットは生き残る:
-// それらは clrobj() でのみ削除されるため、描画ループは生きた
+// それらは objdel() でのみ削除されるため、描画ループは生きた
 // ウィジェットとともに毎フレーム cls() できる。キャンバスの削除は
 // enqueue 経由でゲームスレッドで実行されるため、最初の yield 以降は
 // pending に準備され、フレームの残りとともに
@@ -355,11 +388,11 @@ func (b *WindowBackend) SetColor(r, g, bl, a int) {
 	b.fg = color.NRGBA{R: uint8(clamp(r)), G: uint8(clamp(g)), B: uint8(clamp(bl)), A: uint8(clamp(a))}
 }
 
-// ResetColor は黒文字（白いウィンドウの既定）に戻す。
-func (b *WindowBackend) ResetColor() {
+// Color は現在の文字/描画色を [r, g, b, a] で返す（スクリプトスレッド安全）。
+func (b *WindowBackend) Color() [4]int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.fg = color.NRGBA{0x00, 0x00, 0x00, 0xFF}
+	return [4]int{int(b.fg.R), int(b.fg.G), int(b.fg.B), int(b.fg.A)}
 }
 
 // IsFullscreen は全画面状態を報告する（スクリプトスレッド安全）。
@@ -399,7 +432,7 @@ func (b *WindowBackend) IsResizable() bool {
 // する。リサイズが許可されている間は描画解像度がウィンドウに追従する:
 // キャンバスはウィンドウサイズで作り直される（1:1 ピクセル、スケーリング
 // なし）ため、広げたウィンドウは固定キャンバスを拡大するのではなく
-// 描画領域を広げる。オフにすると現在の解像度が凍結される。screen() が
+// 描画領域を広げる。オフにすると現在の解像度が凍結される。screen(w, h) が
 // 論理サイズを再確立する。
 func (b *WindowBackend) SetResizable(on bool) {
 	b.mu.Lock()
@@ -409,17 +442,12 @@ func (b *WindowBackend) SetResizable(on bool) {
 }
 
 // WindowSize は OS のウィンドウサイズをピクセルで報告する: 論理的な
-// screen() キャンバスでもモニタでもなく、実際のウィンドウである。
+// screen(w, h) キャンバスでもモニタでもなく、実際のウィンドウである。
 // ドラッグによるリサイズ（SetResizable を参照）の後では、ウィンドウと
 // キャンバスは同じピクセルになる。テストではヘッドレスでも安全に
 // 呼べる（Ebiten は実行中のループがなくてもサイズを追跡する）。
 func WindowSize() (w, h int) {
 	return ebiten.WindowSize()
-}
-
-// MoveWindow はウィンドウを移動する（並行安全。デスクトップのみ）。
-func (b *WindowBackend) MoveWindow(x, y int) {
-	ebiten.SetWindowPosition(x, y)
 }
 
 // SetTitle はウィンドウのタイトルを変更する。
@@ -428,7 +456,7 @@ func (b *WindowBackend) SetTitle(s string) {
 }
 
 // SetFontSize は文字フェイスのサイズをピクセル（8..64）で変更する。
-// 行のピッチもそれに応じてスケールするため、mes()/print() の行は
+// 行のピッチもそれに応じてスケールするため、msg()/print() の行は
 // 間隔を保つ。ウィジェットは uiFace 経由で追従する。スクリプトスレッド
 // 安全（フェイス/バッファの入れ替えはミューテックスで保護される）。
 func (b *WindowBackend) SetFontSize(size int) error {
@@ -467,7 +495,7 @@ func (b *WindowBackend) FontFile() string {
 
 // TextWidth は s を現在のフェイスでピクセル測定する（文字列全体。
 // エディタはふつうキャレット位置決め用に1行を渡す）。タブは
-// mes()/print() のキャンバス描画とまったく同じく tabSpaces として数える。
+// msg()/print() のキャンバス描画とまったく同じく tabSpaces として数える。
 func (b *WindowBackend) TextWidth(s string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -476,7 +504,13 @@ func (b *WindowBackend) TextWidth(s string) int {
 
 // textWidthLocked はロックを取らない TextWidth: 呼出し側は既に b.mu を
 // 保持している（またはゲームスレッドで実行されている）。
+// GDI 描画中のサイズは GDI 実測に合わせる。
 func (b *WindowBackend) textWidthLocked(s string) int {
+	if fam, ok := b.gdiForSize(int(b.fontSize + 0.5)); ok {
+		if w, ok := gdiMeasureWidth(fam, int(b.fontSize+0.5), expandTabs(s)); ok {
+			return int(w + 0.5)
+		}
+	}
 	if b.face == nil {
 		return len([]rune(expandTabs(s)))
 	}
@@ -484,7 +518,7 @@ func (b *WindowBackend) textWidthLocked(s string) int {
 	return int(w + 0.5)
 }
 
-// expandTabs はすべてのタブを tabSpaces（mes()/print() が描画し、
+// expandTabs はすべてのタブを tabSpaces（msg()/print() が描画し、
 // strwidth() が測定する固定の4セル送り）に置き換える。
 func expandTabs(s string) string {
 	if strings.ContainsRune(s, '\t') {
@@ -513,12 +547,15 @@ func (b *WindowBackend) SetFontFile(spec string, size int, extraDirs ...string) 
 	b.fontSize = float64(size)
 	b.lineH = lineHeight * float64(size) / fontSize
 	b.fontPath = path
+	b.refreshGDILocked()
 	return nil
 }
 
 // MoveTo はカーソルを設定する。GUI では両方のカーソルがピクセル基準:
-// グラフィックスカーソル（gcopy 等）と mes()/print() のテキスト原点で、
+// ウィジェット配置原点と msg()/print() のテキスト原点で、
 // 後者はピクセルをそのまま使う（1px 刻み。文字セルへの丸めはしない）。
+// 図形描画（pset/line/rect/ellipse/gfxcopy/gfxblit 等）は引数で起点を指定するため
+// このカーソルを使わない。
 // CUI ではコンソールバックエンドが文字セル単位で動かす。
 func (b *WindowBackend) MoveTo(x, y int) {
 	b.mu.Lock()
@@ -529,6 +566,13 @@ func (b *WindowBackend) MoveTo(x, y int) {
 	// pos() 呼出は行を再アンカーする: これ以降の埋め込み改行は
 	// この x に戻る。
 	b.lineStartX = b.curX
+}
+
+// Position は現在の描画/テキスト基準位置を返す（スクリプトスレッド安全）。
+func (b *WindowBackend) Position() (int, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.gx, b.gy
 }
 
 // Sleep はスクリプトを一時停止する。ウィンドウは描画を続ける。

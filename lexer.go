@@ -28,6 +28,8 @@ const (
 	TokDef      TokenType = "DEF"
 	TokIf       TokenType = "IF"
 	TokElse     TokenType = "ELSE"
+	TokElseIf   TokenType = "ELSEIF"
+	TokEnd      TokenType = "END"
 	TokRepeat   TokenType = "REPEAT"
 	TokWhile    TokenType = "WHILE"
 	TokSwitch   TokenType = "SWITCH"
@@ -37,6 +39,7 @@ const (
 	TokBreak    TokenType = "BREAK"
 	TokContinue TokenType = "CONTINUE"
 	TokReturn   TokenType = "RETURN"
+	TokLocal    TokenType = "LOCAL"
 
 	TokPlus         TokenType = "PLUS"         // +
 	TokMinus        TokenType = "MINUS"        // -
@@ -116,6 +119,8 @@ var keywords = map[string]TokenType{
 	"def":      TokDef,
 	"if":       TokIf,
 	"else":     TokElse,
+	"elseif":   TokElseIf,
+	"end":      TokEnd,
 	"repeat":   TokRepeat,
 	"while":    TokWhile,
 	"switch":   TokSwitch,
@@ -125,12 +130,15 @@ var keywords = map[string]TokenType{
 	"break":    TokBreak,
 	"continue": TokContinue,
 	"return":   TokReturn,
+	"local":    TokLocal,
 	"true":     TokTrue,
 	"false":    TokFalse,
 }
 
 // Lex は src をトークン化する。トークン列（末尾は EOF）を返すか、エラーを返す。
+// 先頭の UTF-8 BOM は読み飛ばす（Windows のエディタが付ける BOM 対策）。
 func Lex(src string) ([]Token, error) {
+	src = strings.TrimPrefix(src, "\ufeff")
 	l := &lexer{runes: []rune(src), line: 1, col: 1}
 	var toks []Token
 	for {
@@ -184,6 +192,34 @@ func (l *lexer) advance() rune {
 	return c
 }
 
+// legacyDirectiveMsg は廃止された # ディレクティブに移行先を示します。
+func legacyDirectiveMsg(rest []rune) string {
+	i := 0
+	for i < len(rest) && (rest[i] == ' ' || rest[i] == '\t') {
+		i++
+	}
+	start := i
+	for i < len(rest) && ('A' <= rest[i] && rest[i] <= 'Z' || 'a' <= rest[i] && rest[i] <= 'z') {
+		i++
+	}
+	word := string(rest[start:i])
+	switch word {
+	case "define":
+		return "# ディレクティブは廃止されました（#define）。変数への代入（NAME = 値）を使ってください"
+	case "mode":
+		return "# ディレクティブは廃止されました（#mode）。実行モードは自動判定のみです"
+	case "include":
+		return "# ディレクティブは廃止されました（#include）。include \"path\" を使ってください"
+	case "dll", "dlldef":
+		return "# ディレクティブは廃止されました（#" + word + "）。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください"
+	case "ifdef", "ifndef", "else", "endif":
+		return "# ディレクティブは廃止されました（#" + word + "）。条件付きコンパイルは廃止されたため、通常の if を使ってください"
+	case "error":
+		return "# ディレクティブは廃止されました（#error）。assert(false, \"メッセージ\") などを使ってください"
+	}
+	return "# ディレクティブは廃止されました。include / dll / dlldef を使ってください"
+}
+
 func isDigit(c rune) bool { return '0' <= c && c <= '9' }
 func isAlpha(c rune) bool {
 	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || c == '_'
@@ -198,20 +234,13 @@ func (l *lexer) next() (Token, error) {
 			l.advance()
 			continue
 		}
-		// 行コメント。
+		// 行コメント（// から行末まで）。ブロックコメントはない。
 		if c == '/' && l.peekAt(1) == '/' {
 			for !l.eof() && l.peek() != '\n' {
 				if l.peek() == 0 {
 					return Token{}, &LexError{Line: l.line, Column: l.col, Msg: "不正な文字 \"\\0\" です"}
 				}
 				l.advance()
-			}
-			continue
-		}
-		// ブロックコメント（入れ子可）。
-		if c == '/' && l.peekAt(1) == '*' {
-			if err := l.skipBlockComment(); err != nil {
-				return Token{}, err
 			}
 			continue
 		}
@@ -395,38 +424,10 @@ func (l *lexer) next() (Token, error) {
 		return Token{Type: TokBitNot, Lit: "~", Line: line, Column: col}, nil
 	case '\'':
 		return Token{}, &LexError{Line: line, Column: col, Msg: "シングルクォートの文字列はサポートされていません。ダブルクォートを使用してください"}
+	case '#':
+		return Token{}, &LexError{Line: line, Column: col, Msg: legacyDirectiveMsg(l.runes[l.pos:])}
 	}
 	return Token{}, &LexError{Line: line, Column: col, Msg: fmt.Sprintf("不正な文字 %q です", string(c))}
-}
-
-func (l *lexer) skipBlockComment() error {
-	startLine, startCol := l.line, l.col
-	// "/*" を消費する。
-	l.advance()
-	l.advance()
-	depth := 1
-	for !l.eof() {
-		if l.peek() == 0 {
-			return &LexError{Line: l.line, Column: l.col, Msg: "不正な文字 \"\\0\" です"}
-		}
-		if l.peek() == '/' && l.peekAt(1) == '*' {
-			l.advance()
-			l.advance()
-			depth++
-			continue
-		}
-		if l.peek() == '*' && l.peekAt(1) == '/' {
-			l.advance()
-			l.advance()
-			depth--
-			if depth == 0 {
-				return nil
-			}
-			continue
-		}
-		l.advance()
-	}
-	return &LexError{Line: startLine, Column: startCol, Msg: "ブロックコメントが閉じられていません"}
 }
 
 func (l *lexer) readString() (Token, error) {

@@ -1,11 +1,11 @@
-// GUI組み込み関数（G5フォーム部品：chkbox、combox、mesbox）。
+// GUI組み込み関数（G5フォーム部品：chkbox、slider、combox、msgbox）。
 // 状態の取得・変更は objget/objset、有効・無効は objenable で行う。
 // 常に登録される。GUI呼び出しには
 // ウィンドウ（GUIバックエンド）が必要で、無い場合はエラーを返す。
 package main
 
 func init() {
-	// chkbox(id, label [, checked])：pos() の位置にチェックボックスを配置する。
+	// chkbox(id, label [, checked])：pos() の位置にチェックボックスを配置する。配置後は自動で改行する (x=0, y+h)。
 	// 大きさはフォントとラベルから自動決定される。
 	register("chkbox", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "chkbox")
@@ -22,11 +22,11 @@ func init() {
 		}
 		checked := false
 		if len(args) == 3 {
-			f, err := needInt("chkbox", args, 2, at)
+			var err error
+			checked, err = needTruthy("chkbox", args, 2, at)
 			if err != nil {
 				return Null(), err
 			}
-			checked = f != 0
 		}
 		x, y := wb.CursorPixels()
 		if err := wb.AddCheck(int(id), label, x, y, 0, 0, checked); err != nil {
@@ -35,7 +35,46 @@ func init() {
 		return Null(), nil
 	})
 
-	// combox(id, w, h, items [, sel])：pos() の位置にドロップダウンリストを配置する。
+	// slider(id, w, h, min, max [, value] [, orient])：
+	// pos() の位置にスライダーを配置する。value は初期値（省略時 min）、
+	// orient は 0=横、1=縦。配置後は自動で改行する (x=0, y+h)。
+	register("slider", 5, 7, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "slider")
+		if err != nil {
+			return Null(), err
+		}
+		nums := make([]int, 5)
+		for i := range nums {
+			v, err := needInt("slider", args, i, at)
+			if err != nil {
+				return Null(), err
+			}
+			nums[i] = int(v)
+		}
+		value := nums[3]
+		orient := 0
+		if len(args) >= 6 {
+			v, err := needInt("slider", args, 5, at)
+			if err != nil {
+				return Null(), err
+			}
+			value = int(v)
+		}
+		if len(args) == 7 {
+			v, err := needInt("slider", args, 6, at)
+			if err != nil {
+				return Null(), err
+			}
+			orient = int(v)
+		}
+		x, y := wb.CursorPixels()
+		if err := wb.AddSlider(nums[0], x, y, nums[1], nums[2], nums[3], nums[4], value, orient); err != nil {
+			return Null(), rtErrf(at, "%s", err.Error())
+		}
+		return Null(), nil
+	})
+
+	// combox(id, w, h, items [, sel])：pos() の位置にドロップダウンリストを配置する。配置後は自動で改行する (x=0, y+h)。
 	register("combox", 4, 5, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "combox")
 		if err != nil {
@@ -78,15 +117,15 @@ func init() {
 		return Null(), nil
 	})
 
-	// mesbox(id, w, h [, text])：pos() の位置に複数行テキストボックスを配置する。
-	register("mesbox", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mesbox")
+	// msgbox(id, w, h [, text])：pos() の位置に複数行テキストボックスを配置する。配置後は自動で改行する (x=0, y+h)。
+	register("msgbox", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "msgbox")
 		if err != nil {
 			return Null(), err
 		}
 		nums := make([]int, 3)
 		for i := range nums {
-			v, err := needInt("mesbox", args, i, at)
+			v, err := needInt("msgbox", args, i, at)
 			if err != nil {
 				return Null(), err
 			}
@@ -95,7 +134,7 @@ func init() {
 		text := ""
 		if len(args) == 4 {
 			var err error
-			text, err = needString("mesbox", args, 3, at)
+			text, err = needString("msgbox", args, 3, at)
 			if err != nil {
 				return Null(), err
 			}
