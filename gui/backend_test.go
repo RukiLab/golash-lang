@@ -183,35 +183,45 @@ func TestCtrlStep(t *testing.T) {
 	}
 }
 
-// TestKeyEdgeNext は getkey(code, 1) の立上りラッチ遷移を検証する：
-// 解放中は沈黙、押下の瞬間に1度だけ立ち上がり、保持中は沈黙を保ち、
-// 解放後の再押下で再び立ち上がる。
+// TestKeyEdgeNext は getkey(code, 1/2) の立上り・立下りラッチ遷移を
+// 検証する：解放中は沈黙、押下の瞬間に立上り、保持中は沈黙、解放の
+// 瞬間に立下り、再押下で再び立上る。
 func TestKeyEdgeNext(t *testing.T) {
-	prev, hit := false, false
-	prev, hit = keyEdgeNext(prev, false, hit)
-	if prev || hit {
-		t.Fatalf("idle = (%v,%v), want (false,false)", prev, hit)
+	prev, hit, rel := false, false, false
+	prev, hit, rel = keyEdgeNext(prev, false, hit, rel)
+	if prev || hit || rel {
+		t.Fatalf("idle = (%v,%v,%v), want (false,false,false)", prev, hit, rel)
 	}
-	prev, hit = keyEdgeNext(prev, true, hit)
-	if !prev || !hit {
-		t.Fatalf("press = (%v,%v), want (true,true)", prev, hit)
+	prev, hit, rel = keyEdgeNext(prev, true, hit, rel)
+	if !prev || !hit || rel {
+		t.Fatalf("press = (%v,%v,%v), want (true,true,false)", prev, hit, rel)
 	}
 	// 消費後も prev は保持される（離すまで再発火しない）。
-	prev, hit = keyEdgeNext(prev, true, false)
-	if !prev || hit {
-		t.Fatalf("hold = (%v,%v), want (true,false)", prev, hit)
+	prev, hit, rel = keyEdgeNext(prev, true, false, false)
+	if !prev || hit || rel {
+		t.Fatalf("hold = (%v,%v,%v), want (true,false,false)", prev, hit, rel)
 	}
-	prev, hit = keyEdgeNext(prev, true, hit)
-	if !prev || hit {
-		t.Fatalf("hold2 = (%v,%v), want (true,false)", prev, hit)
+	prev, hit, rel = keyEdgeNext(prev, true, hit, rel)
+	if !prev || hit || rel {
+		t.Fatalf("hold2 = (%v,%v,%v), want (true,false,false)", prev, hit, rel)
 	}
-	prev, hit = keyEdgeNext(prev, false, hit)
-	if prev || hit {
-		t.Fatalf("release = (%v,%v), want (false,false)", prev, hit)
+	// 立下りは解放の瞬間に1度だけ立つ。
+	prev, hit, rel = keyEdgeNext(prev, false, hit, rel)
+	if prev || hit || !rel {
+		t.Fatalf("release = (%v,%v,%v), want (false,false,true)", prev, hit, rel)
 	}
-	prev, hit = keyEdgeNext(prev, true, hit)
-	if !prev || !hit {
-		t.Fatalf("repress = (%v,%v), want (true,true)", prev, hit)
+	// 消費後は再発火しない。
+	prev, hit, rel = keyEdgeNext(prev, false, false, false)
+	if prev || hit || rel {
+		t.Fatalf("release consumed = (%v,%v,%v), want (false,false,false)", prev, hit, rel)
+	}
+	prev, hit, rel = keyEdgeNext(prev, true, hit, rel)
+	if !prev || !hit || rel {
+		t.Fatalf("repress = (%v,%v,%v), want (true,true,false)", prev, hit, rel)
+	}
+	prev, hit, rel = keyEdgeNext(prev, false, false, false)
+	if prev || hit || !rel {
+		t.Fatalf("rerelease = (%v,%v,%v), want (false,false,true)", prev, hit, rel)
 	}
 }
 
@@ -246,6 +256,51 @@ func TestKeyHitConsume(t *testing.T) {
 	}
 	if _, ok := keyDownNow(999); ok {
 		t.Fatal("keyDownNow(999) should be unknown")
+	}
+}
+
+// TestKeyReleasedConsume は KeyReleased が消費型であることを検証する：
+// 立下りフラグは1度の読み出しで消え、2度目は false になる。
+// 不明コードは ok=false を返す。
+func TestKeyReleasedConsume(t *testing.T) {
+	b := mustNew(t)
+	if _, ok := b.KeyReleased(999); ok {
+		t.Fatal("KeyReleased(999) should be unknown")
+	}
+	if r, ok := b.KeyReleased(37); !ok || r {
+		t.Fatalf("KeyReleased idle = (%v,%v), want (false,true)", r, ok)
+	}
+	b.mu.Lock()
+	if b.keyRel == nil {
+		b.keyRel = make(map[int]bool)
+	}
+	b.keyRel[37] = true
+	b.mu.Unlock()
+	if r, ok := b.KeyReleased(37); !ok || !r {
+		t.Fatalf("KeyReleased latched = (%v,%v), want (true,true)", r, ok)
+	}
+	if r, ok := b.KeyReleased(37); !ok || r {
+		t.Fatalf("KeyReleased consumed = (%v,%v), want (false,true)", r, ok)
+	}
+}
+
+// TestMouseReleasedConsume は MouseReleased が消費型であることを検証する。
+func TestMouseReleasedConsume(t *testing.T) {
+	b := mustNew(t)
+	if _, err := b.MouseReleased(3); err == nil {
+		t.Fatal("MouseReleased(3) should be unknown")
+	}
+	if r, err := b.MouseReleased(0); err != nil || r {
+		t.Fatalf("MouseReleased idle = (%v,%v), want (false,nil)", r, err)
+	}
+	b.mu.Lock()
+	b.releaseFlag[0] = true
+	b.mu.Unlock()
+	if r, err := b.MouseReleased(0); err != nil || !r {
+		t.Fatalf("MouseReleased latched = (%v,%v), want (true,nil)", r, err)
+	}
+	if r, err := b.MouseReleased(0); err != nil || r {
+		t.Fatalf("MouseReleased consumed = (%v,%v), want (false,nil)", r, err)
 	}
 }
 
@@ -1520,13 +1575,14 @@ func absDiff32(a, b uint32) uint32 {
 }
 
 // checkListSlider は探り用の listbox を走査して選択青の範囲を調べる:
-// あふれないときは枠横幅いっぱい (x=218 まで)、あふれたときだけ 12px の
-// スライダー帯を予約する。対象 (20,360,200,100 に4項目) はあふれないため、
-// 選択行は右端近くまで届かなければならない。狭いまま (約208で止まる) は
-// 旧来の常時予約の残りである。
+// あふれないときは枠横幅いっぱい (x=218 まで)、あふれたときだけ
+// listSliderW (Windows 10 標準の 17px) のスライダー帯を予約する。対象
+// (20,360,200,100 に4項目) はあふれないため、選択行は右端近くまで
+// 届かなければならない。狭いまま (約208で止まる) は旧来の常時予約の
+// 残りである。
 func (g *renderGame) checkListSlider(screen *ebiten.Image) {
 	const lx, ly, lw, lh = 20, 360, 200, 100
-	pr, pg, pb, _ := color.NRGBA{204, 228, 247, 0xFF}.RGBA()
+	pr, pg, pb, _ := themeSelectBg.RGBA()
 	maxX := -1
 	for y := ly; y < ly+lh; y++ {
 		for x := lx; x < lx+lw; x++ {
@@ -1543,8 +1599,8 @@ func (g *renderGame) checkListSlider(screen *ebiten.Image) {
 		g.wFail = "list selected row missing (no select-blue found)"
 		return
 	}
-	if maxX <= lx+lw-12 {
-		g.wFail = fmt.Sprintf("list highlight should fill full width when no overflow (blue only to x=%d, want >%d)", maxX, lx+lw-12)
+	if maxX <= lx+lw-listSliderW {
+		g.wFail = fmt.Sprintf("list highlight should fill full width when no overflow (blue only to x=%d, want >%d)", maxX, lx+lw-listSliderW)
 		return
 	}
 	if maxX > lx+lw-2 {
@@ -2217,8 +2273,8 @@ func TestWidgetFocusPressColors(t *testing.T) {
 	}{
 		{"idle", false, false, themeWhite, themeFrame},
 		{"focused", true, false, themeFocusBg, themeFocusFrame},
-		{"disabled", false, true, themeFaceDis, themeFrame},
-		{"focused+disabled", true, true, themeFaceDis, themeFrame},
+		{"disabled", false, true, themeFaceDis, themeFieldFrameDis},
+		{"focused+disabled", true, true, themeFaceDis, themeFieldFrameDis},
 	} {
 		if bg, fr := inputFaceColors(tc.focused, tc.dis); bg != tc.wantBg || fr != tc.wantFrm {
 			t.Fatalf("inputFaceColors(%v, %v) = %v/%v, want %v/%v",
@@ -2731,6 +2787,152 @@ func TestFormWidgetsHeadless(t *testing.T) {
 	}
 }
 
+// TestSliderHeadless は slider の生成・値の丸め・再配置時の値保持・
+// 向き・つまみ位置の対応をヘッドレスで固定する。
+func TestSliderHeadless(t *testing.T) {
+	b := mustNew(t)
+	if err := b.AddSlider(31, 10, 10, 120, 24, 0, 10, 5, 0); err != nil {
+		t.Fatalf("AddSlider: %v", err)
+	}
+	if v, err := b.SliderValue(31); err != nil || v != 5 {
+		t.Fatalf("SliderValue(31) = %d, %v; want 5", v, err)
+	}
+	// 範囲外は丸める。
+	if err := b.SetSliderValue(31, 99); err != nil {
+		t.Fatalf("SetSliderValue high: %v", err)
+	}
+	if v, _ := b.SliderValue(31); v != 10 {
+		t.Fatalf("value after high = %d, want 10", v)
+	}
+	if err := b.SetSliderValue(31, -5); err != nil {
+		t.Fatalf("SetSliderValue low: %v", err)
+	}
+	if v, _ := b.SliderValue(31); v != 0 {
+		t.Fatalf("value after low = %d, want 0", v)
+	}
+	// 同じ id の再配置は値を保ち、範囲変更時だけ丸める。
+	if err := b.SetSliderValue(31, 7); err != nil {
+		t.Fatalf("SetSliderValue: %v", err)
+	}
+	if err := b.AddSlider(31, 10, 10, 120, 24, 0, 10, 2, 0); err != nil {
+		t.Fatalf("AddSlider repeat: %v", err)
+	}
+	if v, _ := b.SliderValue(31); v != 7 {
+		t.Fatalf("value after repeat = %d, want 7 (state must persist)", v)
+	}
+	if err := b.AddSlider(31, 10, 10, 120, 24, 0, 5, 2, 0); err != nil {
+		t.Fatalf("AddSlider range change: %v", err)
+	}
+	if v, _ := b.SliderValue(31); v != 5 {
+		t.Fatalf("value after range shrink = %d, want 5", v)
+	}
+	// 通常スライダーの値とつまみ位置: 幅100・つまみ20なら可動域は80px。
+	if err := b.AddSlider(35, 0, 0, 100, 24, 0, 10, 0, 0); err != nil {
+		t.Fatalf("AddSlider mapping: %v", err)
+	}
+	b.mu.Lock()
+	e35 := *b.widgets[35]
+	b.mu.Unlock()
+	if thumbLen, thumbPos := sliderThumbMetrics(&e35); thumbLen != sliderThumbLen || thumbPos != 0 {
+		t.Fatalf("thumb at min = (%d,%d), want (%d,0)", thumbLen, thumbPos, sliderThumbLen)
+	}
+	if got := sliderValueAt(&e35, 80); got != 10 {
+		t.Fatalf("value at max = %d, want 10", got)
+	}
+	if got := sliderValueAt(&e35, 40); got != 5 {
+		t.Fatalf("value at mid = %d, want 5", got)
+	}
+	e35.value = 10
+	if _, thumbPos := sliderThumbMetrics(&e35); thumbPos != 80 {
+		t.Fatalf("thumb at max = %d, want 80", thumbPos)
+	}
+	// 通常スライダーの溝クリックはクリック位置へジャンプする。
+	e35.value = 0
+	b.pumpSliderLocked(&e35, 50, 5, true, false, true)
+	if e35.value != 5 {
+		t.Fatalf("slider jump = %d, want 5", e35.value)
+	}
+	// 掴んだだけ (delta 0) では値が飛ばない。つまみ位置は丸めるため、
+	// 絶対位置で再換算すると 1 ずれる値域でも差分換算なら保たれる。
+	e35.gw = 70 // 可動域 50px
+	e35.minVal, e35.maxVal = 0, 100
+	e35.value = 51
+	e35.dragStart = 51
+	if got := sliderValueByDelta(&e35, 0); got != 51 {
+		t.Fatalf("delta 0 = %d, want 51 (must not jump)", got)
+	}
+	if got := sliderValueByDelta(&e35, 5); got != 61 {
+		t.Fatalf("delta 5 = %d, want 61", got)
+	}
+	if got := sliderValueByDelta(&e35, 500); got != 100 {
+		t.Fatalf("delta clamp high = %d, want 100", got)
+	}
+	if got := sliderValueByDelta(&e35, -500); got != 0 {
+		t.Fatalf("delta clamp low = %d, want 0", got)
+	}
+	// 縦向き: 上端が min、下端が max。
+	if err := b.AddSlider(36, 0, 0, 17, 100, 0, 10, 0, 1); err != nil {
+		t.Fatalf("AddSlider vertical: %v", err)
+	}
+	b.mu.Lock()
+	e36 := *b.widgets[36]
+	b.mu.Unlock()
+	if thumbLen, thumbPos := sliderThumbMetrics(&e36); thumbLen != sliderThumbLen || thumbPos != 0 {
+		t.Fatalf("vertical thumb at min = (%d,%d), want (%d,0)", thumbLen, thumbPos, sliderThumbLen)
+	}
+	e36.value = 10
+	if _, thumbPos := sliderThumbMetrics(&e36); thumbPos != 80 {
+		t.Fatalf("vertical thumb at max = %d, want 80", thumbPos)
+	}
+	if got := sliderValueAt(&e36, 80); got != 10 {
+		t.Fatalf("vertical value at max = %d, want 10", got)
+	}
+	// 自動改行。
+	b.MoveTo(5, 50)
+	if err := b.AddSlider(37, 5, 50, 100, 24, 0, 10, 0, 0); err != nil {
+		t.Fatalf("AddSlider cursor: %v", err)
+	}
+	b.mu.Lock()
+	gx, gy := b.gx, b.gy
+	b.mu.Unlock()
+	if gx != 0 || gy != 74 {
+		t.Fatalf("after slider cursor = (%d,%d), want (0,74)", gx, gy)
+	}
+	// 描画スモーク (ゲームループなしでも自前描画は走る)。
+	b.Draw(ebiten.NewImage(640, 480))
+	// 検証エラー。
+	if err := b.AddCheck(40, "x", 0, 0, 0, 0, false); err != nil {
+		t.Fatalf("AddCheck: %v", err)
+	}
+	if err := b.AddSlider(38, 0, 0, 100, 24, 10, 0, 0, 0); err == nil {
+		t.Fatal("slider max < min should error")
+	}
+	if err := b.AddSlider(38, 0, 0, 0, 24, 0, 10, 0, 0); err == nil {
+		t.Fatal("slider zero width should error")
+	}
+	if err := b.AddSlider(38, 0, 0, 100, 0, 0, 10, 0, 0); err == nil {
+		t.Fatal("slider zero height should error")
+	}
+	if err := b.AddSlider(38, 0, 0, 80, 24, 0, 10, 0, 2); err == nil {
+		t.Fatal("slider orient 2 should error")
+	}
+	if err := b.AddSlider(38, 0, 0, 80, 24, 0, 10, 0, -1); err == nil {
+		t.Fatal("slider orient -1 should error")
+	}
+	if _, err := b.SliderValue(99); err == nil {
+		t.Fatal("SliderValue unknown should error")
+	}
+	if _, err := b.SliderValue(40); err == nil {
+		t.Fatal("SliderValue on a checkbox should error")
+	}
+	if err := b.SetSliderValue(99, 1); err == nil {
+		t.Fatal("SetSliderValue unknown should error")
+	}
+	if err := b.SetSliderValue(40, 1); err == nil {
+		t.Fatal("SetSliderValue on a checkbox should error")
+	}
+}
+
 // TestWidgetAutoNewline はウィジェット配置後の自動改行を固定する:
 // 配置後は両カーソルが x=0, y+h へ移る。
 func TestWidgetAutoNewline(t *testing.T) {
@@ -2865,6 +3067,60 @@ func TestComboClickRepro(t *testing.T) {
 	}
 }
 
+// TestComboDropScrollFor はドロップダウンを開くときの先頭行が、
+// 末尾側で空白行を作らない範囲に収まることを確認する。
+func TestComboDropScrollFor(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sel  int
+		n    int
+		want int
+	}{
+		{"empty", -1, 0, 0},
+		{"none", -1, 10, 0},
+		{"first", 0, 10, 0},
+		{"middle", 4, 10, 3},
+		{"last of many", 9, 10, 6},
+		{"last of four", 3, 4, 0},
+	} {
+		if got := comboDropScrollFor(tc.sel, tc.n); got != tc.want {
+			t.Errorf("%s: comboDropScrollFor(%d, %d) = %d, want %d", tc.name, tc.sel, tc.n, got, tc.want)
+		}
+	}
+}
+
+// TestComboLastSelectionKeepsDropAligned は末尾の項目を選択した状態で
+// ドロップダウンを開いても、空白行が出る位置までスクロールしないことを
+// 確認する（表示がずれる不具合の回帰テスト）。
+func TestComboLastSelectionKeepsDropAligned(t *testing.T) {
+	items := []string{"a", "b", "c", "d", "e", "f"}
+	b := mustNew(t)
+	if err := b.AddCombo(41, 20, 280, 200, 24, items, 0); err != nil {
+		t.Fatalf("AddCombo: %v", err)
+	}
+	if err := b.SelectCombo(41, len(items)-1); err != nil {
+		t.Fatalf("SelectCombo: %v", err)
+	}
+	b.mu.Lock()
+	e := b.widgets[41]
+	b.openComboLocked(e)
+	scroll, expanded := e.dropScroll, e.expanded
+	b.mu.Unlock()
+	if !expanded {
+		t.Fatal("combo was not expanded")
+	}
+	rows := comboDropRows(len(items))
+	if want := len(items) - rows; scroll != want {
+		t.Fatalf("dropScroll after opening last selection = %d, want %d", scroll, want)
+	}
+	// 末尾の選択が最終行に収まり、その下に空白行が続かないこと。
+	if last := scroll + rows - 1; last != len(items)-1 {
+		t.Fatalf("last visible row = %d, want %d", last, len(items)-1)
+	}
+	// 開いた状態の描画が panic しないこと。
+	b.Draw(ebiten.NewImage(640, 480))
+}
+
 // TestAwaitTick はゲームループなしでフレームカウンタを駆動する:
 // advanceTick は Update が呼ぶものなので、それをヘッドレスで待つことは
 // ループ内の挙動と一致する。
@@ -2960,10 +3216,10 @@ func TestMouseWheelConsume(t *testing.T) {
 	}
 }
 
-// TestWidgetThemeFixed は Windows 標準のウィジェットテーマを固定する:
+// TestWidgetThemeFixed は Windows 10 標準のウィジェットテーマを固定する:
 // すべてのウィジェット種別は色の上書き API なしにヘッドレスで構築でき、
-// チェックボックスの見た目は白いボックスに灰色のリング、黒いグリフを
-// 運ぶ。
+// パレットは Aero2 の代表色（#F0F0F0 のボタン面、#ABADB3 の入力欄枠、
+// #0078D7 の選択）から外れない。
 // 注意: TestGuiRender より前に定義される。Ebiten は1プロセスにつき
 // 1つの RunGame しか許さず、その後は NewImage が panic するため、
 // 画像を生成するテストは最初に実行されなければならない
@@ -3003,6 +3259,18 @@ func TestWidgetThemeFixed(t *testing.T) {
 	// 自前描画の固定色が保たれていること。
 	if themeInk != (color.NRGBA{0x00, 0x00, 0x00, 0xFF}) {
 		t.Fatalf("themeInk changed: %v", themeInk)
+	}
+	if themeFace != (color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}) {
+		t.Fatalf("themeFace changed: %v", themeFace)
+	}
+	if themeFrame != (color.NRGBA{0xAB, 0xAD, 0xB3, 0xFF}) {
+		t.Fatalf("themeFrame changed: %v", themeFrame)
+	}
+	if themeSelectBg != (color.NRGBA{0x00, 0x78, 0xD7, 0xFF}) {
+		t.Fatalf("themeSelectBg changed: %v", themeSelectBg)
+	}
+	if listSliderW != 17 {
+		t.Fatalf("listSliderW = %d, want 17 (Windows 10 scrollbar)", listSliderW)
 	}
 	if themePressBg == themeWhite {
 		t.Fatal("selection bg must differ from white")

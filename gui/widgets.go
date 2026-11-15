@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"slices"
 	"strings"
 
@@ -27,6 +28,7 @@ const (
 	wCheck
 	wCombo
 	wArea
+	wSlider
 )
 
 // widgetEntry は自前描画ウィジェットの状態。mu で保護される。
@@ -49,6 +51,12 @@ type widgetEntry struct {
 	rawLabel string
 	// chkbox。
 	checked bool
+	// slider。minVal..maxVal の整数値。vert は縦向き。
+	minVal        int
+	maxVal        int
+	value         int
+	vert          bool
+	dragStartAxis int
 	// list/combo。items は描画用の短縮済み、rawItems は原文。
 	items    []string
 	rawItems []string
@@ -74,23 +82,49 @@ type widgetEntry struct {
 	inputInit string
 }
 
-// ---------- テーマ (Windows 標準: 白、灰色の枠、黒文字) ----------
+// スライダーのつまみ長 (px)。listbox/msgbox の最小つまみ長と同じ。
+const sliderThumbLen = 20
 
+// comboDropMaxRows は combox ドロップダウンの最大表示行数。
+const comboDropMaxRows = 4
+
+// ---------- テーマ (Windows 10 標準コントロール) ----------
+//
+// Windows 10 の Aero2 ビジュアルスタイルに合わせた固定色。数値は
+// 96 DPI の標準コントロールから採取した値で、ハイコントラストや
+// ダークテーマには追従しない (GUI は常にライトテーマ)。
 var (
-	themeWhite             = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
-	themeFrame             = color.NRGBA{0x80, 0x80, 0x80, 0xFF}
-	themeInk               = color.NRGBA{0x00, 0x00, 0x00, 0xFF}
-	themeGrey              = color.NRGBA{0x77, 0x77, 0x77, 0xFF}
-	themeHover             = color.NRGBA{0xE5, 0xF3, 0xFF, 0xFF}
-	themeFocusBg           = color.NRGBA{224, 238, 249, 0xFF}
-	themeFocusFrame        = color.NRGBA{38, 140, 218, 0xFF}
-	themePressBg           = color.NRGBA{204, 228, 247, 0xFF}
-	themePressFrame        = color.NRGBA{34, 108, 169, 0xFF}
-	themeFaceDis           = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}
-	themeScrollThumb       = color.NRGBA{0xC1, 0xC1, 0xC1, 0xFF}
-	themeScrollThumbHover  = color.NRGBA{0xA6, 0xA6, 0xA6, 0xFF}
-	themeScrollThumbPress  = color.NRGBA{0x78, 0x78, 0x78, 0xFF}
-	themeScrollThumbBorder = color.NRGBA{0x9E, 0x9E, 0x9E, 0xFF}
+	// 入力欄・リスト・コンボの面。
+	themeWhite = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+	// ボタン・ダイアログの面 (Windows 10 の既定ボタン面)。
+	themeFace          = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}
+	themeFrame         = color.NRGBA{0xAB, 0xAD, 0xB3, 0xFF} // 入力欄/リストの1px枠
+	themeInk           = color.NRGBA{0x00, 0x00, 0x00, 0xFF}
+	themeGrey          = color.NRGBA{0x6D, 0x6D, 0x6D, 0xFF} // 無効時の文字
+	themeHover         = color.NRGBA{0xE5, 0xF1, 0xFB, 0xFF} // ホット時の面
+	themeFocusBg       = themeWhite                          // 入力欄はフォーカスでも白のまま
+	themeFocusFrame    = color.NRGBA{0x00, 0x78, 0xD7, 0xFF} // Windows 10 アクセント
+	themePressBg       = color.NRGBA{0xCC, 0xE4, 0xF7, 0xFF}
+	themePressFrame    = color.NRGBA{0x00, 0x54, 0x99, 0xFF}
+	themeFaceDis       = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF} // 無効の入力欄
+	themeButtonFaceDis = color.NRGBA{0xF5, 0xF5, 0xF5, 0xFF} // 無効のボタン
+
+	// ボタンの外枠。Windows 10 のボタンは上下で陰影が付く。
+	themeButtonFrame       = color.NRGBA{0xD0, 0xD0, 0xD0, 0xFF}
+	themeButtonFrameBottom = color.NRGBA{0xBA, 0xBA, 0xBA, 0xFF}
+	themeButtonHighlight   = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+	themeFieldFrameDis     = color.NRGBA{0xD0, 0xD0, 0xD0, 0xFF}
+	themeCheckFrame        = color.NRGBA{0x7A, 0x7A, 0x7A, 0xFF}
+
+	// 選択行 (Windows 10 のアクセント青・白文字)。
+	themeSelectBg  = color.NRGBA{0x00, 0x78, 0xD7, 0xFF}
+	themeSelectInk = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+
+	// スクロールバー (Windows 10: 灰色の溝と、枠なしのつまみ)。
+	themeScrollTrack      = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}
+	themeScrollThumb      = color.NRGBA{0xCD, 0xCD, 0xCD, 0xFF}
+	themeScrollThumbHover = color.NRGBA{0xA6, 0xA6, 0xA6, 0xFF}
+	themeScrollThumbPress = color.NRGBA{0x81, 0x81, 0x81, 0xFF}
 )
 
 // ---------- ダイアログ状態 (モーダル、自前描画) ----------
@@ -153,6 +187,57 @@ func (b *WindowBackend) listVisForLocked(gh int) int {
 // 縦スクロールバーが必要かを報告する。
 func (b *WindowBackend) listNeedsScrollLocked(gh, n int) bool {
 	return n > b.listVisForLocked(gh)
+}
+
+// comboDropRows は項目数 n に対する combox ドロップダウンの
+// 表示行数を返す。
+func comboDropRows(n int) int {
+	if n > comboDropMaxRows {
+		return comboDropMaxRows
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// comboDropScrollFor はドロップダウンを開くときの先頭行を返す。
+// 選択項目の1つ上を先頭にして見やすくしつつ、末尾側で空白行が
+// 出ないよう n-rows に収める。
+func comboDropScrollFor(sel, n int) int {
+	rows := comboDropRows(n)
+	if sel < 0 || rows < 1 {
+		return 0
+	}
+	scroll := sel - 1
+	if max := n - rows; scroll > max {
+		scroll = max
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	return scroll
+}
+
+// clampComboDropScroll は先頭行を空白行が出ない範囲に収める。
+func clampComboDropScroll(e *widgetEntry) {
+	max := len(e.items) - comboDropRows(len(e.items))
+	if max < 0 {
+		max = 0
+	}
+	if e.dropScroll > max {
+		e.dropScroll = max
+	}
+	if e.dropScroll < 0 {
+		e.dropScroll = 0
+	}
+}
+
+// openComboLocked はドロップダウンを開き、選択が見える位置へ
+// スクロールを合わせる。呼出し側は mu を保持すること。
+func (b *WindowBackend) openComboLocked(e *widgetEntry) {
+	e.expanded = true
+	e.dropScroll = comboDropScrollFor(e.selIdx, len(e.items))
 }
 
 // listTextMaxW は項目テキストの収め幅を返す。
@@ -515,6 +600,181 @@ func (b *WindowBackend) SetCheckLabel(id int, label string) error {
 	return nil
 }
 
+// AddSlider はスライダーを作成 (または置換) する。lo..hi が値域、
+// value は初期値 (範囲外は丸める)。orient は 0=横、1=縦。つまみ長は
+// 固定 (sliderThumbLen px)。同じ id で作り直したときは現在値を保つ
+// (毎フレームの配置呼出しでドラッグ中の値が戻らないようにする)。
+// 配置後は自動で改行する (x=0, y+h)。
+func (b *WindowBackend) AddSlider(id, x, y, w, h, lo, hi, value, orient int) error {
+	if w <= 0 || h <= 0 {
+		return fmt.Errorf("slider のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
+	}
+	if hi < lo {
+		return fmt.Errorf("slider の最大値 %d は最小値 %d 以上である必要があります", hi, lo)
+	}
+	if orient != 0 && orient != 1 {
+		return fmt.Errorf("slider の向き %d は 0（横）または 1（縦）で指定してください", orient)
+	}
+	if value < lo {
+		value = lo
+	}
+	if value > hi {
+		value = hi
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if old, ok := b.widgets[id]; ok && old.kind == wSlider {
+		// 毎フレーム呼ばれる配置でも、ユーザーが動かした値を維持する。
+		old.gx, old.gy, old.gw, old.gh = x, y, w, h
+		old.minVal, old.maxVal = lo, hi
+		old.vert = orient == 1
+		clampSliderValueLocked(old)
+		b.advanceWidgetCursorLocked(y, h)
+		return nil
+	}
+	if b.widgets == nil {
+		b.widgets = map[int]*widgetEntry{}
+	}
+	b.widgets[id] = &widgetEntry{
+		id: id, kind: wSlider,
+		gx: x, gy: y, gw: w, gh: h,
+		minVal: lo, maxVal: hi, value: value,
+		vert:   orient == 1,
+		selIdx: -1,
+	}
+	b.advanceWidgetCursorLocked(y, h)
+	return nil
+}
+
+// SliderValue は slider の現在値を返す。
+func (b *WindowBackend) SliderValue(id int) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wSlider {
+		return 0, fmt.Errorf("objget：不明な slider %d です", id)
+	}
+	return e.value, nil
+}
+
+// SetSliderValue は slider の値を変える。範囲外は丸める。
+func (b *WindowBackend) SetSliderValue(id, value int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.widgets[id]
+	if !ok || e.kind != wSlider {
+		return fmt.Errorf("objset：不明な slider %d です", id)
+	}
+	e.value = value
+	clampSliderValueLocked(e)
+	return nil
+}
+
+func clampSliderValueLocked(e *widgetEntry) {
+	if e.value < e.minVal {
+		e.value = e.minVal
+	}
+	if e.value > e.maxVal {
+		e.value = e.maxVal
+	}
+}
+
+// sliderTrackLen はつまみが動くトラックの長さ (px) を返す。
+func sliderTrackLen(e *widgetEntry) int {
+	if e.vert {
+		return e.gh
+	}
+	return e.gw
+}
+
+// sliderThumbMetrics は現在値でのつまみ長と、トラック先頭からの位置を返す。
+func sliderThumbMetrics(e *widgetEntry) (thumbLen, thumbPos int) {
+	trackLen := sliderTrackLen(e)
+	if trackLen <= 0 {
+		return 0, 0
+	}
+	thumbLen = sliderThumbLen
+	if thumbLen < 1 {
+		thumbLen = 1
+	}
+	if thumbLen > trackLen {
+		thumbLen = trackLen
+	}
+	span := e.maxVal - e.minVal
+	if span <= 0 {
+		return thumbLen, 0
+	}
+	free := trackLen - thumbLen
+	pos := int(math.Round(float64(free) * float64(e.value-e.minVal) / float64(span)))
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > free {
+		pos = free
+	}
+	return thumbLen, pos
+}
+
+// sliderValueAt はトラック先頭から thumbStart px の位置に対応する値を返す。
+// 通常スライダーのトラッククリック (ジャンプ) で使う。
+func sliderValueAt(e *widgetEntry, thumbStart int) int {
+	trackLen := sliderTrackLen(e)
+	if trackLen <= 0 {
+		return e.value
+	}
+	thumbLen, _ := sliderThumbMetrics(e)
+	free := trackLen - thumbLen
+	if free <= 0 {
+		return e.value
+	}
+	span := float64(e.maxVal) - float64(e.minVal)
+	if span <= 0 {
+		return e.value
+	}
+	rel := thumbStart
+	if rel < 0 {
+		rel = 0
+	}
+	if rel > free {
+		rel = free
+	}
+	v := float64(e.minVal) + span*float64(rel)/float64(free)
+	if v < float64(e.minVal) {
+		v = float64(e.minVal)
+	}
+	if v > float64(e.maxVal) {
+		v = float64(e.maxVal)
+	}
+	return int(math.Round(v))
+}
+
+// sliderValueByDelta はドラッグ開始値から delta px 動かしたときの値を返す。
+// 掴んだだけでは値が動かない (つまみ位置の丸めで値が飛ばない) ように、
+// 絶対位置ではなく差分で換算する。
+func sliderValueByDelta(e *widgetEntry, delta int) int {
+	trackLen := sliderTrackLen(e)
+	if trackLen <= 0 {
+		return e.value
+	}
+	thumbLen, _ := sliderThumbMetrics(e)
+	free := trackLen - thumbLen
+	if free <= 0 {
+		return e.value
+	}
+	span := float64(e.maxVal) - float64(e.minVal)
+	if span <= 0 {
+		return e.value
+	}
+	v := float64(e.dragStart) + span*float64(delta)/float64(free)
+	if v < float64(e.minVal) {
+		v = float64(e.minVal)
+	}
+	if v > float64(e.maxVal) {
+		v = float64(e.maxVal)
+	}
+	return int(math.Round(v))
+}
+
 // WidgetType は objset/objget の振分け用に種別名を返す。
 func (b *WindowBackend) WidgetType(id int) (string, error) {
 	b.mu.Lock()
@@ -536,6 +796,8 @@ func (b *WindowBackend) WidgetType(id int) (string, error) {
 		return "combox", nil
 	case wArea:
 		return "msgbox", nil
+	case wSlider:
+		return "slider", nil
 	}
 	return "", fmt.Errorf("不明なウィジェット %d です", id)
 }
@@ -576,9 +838,7 @@ func (b *WindowBackend) UpdateCombo(id int, items []string) error {
 	e.items = append([]string(nil), items...)
 	e.rawItems = append([]string(nil), items...)
 	e.selIdx = -1
-	if len(e.items) > 0 && e.dropScroll > len(e.items)-1 {
-		e.dropScroll = 0
-	}
+	clampComboDropScroll(e)
 	return nil
 }
 
@@ -756,8 +1016,12 @@ func (b *WindowBackend) SetEnabled(id int, on bool) error {
 		return fmt.Errorf("objenable：不明なウィジェット %d です", id)
 	}
 	e.disabled = !on
-	if e.disabled && e.edit != nil {
-		e.edit.focused = false
+	if e.disabled {
+		// 無効化中にドラッグ状態が残らないようにする。
+		e.dragging = false
+		if e.edit != nil {
+			e.edit.focused = false
+		}
 	}
 	return nil
 }
@@ -897,6 +1161,8 @@ func (b *WindowBackend) pumpWidgets() {
 				}
 				e.downInside = false
 			}
+		case wSlider:
+			b.pumpSliderLocked(e, mx, my, justPressed, justReleased, down)
 		case wList:
 			b.pumpListLocked(e, mx, my, justPressed, justReleased, down, wy)
 		case wCombo:
@@ -907,14 +1173,8 @@ func (b *WindowBackend) pumpWidgets() {
 				if e.downInside && ptIn(mx, my, e.gx, e.gy, e.gw, e.gh) {
 					e.expanded = !e.expanded
 					if e.expanded {
-						e.dropScroll = 0
 						// 開いたら選択が見える位置へ。
-						if e.selIdx >= 0 {
-							e.dropScroll = e.selIdx - 1
-							if e.dropScroll < 0 {
-								e.dropScroll = 0
-							}
-						}
+						b.openComboLocked(e)
 					}
 				}
 				e.downInside = false
@@ -945,7 +1205,7 @@ func (b *WindowBackend) pumpListLocked(e *widgetEntry, mx, my int, justPressed, 
 	}
 	needScroll := len(e.items) > vis0
 	// スクロールバー形状。
-	sbW := 12
+	sbW := listSliderW
 	listW := e.gw
 	if needScroll {
 		listW = e.gw - sbW
@@ -1027,7 +1287,7 @@ func (b *WindowBackend) pumpAreaLocked(e *widgetEntry, mx, my int, justPressed, 
 		// 手で動かしたら張付き解除、末尾に戻したら再張付き。
 		e.stickBottom = b.areaAtBottomLocked(e)
 	}
-	sbW := 12
+	sbW := listSliderW
 	vis := b.areaVisibleLocked(e)
 	n := len(e.wrapped)
 	needScroll := n > vis
@@ -1072,17 +1332,48 @@ func (b *WindowBackend) pumpAreaLocked(e *widgetEntry, mx, my int, justPressed, 
 	}
 }
 
+func (b *WindowBackend) pumpSliderLocked(e *widgetEntry, mx, my int, justPressed, justReleased, down bool) {
+	_ = justReleased
+	if justPressed && ptIn(mx, my, e.gx, e.gy, e.gw, e.gh) {
+		axis, trackStart := mx, e.gx
+		if e.vert {
+			axis, trackStart = my, e.gy
+		}
+		thumbLen, thumbPos := sliderThumbMetrics(e)
+		if axis >= trackStart+thumbPos && axis < trackStart+thumbPos+thumbLen {
+			// つまみを掴んだ: 掴んだ位置のずれを保つ。
+			e.dragStart = e.value
+			e.dragStartAxis = axis
+			e.dragging = e.maxVal > e.minVal
+		} else {
+			// 溝のクリック: クリック位置へジャンプしてドラッグ。
+			e.dragStart = sliderValueAt(e, axis-trackStart-thumbLen/2)
+			e.value = e.dragStart
+			e.dragStartAxis = axis
+			e.dragging = e.maxVal > e.minVal
+		}
+	}
+	if !e.dragging {
+		return
+	}
+	if !down {
+		e.dragging = false
+		return
+	}
+	axis := mx
+	if e.vert {
+		axis = my
+	}
+	e.value = sliderValueByDelta(e, axis-e.dragStartAxis)
+}
+
 func (b *WindowBackend) pumpComboExpandedLocked(e *widgetEntry, mx, my int, justPressed, justReleased, down bool, wy float64) {
 	rh := e.gh
 	if rh < 8 {
 		rh = 16
 	}
-	maxRows := 4
 	n := len(e.items)
-	rows := n
-	if rows > maxRows {
-		rows = maxRows
-	}
+	rows := comboDropRows(n)
 	if rows < 1 {
 		e.expanded = false
 		e.dragging = false
@@ -1102,10 +1393,10 @@ func (b *WindowBackend) pumpComboExpandedLocked(e *widgetEntry, mx, my int, just
 			e.dropScroll = 0
 		}
 	}
-	// ドロップダウンのスクロールバー (drawComboDrop と同じ sbW=10)。
+	// ドロップダウンのスクロールバー (drawComboDrop と同じ幅)。
 	// listbox/msgbox と同様にドラッグとトラッククリックでスクロールし、
 	// 閉じたり項目選択したりしない。
-	const comboSbW = 10
+	comboSbW := listSliderW
 	if n > rows {
 		dh := drop.Dy()
 		thumbH, thumbY := listThumb(dh, n, rows, e.dropScroll, rh)
@@ -1236,13 +1527,15 @@ func (b *WindowBackend) drawWidgets(screen *ebiten.Image) {
 			drawButton(screen, e, ss[i].face, ss[i].gdi, mx, my, down)
 		case wCheck:
 			drawCheck(screen, e, ss[i].face, ss[i].gdi, ss[i].lineH, mx, my, down)
+		case wSlider:
+			drawSlider(screen, e, mx, my)
 		case wList:
 			drawList(screen, e, ss[i].face, ss[i].gdi, ss[i].lineH, mx, my, down)
 		case wCombo:
 			// 閉じた分だけここで描く。展開ドロップは後で前面に。
 			drawComboClosed(screen, e, ss[i].face, ss[i].gdi, mx, my, down)
 		case wArea:
-			drawArea(screen, e, ss[i].face, ss[i].gdi, ss[i].lineH)
+			drawArea(screen, e, ss[i].face, ss[i].gdi, ss[i].lineH, mx, my)
 		case wInput:
 			// input は drawInputs 側で描く。
 		}
@@ -1257,21 +1550,40 @@ func (b *WindowBackend) drawWidgets(screen *ebiten.Image) {
 	b.drawDialog(screen)
 }
 
+// drawButtonChrome は Windows 10 のプッシュボタン面を描く。外周1pxの
+// 枠、その内側1pxの白ハイライト、平坦な面という構造で、上下の枠色を
+// 変えて軽い浮き上がりを付ける。hover/pressed の色は呼出側が選ぶ。
+func drawButtonChrome(screen *ebiten.Image, x, y, w, h int, bg, bd, bottom color.NRGBA, highlight bool) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	xf, yf, wf, hf := float32(x), float32(y), float32(w), float32(h)
+	vector.DrawFilledRect(screen, xf, yf, wf, hf, bg, false)
+	// 上・左・右が明るく、下が暗い Windows 10 のボタン枠。
+	vector.DrawFilledRect(screen, xf, yf, wf, 1, bd, false)
+	vector.DrawFilledRect(screen, xf, yf+hf-1, wf, 1, bottom, false)
+	vector.DrawFilledRect(screen, xf, yf, 1, hf, bd, false)
+	vector.DrawFilledRect(screen, xf+wf-1, yf, 1, hf, bd, false)
+	if highlight && w > 4 && h > 4 {
+		vector.StrokeRect(screen, xf+1.5, yf+1.5, wf-3, hf-3, 1, themeButtonHighlight, false)
+	}
+}
+
 func drawButton(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, mx, my int, down bool) {
-	x, y, w, h := float32(e.gx), float32(e.gy), float32(e.gw), float32(e.gh)
-	bg, bd := themeWhite, themeFrame
 	hover := ptIn(mx, my, e.gx, e.gy, e.gw, e.gh)
 	pressing := hover && down && !e.disabled
+	bg, bd, bottom := themeFace, themeButtonFrame, themeButtonFrameBottom
+	highlight := true
 	if e.disabled {
-		bg = themeFaceDis
-		bd = themeFrame
+		bg, bd, bottom = themeButtonFaceDis, themeButtonFrame, themeButtonFrame
+		highlight = false
 	} else if pressing {
-		bg, bd = themePressBg, themePressFrame
+		bg, bd, bottom = themePressBg, themePressFrame, themePressFrame
+		highlight = false
 	} else if hover {
-		bg = themeHover
+		bg, bd, bottom = themeHover, themeFocusFrame, themeFocusFrame
 	}
-	vector.DrawFilledRect(screen, x, y, w, h, bg, false)
-	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, bd, false)
+	drawButtonChrome(screen, e.gx, e.gy, e.gw, e.gh, bg, bd, bottom, highlight)
 	if e.label == "" || face == nil {
 		return
 	}
@@ -1289,33 +1601,41 @@ func drawButton(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs 
 }
 
 func drawCheck(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, lineH float64, mx, my int, down bool) {
-	const bs = 16
+	// Windows 10 の標準チェックボックスは 13px 角。16px フォントの
+	// 行に合わせて 14px にしている (13px だと小さく見えるため)。
+	const bs = 14
 	bx, by := float32(e.gx), float32(e.gy)+(float32(e.gh)-float32(bs))/2
 	hover := ptIn(mx, my, e.gx, e.gy, e.gw, e.gh)
 	pressing := hover && down && !e.disabled
-	bg := themeWhite
-	if pressing {
-		bg = themePressBg
-	} else if hover && !e.disabled {
-		bg = themeHover
+	bg, bd := themeWhite, themeCheckFrame
+	mark := themeInk
+	if e.checked {
+		bg, bd, mark = themeSelectBg, themeSelectBg, themeSelectInk
 	}
 	if e.disabled {
-		bg = themeFaceDis
+		bg, bd, mark = themeButtonFaceDis, themeButtonFrame, themeGrey
+	} else if pressing {
+		if e.checked {
+			bg, bd = themePressFrame, themePressFrame
+		} else {
+			bg, bd = themePressBg, themePressFrame
+		}
+	} else if hover {
+		bd = themeFocusFrame
+		if e.checked {
+			bg = themeFocusFrame
+		}
 	}
 	vector.DrawFilledRect(screen, bx, by, float32(bs), float32(bs), bg, false)
-	vector.StrokeRect(screen, bx+0.5, by+0.5, float32(bs)-1, float32(bs)-1, 1, themeFrame, false)
+	vector.StrokeRect(screen, bx+0.5, by+0.5, float32(bs)-1, float32(bs)-1, 1, bd, false)
 	if e.checked {
 		// チェック (2本線)。
 		f := float64(bs)
-		x0, y0 := float64(bx)+f*0.28, float64(by)+f*0.55
-		x1, y1 := float64(bx)+f*0.45, float64(by)+f*0.72
-		x2, y2 := float64(bx)+f*0.74, float64(by)+f*0.30
-		c := themeInk
-		if e.disabled {
-			c = themeGrey
-		}
-		vector.StrokeLine(screen, float32(x0), float32(y0), float32(x1), float32(y1), 2, c, false)
-		vector.StrokeLine(screen, float32(x1), float32(y1), float32(x2), float32(y2), 2, c, false)
+		x0, y0 := float64(bx)+f*0.25, float64(by)+f*0.52
+		x1, y1 := float64(bx)+f*0.43, float64(by)+f*0.70
+		x2, y2 := float64(bx)+f*0.75, float64(by)+f*0.30
+		vector.StrokeLine(screen, float32(x0), float32(y0), float32(x1), float32(y1), 2, mark, false)
+		vector.StrokeLine(screen, float32(x1), float32(y1), float32(x2), float32(y2), 2, mark, false)
 	}
 	if e.label == "" || face == nil {
 		return
@@ -1331,10 +1651,50 @@ func drawCheck(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs g
 	drawFaceText(screen, e.label, face, tx, ty, fg, gs)
 }
 
+// drawScrollbar は listbox/msgbox/combox と slider が共有する溝とつまみを
+// 描く。vertical のとき thumbPos は上端、そうでなければ左端 (トラック先頭
+// からの相対位置)。色は固定テーマの灰色で、ホバー・押下だけ濃くなる。
+func drawScrollbar(screen *ebiten.Image, x, y, w, h int, vertical bool, thumbPos, thumbLen int, hover, press bool) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), themeScrollTrack, false)
+	c := themeScrollThumb
+	if press {
+		c = themeScrollThumbPress
+	} else if hover {
+		c = themeScrollThumbHover
+	}
+	if vertical {
+		vector.DrawFilledRect(screen, float32(x), float32(y+thumbPos), float32(w), float32(thumbLen), c, false)
+	} else {
+		vector.DrawFilledRect(screen, float32(x+thumbPos), float32(y), float32(thumbLen), float32(h), c, false)
+	}
+}
+
+func drawSlider(screen *ebiten.Image, e *widgetEntry, mx, my int) {
+	if e.gw <= 0 || e.gh <= 0 {
+		return
+	}
+	thumbLen, thumbPos := sliderThumbMetrics(e)
+	var hover bool
+	if e.vert {
+		hover = ptIn(mx, my, e.gx, e.gy+thumbPos, e.gw, thumbLen)
+	} else {
+		hover = ptIn(mx, my, e.gx+thumbPos, e.gy, thumbLen, e.gh)
+	}
+	drawScrollbar(screen, e.gx, e.gy, e.gw, e.gh, e.vert, thumbPos, thumbLen, !e.disabled && hover, e.dragging)
+}
+
 func drawList(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, lineH float64, mx, my int, down bool) {
 	x, y, w, h := float32(e.gx), float32(e.gy), float32(e.gw), float32(e.gh)
-	vector.DrawFilledRect(screen, x, y, w, h, themeWhite, false)
-	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, themeFrame, false)
+	body := themeWhite
+	frame := themeFrame
+	if e.disabled {
+		body, frame = themeFaceDis, themeFieldFrameDis
+	}
+	vector.DrawFilledRect(screen, x, y, w, h, body, false)
+	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, frame, false)
 	rh := int(lineH + 0.5)
 	if rh < 12 {
 		rh = 12
@@ -1345,7 +1705,7 @@ func drawList(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gd
 	}
 	// あふれたときだけバー幅を確保し、それ以外は枠横幅いっぱいを使う。
 	needScroll := len(e.items) > vis
-	sbW := 12
+	sbW := listSliderW
 	innerW := e.gw - 2
 	if needScroll {
 		innerW = e.gw - sbW
@@ -1369,11 +1729,16 @@ func drawList(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gd
 		if y1 > e.gy+e.gh-1 {
 			y1 = e.gy + e.gh - 1
 		}
+		selected := idx == e.selIdx
 		bg := themeWhite
-		if idx == e.selIdx {
-			bg = themePressBg
-		} else if y1 > y0 && ptIn(mx, my, e.gx+1, y0, innerW, y1-y0) && !e.disabled {
-			bg = themeFocusBg
+		fg := themeInk
+		if e.disabled {
+			bg = themeFaceDis
+			fg = themeGrey
+		} else if selected {
+			bg, fg = themeSelectBg, themeSelectInk
+		} else if y1 > y0 && ptIn(mx, my, e.gx+1, y0, innerW, y1-y0) {
+			bg = themeHover
 		}
 		if bg != themeWhite && y1 > y0 {
 			vector.DrawFilledRect(screen, float32(e.gx+1), float32(y0), float32(innerW), float32(y1-y0), bg, false)
@@ -1381,50 +1746,38 @@ func drawList(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gd
 		if face == nil {
 			continue
 		}
-		fg := themeInk
-		if e.disabled {
-			fg = themeGrey
-		}
 		m := face.Metrics()
 		th := m.HAscent + m.HDescent
 		// はみ出しは SubImage で切る代わりに、そのまま描く (枠外は枠で隠れないが、
 		// 短縮済みのため収まるはず)。
 		drawFaceText(screen, e.items[idx], face, float64(e.gx+1+2), float64(ry)+(float64(rh)-th)/2, fg, gs)
 	}
-	// スクロールバー。
+	// スクロールバー。listbox/msgbox/slider と共通の溝＋つまみ。
 	n := len(e.items)
 	if n > vis {
 		thumbH, thumbY := listThumb(e.gh, n, vis, e.scroll, rh)
-		// 溝。
-		vector.DrawFilledRect(screen, float32(e.gx+e.gw-sbW), float32(e.gy), float32(sbW), float32(e.gh), themeFaceDis, false)
-		hoverThumb := ptIn(mx, my, e.gx+e.gw-sbW, e.gy+thumbY, sbW, thumbH)
-		c := themeScrollThumb
-		if e.dragging {
-			c = themeScrollThumbPress
-		} else if hoverThumb {
-			c = themeScrollThumbHover
-		}
-		vector.DrawFilledRect(screen, float32(e.gx+e.gw-sbW), float32(e.gy+thumbY), float32(sbW), float32(thumbH), c, false)
-		vector.StrokeRect(screen, float32(e.gx+e.gw-sbW)+0.5, float32(e.gy+thumbY)+0.5, float32(sbW)-1, float32(thumbH)-1, 1, themeScrollThumbBorder, false)
+		hoverThumb := !e.disabled && ptIn(mx, my, e.gx+e.gw-sbW, e.gy+thumbY, sbW, thumbH)
+		drawScrollbar(screen, e.gx+e.gw-sbW, e.gy, sbW, e.gh, true, thumbY, thumbH, hoverThumb, e.dragging)
 	}
 	// 選択・溝が枠に被らないよう枠を描き直す。
-	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, themeFrame, false)
+	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, frame, false)
 }
 
 func drawComboClosed(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, mx, my int, down bool) {
 	x, y, w, h := float32(e.gx), float32(e.gy), float32(e.gw), float32(e.gh)
 	hover := ptIn(mx, my, e.gx, e.gy, e.gw, e.gh)
 	pressing := (hover && down) || e.expanded
-	bg := themeWhite
+	body, frame := themeWhite, themeFrame
+	arrow := themeGrey
 	if e.disabled {
-		bg = themeFaceDis
+		body, frame, arrow = themeFaceDis, themeFieldFrameDis, themeGrey
 	} else if pressing {
-		bg = themePressBg
+		frame = themePressFrame
 	} else if hover {
-		bg = themeHover
+		frame = themeFocusFrame
 	}
-	vector.DrawFilledRect(screen, x, y, w, h, bg, false)
-	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, themeFrame, false)
+	vector.DrawFilledRect(screen, x, y, w, h, body, false)
+	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, frame, false)
 	sel := ""
 	if e.selIdx >= 0 && e.selIdx < len(e.items) {
 		sel = e.items[e.selIdx]
@@ -1439,23 +1792,20 @@ func drawComboClosed(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace
 		// 矢印分を空けて短縮済みのはず。
 		drawFaceText(screen, sel, face, float64(e.gx+4), float64(e.gy)+(float64(e.gh)-th)/2, fg, gs)
 	}
-	// 矢印 (▼相当の三角)。
-	ax := float32(e.gx + e.gw - 16)
-	ay := float32(e.gy + e.gh/2)
-	sz := float32(5)
-	var p vector.Path
-	p.MoveTo(ax-sz, ay-3)
-	p.LineTo(ax+sz, ay-3)
-	p.LineTo(ax, ay+3)
-	p.Close()
-	fg := themeInk
-	if e.disabled {
-		fg = themeGrey
-	}
-	var cs ebiten.ColorScale
-	cs.Reset()
-	cs.ScaleWithColor(fg)
-	vector.FillPath(screen, &p, &vector.FillOptions{}, &vector.DrawPathOptions{ColorScale: cs})
+	// Windows 10 のコンボボックスは塗りつぶし三角ではなく細い V 字。
+	// 2本の StrokeLine に分けると左腕だけ1px高くラスタライズされて
+	// 矢印が傾いて見えるため、1本のパスとして描く。
+	ax := float32(e.gx + e.gw - 14)
+	ay := float32(e.gy) + float32(e.gh)/2
+	var chevron vector.Path
+	chevron.MoveTo(ax-4, ay-2)
+	chevron.LineTo(ax, ay+2)
+	chevron.LineTo(ax+4, ay-2)
+	var arrowCS ebiten.ColorScale
+	arrowCS.ScaleWithColor(arrow)
+	vector.StrokePath(screen, &chevron,
+		&vector.StrokeOptions{Width: 2, LineCap: vector.LineCapButt, LineJoin: vector.LineJoinMiter, MiterLimit: 10},
+		&vector.DrawPathOptions{AntiAlias: true, ColorScale: arrowCS})
 }
 
 func drawComboDrop(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, lineH float64, mx, my int) {
@@ -1463,20 +1813,25 @@ func drawComboDrop(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, 
 	if rh < 12 {
 		rh = 16
 	}
-	maxRows := 4
 	n := len(e.items)
-	rows := n
-	if rows > maxRows {
-		rows = maxRows
-	}
+	rows := comboDropRows(n)
 	if rows < 1 {
 		return
+	}
+	// 状態が範囲外でも空白行が出ないよう、描画側でも先頭行を丸める。
+	scroll := e.dropScroll
+	if max := n - rows; scroll > max {
+		scroll = max
+	}
+	if scroll < 0 {
+		scroll = 0
 	}
 	dx, dy, dw, dh := e.gx, e.gy+e.gh, e.gw, rows*rh
 	vector.DrawFilledRect(screen, float32(dx), float32(dy), float32(dw), float32(dh), themeWhite, false)
 	vector.StrokeRect(screen, float32(dx)+0.5, float32(dy)+0.5, float32(dw)-1, float32(dh)-1, 1, themeFrame, false)
+	sbW := listSliderW
 	for i := 0; i < rows; i++ {
-		idx := e.dropScroll + i
+		idx := scroll + i
 		if idx < 0 || idx >= n {
 			break
 		}
@@ -1490,27 +1845,21 @@ func drawComboDrop(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, 
 		if y1 > dy+dh-1 {
 			y1 = dy + dh - 1
 		}
-		bg := themeWhite
-		hoverW := dw - 2
+		selW := dw - 2
 		if n > rows {
-			hoverW = dw - 2 - 10
+			selW = dw - 2 - sbW
 		}
-		if hoverW < 0 {
-			hoverW = 0
+		if selW < 0 {
+			selW = 0
 		}
+		bg := themeWhite
+		fg := themeInk
 		if idx == e.selIdx {
-			bg = themePressBg
-		} else if y1 > y0 && ptIn(mx, my, dx+1, y0, hoverW, y1-y0) {
-			bg = themeFocusBg
+			bg, fg = themeSelectBg, themeSelectInk
+		} else if y1 > y0 && ptIn(mx, my, dx+1, y0, selW, y1-y0) {
+			bg = themeHover
 		}
 		if bg != themeWhite && y1 > y0 {
-			selW := dw - 2
-			if n > rows {
-				selW = dw - 2 - 10
-			}
-			if selW < 0 {
-				selW = 0
-			}
 			vector.DrawFilledRect(screen, float32(dx+1), float32(y0), float32(selW), float32(y1-y0), bg, false)
 		}
 		if face == nil {
@@ -1518,23 +1867,27 @@ func drawComboDrop(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, 
 		}
 		m := face.Metrics()
 		th := m.HAscent + m.HDescent
-		drawFaceText(screen, e.items[idx], face, float64(dx+4), float64(ry)+(float64(rh)-th)/2, themeInk, gs)
+		drawFaceText(screen, e.items[idx], face, float64(dx+4), float64(ry)+(float64(rh)-th)/2, fg, gs)
 	}
-	// ドロップのスクロールバー (簡易)。
+	// ドロップのスクロールバー。listbox/msgbox/slider と共通。
 	if n > rows {
-		sbW := 10
-		thumbH, thumbY := listThumb(dh, n, rows, e.dropScroll, rh)
-		vector.DrawFilledRect(screen, float32(dx+dw-sbW), float32(dy), float32(sbW), float32(dh), themeFaceDis, false)
-		vector.DrawFilledRect(screen, float32(dx+dw-sbW), float32(dy+thumbY), float32(sbW), float32(thumbH), themeScrollThumb, false)
+		thumbH, thumbY := listThumb(dh, n, rows, scroll, rh)
+		barX := dx + dw - sbW
+		hoverThumb := !e.disabled && ptIn(mx, my, barX, dy+thumbY, sbW, thumbH)
+		drawScrollbar(screen, barX, dy, sbW, dh, true, thumbY, thumbH, hoverThumb, e.dragging)
 	}
 	// 選択・溝が枠に被らないよう枠を描き直す。
 	vector.StrokeRect(screen, float32(dx)+0.5, float32(dy)+0.5, float32(dw)-1, float32(dh)-1, 1, themeFrame, false)
 }
 
-func drawArea(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, lineH float64) {
+func drawArea(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, lineH float64, mx, my int) {
 	x, y, w, h := float32(e.gx), float32(e.gy), float32(e.gw), float32(e.gh)
-	vector.DrawFilledRect(screen, x, y, w, h, themeWhite, false)
-	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, themeFrame, false)
+	body, frame, ink := themeWhite, themeFrame, themeInk
+	if e.disabled {
+		body, frame, ink = themeFaceDis, themeFieldFrameDis, themeGrey
+	}
+	vector.DrawFilledRect(screen, x, y, w, h, body, false)
+	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, frame, false)
 	rh := int(lineH + 0.5)
 	if rh < 12 {
 		rh = 12
@@ -1554,17 +1907,16 @@ func drawArea(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gd
 			break
 		}
 		ry := float32(e.gy + i*rh)
-		drawFaceText(screen, e.wrapped[idx], face, float64(e.gx+4), float64(ry)+(float64(rh)-th)/2, themeInk, gs)
+		drawFaceText(screen, e.wrapped[idx], face, float64(e.gx+4), float64(ry)+(float64(rh)-th)/2, ink, gs)
 	}
 	n := len(e.wrapped)
 	if n > vis {
-		sbW := 12
+		sbW := listSliderW
 		thumbH, thumbY := listThumb(e.gh, n, vis, e.scroll, rh)
-		vector.DrawFilledRect(screen, float32(e.gx+e.gw-sbW), float32(e.gy), float32(sbW), float32(e.gh), themeFaceDis, false)
-		vector.DrawFilledRect(screen, float32(e.gx+e.gw-sbW), float32(e.gy+thumbY), float32(sbW), float32(thumbH), themeScrollThumb, false)
-		vector.StrokeRect(screen, float32(e.gx+e.gw-sbW)+0.5, float32(e.gy+thumbY)+0.5, float32(sbW)-1, float32(thumbH)-1, 1, themeScrollThumbBorder, false)
+		hoverThumb := !e.disabled && ptIn(mx, my, e.gx+e.gw-sbW, e.gy+thumbY, sbW, thumbH)
+		drawScrollbar(screen, e.gx+e.gw-sbW, e.gy, sbW, e.gh, true, thumbY, thumbH, hoverThumb, e.dragging)
 		// 溝が枠に被らないよう枠を描き直す。
-		vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, themeFrame, false)
+		vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, frame, false)
 	}
 }
 
@@ -1644,12 +1996,19 @@ func (b *WindowBackend) Dialog(msg string, mode int) (bool, error) {
 	}
 	for i := range b.clickFlag {
 		b.clickFlag[i] = false
+		b.releaseFlag[i] = false
 	}
 	for k := range b.keyHit {
 		b.keyHit[k] = false
 	}
+	for k := range b.keyRel {
+		b.keyRel[k] = false
+	}
 	for k := range b.padHit {
 		b.padHit[k] = false
+	}
+	for k := range b.padRel {
+		b.padRel[k] = false
 	}
 	b.wheelAccum = 0
 	b.imePending = ""
@@ -1705,8 +2064,8 @@ func (b *WindowBackend) drawDialog(screen *ebiten.Image) {
 	gs := b.gdiSnapLocked()
 	b.mu.Unlock()
 	// 背景の薄暗化はしない (要望により dim なし): ダイアログ窓だけを描く。
-	//  window.
-	vector.DrawFilledRect(screen, float32(win.Min.X), float32(win.Min.Y), float32(win.Dx()), float32(win.Dy()), themeWhite, false)
+	// Windows 10 のダイアログと同じ、灰色の面と 1px の枠。
+	vector.DrawFilledRect(screen, float32(win.Min.X), float32(win.Min.Y), float32(win.Dx()), float32(win.Dy()), themeFace, false)
 	vector.StrokeRect(screen, float32(win.Min.X)+0.5, float32(win.Min.Y)+0.5, float32(win.Dx())-1, float32(win.Dy())-1, 1, themeFrame, false)
 	mx, my := ebiten.CursorPosition()
 	down := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
@@ -1722,14 +2081,21 @@ func (b *WindowBackend) drawDialog(screen *ebiten.Image) {
 	}
 	for i, r := range btns {
 		hover := ptIn(mx, my, r.Min.X, r.Min.Y, r.Dx(), r.Dy())
-		bg := themeWhite
+		bg, bd, bottom := themeFace, themeButtonFrame, themeButtonFrameBottom
+		highlight := true
 		if hover && down {
-			bg = themePressBg
+			bg, bd, bottom = themePressBg, themePressFrame, themePressFrame
+			highlight = false
 		} else if hover {
-			bg = themeHover
+			bg, bd, bottom = themeHover, themeFocusFrame, themeFocusFrame
 		}
-		vector.DrawFilledRect(screen, float32(r.Min.X), float32(r.Min.Y), float32(r.Dx()), float32(r.Dy()), bg, false)
-		vector.StrokeRect(screen, float32(r.Min.X)+0.5, float32(r.Min.Y)+0.5, float32(r.Dx())-1, float32(r.Dy())-1, 1, themeFrame, false)
+		if i == 0 {
+			// 最初のボタン (OK/はい) は Windows 10 の既定ボタン。
+			if !(hover && down) {
+				bd, bottom = themeFocusFrame, themeFocusFrame
+			}
+		}
+		drawButtonChrome(screen, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), bg, bd, bottom, highlight)
 		if face != nil && i < len(labels) {
 			tw := measureWithSnap(labels[i], face, gs)
 			m := face.Metrics()

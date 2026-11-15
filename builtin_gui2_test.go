@@ -47,23 +47,32 @@ func TestGuiBuiltinValidation(t *testing.T) {
 			t.Fatalf("%s: got %v, %v (want 0)", src, v, err)
 		}
 	}
-	// 第2引数 mode: 省略・false はレベル検出、true は立上り検出（消費型）。
-	// ヘッドレスでは押下がないためいずれも false。
-	for _, src := range []string{"getkey(37, false)", "getkey(37, true)", "getkey(16, true)"} {
+	// 第2引数 mode: 省略・0 はレベル検出、1 は立上り、2 は立下り検出
+	// （いずれも消費型）。ヘッドレスでは押下がないためすべて false。
+	for _, src := range []string{"getkey(37, false)", "getkey(37, true)", "getkey(16, true)", "getkey(37, 2)", "getkey(16, 2)"} {
 		v, err := guiEval(t, src)
 		if err != nil || v.K != KInt || v.I != 0 {
 			t.Fatalf("%s: got %v, %v (want 0)", src, v, err)
 		}
 	}
-	// 立上り検出は消費される：押下なしでは何度呼んでも false。
+	// 立上り・立下り検出は消費される：押下なしでは何度呼んでも false。
 	if v, err := guiEval(t, "getkey(37, true)"); err != nil || v.K != KInt || v.I != 0 {
 		t.Fatalf("getkey(37, true) repeat: got %v, %v", v, err)
+	}
+	if v, err := guiEval(t, "getkey(37, 2)"); err != nil || v.K != KInt || v.I != 0 {
+		t.Fatalf("getkey(37, 2) repeat: got %v, %v", v, err)
+	}
+	// mode は 0〜2 のみ。範囲外はエラー。
+	for _, src := range []string{"getkey(37, 3)", "getkey(37, -1)", "getkey(0, 3)"} {
+		if _, err := guiEval(t, src); err == nil || !strings.Contains(err.Error(), "mode は 0") {
+			t.Fatalf("%s: got %v", src, err)
+		}
 	}
 	if _, err := guiEval(t, "getkey(999, true)"); err == nil || !strings.Contains(err.Error(), "不明なキーコード") {
 		t.Fatalf("getkey(999, true): got %v", err)
 	}
 	// マウスは code 0-2 に統合（0 左、1 中、2 右）。ヘッドレスでは false。
-	for _, src := range []string{"getkey(0)", "getkey(1)", "getkey(2)", "getkey(0, false)", "getkey(2, false)", "getkey(0, true)", "getkey(1, true)", "getkey(2, true)"} {
+	for _, src := range []string{"getkey(0)", "getkey(1)", "getkey(2)", "getkey(0, false)", "getkey(2, false)", "getkey(0, true)", "getkey(1, true)", "getkey(2, true)", "getkey(0, 2)", "getkey(2, 2)"} {
 		v, err := guiEval(t, src)
 		if err != nil || v.K != KInt || v.I != 0 {
 			t.Fatalf("%s: got %v, %v (want 0)", src, v, err)
@@ -257,6 +266,16 @@ func TestGuiBuiltinValidation(t *testing.T) {
 	}
 	if _, err := guiEval(t, "padbtn(0, 0, \"x\")"); err == nil {
 		t.Fatal("padbtn string mode should error")
+	}
+	// mode は 0〜2 のみ。範囲外はエラー。
+	for _, src := range []string{"padbtn(0, 0, 3)", "padbtn(0, 0, -1)"} {
+		if _, err := guiEval(t, src); err == nil || !strings.Contains(err.Error(), "mode は 0") {
+			t.Fatalf("%s: got %v", src, err)
+		}
+	}
+	// 2（立下り）も有効な mode。パッド未接続ならパッドのエラーになる。
+	if _, err := guiEval(t, "padbtn(99, 0, 2)"); err == nil || !strings.Contains(err.Error(), "不明なパッド") {
+		t.Fatalf("padbtn(99, 0, 2): got %v", err)
 	}
 	if _, err := guiEval(t, "padbtn(0, 0, 0, 1)"); err == nil {
 		t.Fatal("padbtn with 4 args should error")
@@ -509,6 +528,52 @@ func TestGuiFormValidation(t *testing.T) {
 	}
 	if _, err := guiEvalSeq(t, "chkbox(1, \"x\")\nobjset(1, true)\n"); err != nil {
 		t.Fatalf("objset chkbox int should succeed: got %v", err)
+	}
+	// slider: 値域・初期値・向き。
+	if _, err := guiEval(t, "slider(1, 100, 24, 0, 10)"); err != nil {
+		t.Fatalf("slider: %v", err)
+	}
+	if _, err := guiEval(t, "slider(\"x\", 100, 24, 0, 10)"); err == nil {
+		t.Fatal("slider string id should error")
+	}
+	if _, err := guiEval(t, "slider(1, 100, 24, 0)"); err == nil {
+		t.Fatal("slider 4 args should error")
+	}
+	if _, err := guiEval(t, "slider(1, 100, 24, 0, 10, 5, 1, 0)"); err == nil {
+		t.Fatal("slider 8 args should error")
+	}
+	if _, err := guiEval(t, "slider(1, 100, 24, 10, 0)"); err == nil {
+		t.Fatal("slider max < min should error")
+	}
+	if _, err := guiEval(t, "slider(1, 0, 24, 0, 10)"); err == nil {
+		t.Fatal("slider zero width should error")
+	}
+	if _, err := guiEval(t, "slider(1, 100, 24, 0, 10, 5, 1)"); err != nil {
+		t.Fatalf("slider vertical should succeed: %v", err)
+	}
+	if _, err := guiEval(t, "slider(1, 100, 24, 0, 10, 5, 2)"); err == nil {
+		t.Fatal("slider orient 2 should error")
+	}
+	if _, err := guiEval(t, "slider(1, 100, 24, 0, 10, 5, -1)"); err == nil {
+		t.Fatal("slider orient -1 should error")
+	}
+	if v, err := guiEvalSeq(t, "slider(1, 100, 24, 0, 10)\nobjget(1)"); err != nil || v.K != KInt || v.I != 0 {
+		t.Fatalf("slider default value: got %v, %v", v, err)
+	}
+	if v, err := guiEvalSeq(t, "slider(1, 100, 24, 0, 10, 5)\nobjget(1)"); err != nil || v.K != KInt || v.I != 5 {
+		t.Fatalf("slider initial value: got %v, %v", v, err)
+	}
+	if v, err := guiEvalSeq(t, "slider(1, 100, 24, 0, 10)\nobjset(1, 99)\nobjget(1)"); err != nil || v.K != KInt || v.I != 10 {
+		t.Fatalf("slider clamp high: got %v, %v", v, err)
+	}
+	if v, err := guiEvalSeq(t, "slider(1, 100, 24, 0, 10)\nobjset(1, -5)\nobjget(1)"); err != nil || v.K != KInt || v.I != 0 {
+		t.Fatalf("slider clamp low: got %v, %v", v, err)
+	}
+	if _, err := guiEvalSeq(t, "slider(1, 100, 24, 0, 10)\nobjset(1, 1.5)"); err == nil {
+		t.Fatal("objset slider float should error")
+	}
+	if _, err := guiEvalSeq(t, "slider(1, 100, 24, 0, 10)\nobjset(1, \"x\")"); err == nil {
+		t.Fatal("objset slider string should error")
 	}
 	// objset は変数ではなく値そのものを設定する。
 	if v, err := guiEvalSeq(t, "inputbox(2, 80, 24)\nobjset(2, \"x\")\nobjget(2)"); err != nil || v.K != KString || v.S != "x" {

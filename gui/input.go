@@ -208,16 +208,20 @@ func keyDownNow(code int) (bool, bool) {
 	return ebiten.IsKeyPressed(k), true
 }
 
-// keyEdgeNext は立上りラッチの純粋遷移である。down が立ち上がった
-// 瞬間に hit を立て、prev を更新する。ユニットテスト可能。
-func keyEdgeNext(prev, down, hit bool) (bool, bool) {
+// keyEdgeNext は立上り・立下りラッチの純粋遷移である。down が
+// 立ち上がった瞬間に hit を、立ち下がった瞬間に rel を立て、prev を
+// 更新する。ユニットテスト可能。
+func keyEdgeNext(prev, down, hit, rel bool) (bool, bool, bool) {
 	if down && !prev {
 		hit = true
 	}
-	return down, hit
+	if !down && prev {
+		rel = true
+	}
+	return down, hit, rel
 }
 
-// padKey はパッド本体と標準ボタン番号の組（立上りラッチのキー）。
+// padKey はパッド本体と標準ボタン番号の組（エッジラッチのキー）。
 type padKey struct {
 	gid ebiten.GamepadID
 	btn int
@@ -240,16 +244,16 @@ func clickButton(btn int) (ebiten.MouseButton, bool) {
 	return 0, false
 }
 
-// pumpInput はクリックの立ち上がりエッジをラッチし、ホイールの動きを
-// 蓄積する。Update から呼ばれる。ebiten.Wheel は1ティックごとの差分
+// pumpInput はクリックの立ち上がり・立ち下がりエッジをラッチし、ホイールの
+// 動きを蓄積する。Update から呼ばれる。ebiten.Wheel は1ティックごとの差分
 // （アイドル時は 0）を報告するため、単純な蓄積で動きを失わない。
-// キーの立上り（getkey(code, 1) 用）もここでラッチする: スクリプトが
-// ポーリングしていなくても Update が見た押下は失われず、KeyHit が
-// 消費するまで残る（getkey(0, true) と同じ消費型）。
+// キーの両エッジ（getkey(code, 1/2) 用）もここでラッチする: スクリプトが
+// ポーリングしていなくても Update が見た押下・解放は失われず、
+// KeyHit/KeyReleased が消費するまで残る（消費型）。
 // モーダルダイアログ表示中はラッチしない: その間のクリック・キー・
 // ホイールは破棄し、閉じた後に背後へ流れ込ませない。ただし押下レベル
 // (mouseDown/keyPrev) は追従させ、ダイアログ中の押下が閉じた後の
-// 立上りとして誤検出されないようにする。
+// 立上り・立下りとして誤検出されないようにする。
 func (b *WindowBackend) pumpInput() {
 	pressed := [3]bool{
 		ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft),
@@ -267,7 +271,7 @@ func (b *WindowBackend) pumpInput() {
 		down, _ := keyDownNow(code)
 		samples = append(samples, keySample{code, down})
 	}
-	// パッドボタンも同様にラッチする（padbtn(id, btn, 1) 用）。
+	// パッドボタンも同様に両エッジをラッチする（padbtn(id, btn, 1/2) 用）。
 	type padSample struct {
 		key  padKey
 		down bool
@@ -286,6 +290,7 @@ func (b *WindowBackend) pumpInput() {
 			b.mouseDown[i] = pressed[i]
 			// 既存のラッチも含めて捨てる (ダイアログ前の分も背後に残さない)。
 			b.clickFlag[i] = false
+			b.releaseFlag[i] = false
 		}
 		// ホイールは蓄積せず捨てる。
 		for _, s := range samples {
@@ -297,6 +302,10 @@ func (b *WindowBackend) pumpInput() {
 				b.keyHit = make(map[int]bool)
 			}
 			b.keyHit[s.code] = false
+			if b.keyRel == nil {
+				b.keyRel = make(map[int]bool)
+			}
+			b.keyRel[s.code] = false
 		}
 		for _, s := range padSamples {
 			if b.padPrev == nil {
@@ -307,12 +316,19 @@ func (b *WindowBackend) pumpInput() {
 				b.padHit = make(map[padKey]bool)
 			}
 			b.padHit[s.key] = false
+			if b.padRel == nil {
+				b.padRel = make(map[padKey]bool)
+			}
+			b.padRel[s.key] = false
 		}
 		return
 	}
 	for i := range pressed {
 		if pressed[i] && !b.mouseDown[i] {
 			b.clickFlag[i] = true
+		}
+		if !pressed[i] && b.mouseDown[i] {
+			b.releaseFlag[i] = true
 		}
 		b.mouseDown[i] = pressed[i]
 	}
@@ -323,10 +339,14 @@ func (b *WindowBackend) pumpInput() {
 	if b.keyHit == nil {
 		b.keyHit = make(map[int]bool)
 	}
+	if b.keyRel == nil {
+		b.keyRel = make(map[int]bool)
+	}
 	for _, s := range samples {
 		prev := b.keyPrev[s.code]
 		hit := b.keyHit[s.code]
-		b.keyPrev[s.code], b.keyHit[s.code] = keyEdgeNext(prev, s.down, hit)
+		rel := b.keyRel[s.code]
+		b.keyPrev[s.code], b.keyHit[s.code], b.keyRel[s.code] = keyEdgeNext(prev, s.down, hit, rel)
 	}
 	if b.padPrev == nil {
 		b.padPrev = make(map[padKey]bool)
@@ -334,10 +354,14 @@ func (b *WindowBackend) pumpInput() {
 	if b.padHit == nil {
 		b.padHit = make(map[padKey]bool)
 	}
+	if b.padRel == nil {
+		b.padRel = make(map[padKey]bool)
+	}
 	for _, s := range padSamples {
 		prev := b.padPrev[s.key]
 		hit := b.padHit[s.key]
-		b.padPrev[s.key], b.padHit[s.key] = keyEdgeNext(prev, s.down, hit)
+		rel := b.padRel[s.key]
+		b.padPrev[s.key], b.padHit[s.key], b.padRel[s.key] = keyEdgeNext(prev, s.down, hit, rel)
 	}
 }
 
@@ -367,6 +391,19 @@ func (b *WindowBackend) MouseDown(btn int) (bool, error) {
 		return false, fmt.Errorf("不明なボタン %d です", btn)
 	}
 	return b.mouseDown[btn], nil
+}
+
+// MouseReleased は最後の呼出以降にボタンが離されたかを報告する
+// （消費される）。押下中のレベル検出は MouseDown を使う。
+func (b *WindowBackend) MouseReleased(btn int) (bool, error) {
+	if _, ok := clickButton(btn); !ok {
+		return false, fmt.Errorf("マウスボタンは 0 から 2 の範囲で指定してください。%d が指定されました", btn)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r := b.releaseFlag[btn]
+	b.releaseFlag[btn] = false
+	return r, nil
 }
 
 // PadCount は接続されたゲームパッド数を報告する。
@@ -430,6 +467,27 @@ func (b *WindowBackend) PadButtonHit(id, btn int) (bool, error) {
 	hit := b.padHit[k]
 	b.padHit[k] = false
 	return hit, nil
+}
+
+// PadButtonReleased は最後の呼出以降にボタンが離されたかを報告する
+// （消費型）。押下中のレベル検出は PadButton を使う。
+func (b *WindowBackend) PadButtonReleased(id, btn int) (bool, error) {
+	if btn < 0 || btn > 16 {
+		return false, fmt.Errorf("パッドボタンは 0 から 16 の範囲で指定してください。%d が指定されました", btn)
+	}
+	gid, err := b.padID(id)
+	if err != nil {
+		return false, err
+	}
+	k := padKey{gid: gid, btn: btn}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.padRel == nil {
+		b.padRel = make(map[padKey]bool)
+	}
+	rel := b.padRel[k]
+	b.padRel[k] = false
+	return rel, nil
 }
 
 // PadAxis はスティックの軸 0-3（左 X/Y、右 X/Y）を -1..1 で報告する。
@@ -567,4 +625,22 @@ func (b *WindowBackend) KeyHit(code int) (bool, bool) {
 	h := b.keyHit[code]
 	b.keyHit[code] = false
 	return h, true
+}
+
+// KeyReleased は前回呼び出し以降の立下り（離した瞬間）を報告する
+// （消費される）。1回の解放で1度だけ true になる。pumpInput が
+// Update ごとに立下りをラッチするため、同一ティック内の複数回
+// ポーリングで二重に true になることはない。
+func (b *WindowBackend) KeyReleased(code int) (bool, bool) {
+	if _, ok := keyDownNow(code); !ok {
+		return false, false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.keyRel == nil {
+		b.keyRel = make(map[int]bool)
+	}
+	r := b.keyRel[code]
+	b.keyRel[code] = false
+	return r, true
 }

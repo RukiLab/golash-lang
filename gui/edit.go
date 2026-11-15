@@ -558,8 +558,9 @@ func (b *WindowBackend) drawIMEComp(screen *ebiten.Image) {
 	}
 }
 
-// inputFaceColors はエディタの面を選ぶ: フォーカスは背景を青枠の淡青
-// に染め、無効は灰色化する（フォーカスより優先）。純粋な論理で、
+// inputFaceColors はエディタの面を選ぶ。Windows 10 のテキスト欄と同じく
+// 背景はフォーカスでも白のまま、枠だけがアクセント青に変わる。無効時は
+// 灰色の面と薄い枠にする（無効がフォーカスより優先）。純粋な論理で、
 // ユニットテスト済み。
 func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
 	bg, frameC = themeWhite, themeFrame
@@ -567,7 +568,7 @@ func inputFaceColors(focused, disabled bool) (bg, frameC color.NRGBA) {
 		bg, frameC = themeFocusBg, themeFocusFrame
 	}
 	if disabled {
-		bg, frameC = themeFaceDis, themeFrame
+		bg, frameC = themeFaceDis, themeFieldFrameDis
 	}
 	return bg, frameC
 }

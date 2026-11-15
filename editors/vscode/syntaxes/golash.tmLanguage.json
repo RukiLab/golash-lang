@@ -113,7 +113,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.golash",
-          "match": "\\b(abs|args|asc|assert|atan|await|binfile|button|chkbox|chr|clip|closing|cls|color|combox|curdir|cursor|dialog|dim|dirlist|dirmake|dropload|ellipse|env|exec|exedir|exit|exp|filecopy|filedel|find|float|font|fullscreen|getkey|getpath|gettime|gfxblit|gfxcopy|gfxfile|gfxmode|gfxquad|homedir|http|ime|input|inputbox|insert|int|join|len|limit|line|listbox|log|logmsg|lower|max|msg|msgbox|min|sndload|sndplay|sndpitch|sndstop|sndvol|mouse|mousewheel|nanotime|objdel|objenable|objget|objset|open|pad|padaxis|padbtn|pipeexec|pop|pos|pow|print|pget|pset|push|randomize|rect|remove|replace|resizable|reverse|rnd|screen|gfxsel|sleep|slice|sort|split|sqrt|str|strf|strtrim|strwidth|tick|title|tmpdir|touch|tri|txtfile|upper|vartype)\\b"
+          "match": "\\b(abs|args|asc|assert|atan|await|binfile|button|chkbox|chr|clip|closing|cls|color|combox|curdir|cursor|dialog|dim|dirlist|dirmake|dropload|ellipse|env|exec|exedir|exit|exp|filecopy|filedel|find|float|font|fullscreen|getkey|getpath|gettime|gfxblit|gfxcopy|gfxfile|gfxmode|gfxquad|homedir|http|ime|input|inputbox|insert|int|join|len|limit|line|listbox|log|logmsg|lower|max|msg|msgbox|min|sndload|sndplay|sndpitch|sndstop|sndvol|mouse|mousewheel|nanotime|objdel|objenable|objget|objset|open|pad|padaxis|padbtn|pipeexec|pop|pos|pow|print|pget|pset|push|randomize|rect|remove|replace|resizable|reverse|rnd|screen|gfxsel|sleep|slice|slider|sort|split|sqrt|str|strf|strtrim|strwidth|tick|title|tmpdir|touch|tri|txtfile|upper|vartype)\\b"
         }
       ]
     },

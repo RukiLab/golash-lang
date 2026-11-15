@@ -14,5 +14,5 @@ var guiBuiltinNames = []string{
 	"sndload", "sndplay", "sndstop", "sndvol", "sndpitch",
 	"button", "inputbox", "ime",
 	"listbox", "objdel",
-	"chkbox", "combox", "msgbox", "objset", "objget", "objenable",
+	"chkbox", "slider", "combox", "msgbox", "objset", "objget", "objenable",
 }

@@ -12,7 +12,7 @@
 // getkey, mouse, touch, dropload,
 // sndload, sndplay, sndstop, sndvol, sndpitch, button, inputbox,
 // listbox, objdel,
-// chkbox, combox, msgbox, objset, objget, objenable。
+// chkbox, slider, combox, msgbox, objset, objget, objenable。
 // OS ネイティブの dialog は builtin_dialog.go にある。
 // palette は意図的に未対応（truecolor バックエンドにパレットがないため）。
 package main

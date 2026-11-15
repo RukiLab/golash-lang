@@ -11,9 +11,10 @@ func init() {
 	// 矢印キー、45 insert、46 delete、48-57 数字、65-90 A-Z、112-123
 	// F1-F12、186-192/219-222 記号キー。
 	// mode 省略時・0 は押されている間 1 を返し続けるレベル検出
-	// （従来の getkey/mousedown、消費しない）。mode 非0 は押した瞬間だけ
-	// 1 になる立上り検出で、呼び出しで消費される（従来の
-	// clicked。同一ティック内の複数回呼び出しは2回目以降 0）。
+	// （従来の getkey/mousedown、消費しない）。1 は押した瞬間だけ
+	// 1 になる立上り検出、2 は離した瞬間だけ 1 になる立下り検出で、
+	// いずれも呼び出しで消費される（従来の clicked。同一ティック内の
+	// 複数回呼び出しは2回目以降 0）。
 	register("getkey", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "getkey")
 		if err != nil {
@@ -23,41 +24,56 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		mode := false
+		mode := 0
 		if len(args) == 2 {
-			var err error
-			mode, err = needTruthy("getkey", args, 1, at)
+			mode, err = needInputMode("getkey", args, 1, at)
 			if err != nil {
 				return Null(), err
 			}
 		}
 		if code >= 0 && code <= 2 {
 			btn := int(code)
-			if mode {
+			switch mode {
+			case 1:
 				c, err := wb.ClickedButton(btn)
 				if err != nil {
 					return Null(), rtErrf(at, "%s", err.Error())
 				}
 				return IntOfBool(c), nil
+			case 2:
+				r, err := wb.MouseReleased(btn)
+				if err != nil {
+					return Null(), rtErrf(at, "%s", err.Error())
+				}
+				return IntOfBool(r), nil
+			default:
+				d, err := wb.MouseDown(btn)
+				if err != nil {
+					return Null(), rtErrf(at, "%s", err.Error())
+				}
+				return IntOfBool(d), nil
 			}
-			d, err := wb.MouseDown(btn)
-			if err != nil {
-				return Null(), rtErrf(at, "%s", err.Error())
-			}
-			return IntOfBool(d), nil
 		}
-		if mode {
+		switch mode {
+		case 1:
 			hit, ok := wb.KeyHit(int(code))
 			if !ok {
 				return Null(), argErr("getkey", 0, at, "不明なキーコード %d です", code)
 			}
 			return IntOfBool(hit), nil
+		case 2:
+			rel, ok := wb.KeyReleased(int(code))
+			if !ok {
+				return Null(), argErr("getkey", 0, at, "不明なキーコード %d です", code)
+			}
+			return IntOfBool(rel), nil
+		default:
+			down, ok := wb.KeyDown(int(code))
+			if !ok {
+				return Null(), argErr("getkey", 0, at, "不明なキーコード %d です", code)
+			}
+			return IntOfBool(down), nil
 		}
-		down, ok := wb.KeyDown(int(code))
-		if !ok {
-			return Null(), argErr("getkey", 0, at, "不明なキーコード %d です", code)
-		}
-		return IntOfBool(down), nil
 	})
 
 	// mouse(): ウィンドウピクセルでのカーソル位置を [x, y] で返す。
@@ -119,7 +135,8 @@ func init() {
 
 	// padbtn(id, btn [, mode]): 標準配置のボタン（0-16）。
 	// mode 省略時・0 は押されている間 1 を返し続けるレベル検出。
-	// mode 非0 は押した瞬間だけ 1 になる立上り検出で、呼び出しで消費される。
+	// 1 は押した瞬間だけ 1 になる立上り検出、2 は離した瞬間だけ 1 に
+	// なる立下り検出で、いずれも呼び出しで消費される。
 	register("padbtn", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "padbtn")
 		if err != nil {
@@ -133,25 +150,33 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		mode := false
+		mode := 0
 		if len(args) == 3 {
-			mode, err = needTruthy("padbtn", args, 2, at)
+			mode, err = needInputMode("padbtn", args, 2, at)
 			if err != nil {
 				return Null(), err
 			}
 		}
-		if mode {
+		switch mode {
+		case 1:
 			hit, err := wb.PadButtonHit(int(id), int(btn))
 			if err != nil {
 				return Null(), rtErrf(at, "%s", err.Error())
 			}
 			return IntOfBool(hit), nil
+		case 2:
+			rel, err := wb.PadButtonReleased(int(id), int(btn))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return IntOfBool(rel), nil
+		default:
+			down, err := wb.PadButton(int(id), int(btn))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return IntOfBool(down), nil
 		}
-		down, err := wb.PadButton(int(id), int(btn))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return IntOfBool(down), nil
 	})
 
 	// padaxis(id, axis): スティック軸 0-3（-1..1）。
@@ -372,4 +397,17 @@ func init() {
 		}
 		return Null(), nil
 	})
+}
+
+// needInputMode は getkey/padbtn の mode 引数を読む（0=レベル検出、
+// 1=押した瞬間、2=離した瞬間）。範囲外はエラー。
+func needInputMode(name string, args []Value, i int, at Pos) (int, error) {
+	mode, err := needInt(name, args, i, at)
+	if err != nil {
+		return 0, err
+	}
+	if mode < 0 || mode > 2 {
+		return 0, argErr(name, i, at, "mode は 0（レベル）、1（押した瞬間）、2（離した瞬間）のいずれかである必要があります。%d が指定されました", mode)
+	}
+	return int(mode), nil
 }

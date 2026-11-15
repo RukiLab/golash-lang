@@ -24,7 +24,7 @@ var guiModeBuiltins = map[string]bool{
 	"sndload":  true, "sndplay": true, "sndstop": true, "sndvol": true, "sndpitch": true,
 	"button": true, "inputbox": true, "ime": true,
 	"listbox": true, "objdel": true,
-	"chkbox": true, "combox": true, "msgbox": true,
+	"chkbox": true, "slider": true, "combox": true, "msgbox": true,
 	"objset": true, "objget": true, "objenable": true,
 }
 

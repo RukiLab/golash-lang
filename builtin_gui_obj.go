@@ -9,6 +9,7 @@ func init() {
 	// （変数参照ではない）で、型で動作が決まる。
 	// button: 文字列/数値→表示文字列の変更
 	// chkbox: 整数→チェックのオン・オフ（0=オフ、非0=オン）、文字列→表示文字列の変更
+	// slider: 整数→値の変更（範囲外は丸める）
 	// inputbox/msgbox: 文字列/数値→内容の変更
 	// listbox/combox: 整数→選択項目の変更（-1 は未選択）、配列→項目全体の変更
 	register("objset", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
@@ -57,6 +58,14 @@ func init() {
 			default:
 				return Null(), argErr("objset", 1, at, "chkbox には整数（0=false、非0=true）・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
+		case "slider":
+			if v.K != KInt {
+				return Null(), argErr("objset", 1, at, "slider には整数が必要です。%s が指定されました", typeNameOf(v))
+			}
+			if err := wb.SetSliderValue(int(id), int(v.I)); err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return Null(), nil
 		case "inputbox", "msgbox":
 			var s string
 			switch v.K {
@@ -119,7 +128,7 @@ func init() {
 
 	// objget(id)：ウィジェットの内容を返す。
 	// button: 押下イベント（呼び出しで消費、1/0）、chkbox: チェック状態（1/0）、
-	// inputbox/msgbox: 内容文字列、listbox/combox: 選択インデックス。
+	// slider: 現在値、inputbox/msgbox: 内容文字列、listbox/combox: 選択インデックス。
 	register("objget", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objget")
 		if err != nil {
@@ -146,6 +155,12 @@ func init() {
 				return Null(), rtErrf(at, "%s", err.Error())
 			}
 			return IntOfBool(p), nil
+		case "slider":
+			v, err := wb.SliderValue(int(id))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return Int(int64(v)), nil
 		case "inputbox":
 			s, err := wb.InputText(int(id))
 			if err != nil {

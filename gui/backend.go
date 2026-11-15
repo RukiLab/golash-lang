@@ -116,19 +116,23 @@ type WindowBackend struct {
 	drawSel int
 	// 入力ラッチ＋音声（G2）。マウスボタンは 0 左、1 中央、2 右で
 	// 番号付けされる（getkey 0-2 の番号付け）。
-	mouseDown  [3]bool
-	clickFlag  [3]bool
-	wheelAccum float64 // 未消費の垂直ホイールのデテント
-	// keyPrev/keyHit は getkey(code, 1) の立上り検出用（mu で保護）。
-	// pumpInput が Update ごとに立上りをラッチし、KeyHit が消費する
-	//（getkey(code, 1) と同じ消費型）。getkey(code, 0) のレベル検出は
-	// ラッチを使わず ebiten を直接読む。
+	mouseDown   [3]bool
+	clickFlag   [3]bool
+	releaseFlag [3]bool
+	wheelAccum  float64 // 未消費の垂直ホイールのデテント
+	// keyPrev/keyHit/keyRel は getkey(code, 1/2) の立上り・立下り検出用
+	// （mu で保護）。pumpInput が Update ごとに両エッジをラッチし、
+	// KeyHit/KeyReleased が消費する（getkey(code, 1/2) と同じ消費型）。
+	// getkey(code, 0) のレベル検出はラッチを使わず ebiten を直接読む。
 	keyPrev map[int]bool
 	keyHit  map[int]bool
-	// padPrev/padHit は padbtn(id, btn, 1) の立上り検出用（mu で保護）。
-	// pumpInput が Update ごとにラッチし、PadButtonHit が消費する。
+	keyRel  map[int]bool
+	// padPrev/padHit/padRel は padbtn(id, btn, 1/2) の立上り・立下り
+	// 検出用（mu で保護）。pumpInput が Update ごとにラッチし、
+	// PadButtonHit/PadButtonReleased が消費する。
 	padPrev map[padKey]bool
 	padHit  map[padKey]bool
+	padRel  map[padKey]bool
 	audio   *audioState
 	// 描画全体のアルファ 0-255（図形とブリット）。
 	alpha uint8
@@ -179,8 +183,10 @@ func New(w, h int) (*WindowBackend, error) {
 		ctrlSt:  make([]ctrlState, len(ctrlKeys)),
 		keyPrev: make(map[int]bool),
 		keyHit:  make(map[int]bool),
+		keyRel:  make(map[int]bool),
 		padPrev: make(map[padKey]bool),
 		padHit:  make(map[padKey]bool),
+		padRel:  make(map[padKey]bool),
 		// 白いウィンドウ: 既定のフェイスは白地に黒文字で、
 		// Windows 標準のウィジェットテーマに合わせている。
 		fg:       color.NRGBA{0x00, 0x00, 0x00, 0xFF},
