@@ -1,8 +1,11 @@
 name: test
 
-# push / PR でビルドと全テストを実行します。TestVersionPinnedEverywhere が
+# push / PR でビルドとテストを実行します。TestVersionPinnedEverywhere が
 # 版の整合（VERSION・golashVersion・package.json・ドキュメントの一致と
 # MAJOR.MINOR 形式）を検査するため、版の取りこぼしはここで落ちます。
+#
+# GUI の画素テストはディスプレイが必要なため、Linux では Xvfb 上で
+# 全テストを実行し、Windows / macOS ではコアテストのみ実行します。
 
 on:
   push:
@@ -27,11 +30,27 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Linux の GUI ビルド依存を導入
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxinerama-dev libxi-dev libxxf86vm-dev \
+            libasound2-dev libgtk-3-dev xvfb
+
       - name: go vet
         run: go vet ./...
 
       - name: 版を確認
         run: go run . version
 
-      - name: go test
-        run: go test ./...
+      - name: go test（Linux / GUI込み）
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a -s "-screen 0 1024x768x24" go test ./...
+
+      - name: go test（Windows/macOS / コア）
+        if: runner.os != 'Linux'
+        run: go test -skip 'TestVMZeroAllocLoop' .
