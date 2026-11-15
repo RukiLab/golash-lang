@@ -1,6 +1,7 @@
 # built command binary (build with: go build -o gsh.exe .)
 gsh
 gsh.exe
+gsh.exe.*
 
 # tools/bumpver.go builds to tools.exe if built without -o
 tools.exe

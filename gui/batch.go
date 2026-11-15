@@ -8,13 +8,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// gquad()/tri() のバッチ描画（G6）。
-// gquad() は1四角形を透視補正付きテクスチャ三角形2枚に割って描き、
+// gfxquad()/tri() のバッチ描画（G6）。
+// gfxquad() は1四角形を透視補正付きテクスチャ三角形2枚に割って描き、
 // 縮退（特異・折返し・非有限重み）時はアフィン変換付き三角形（w=1）に
 // フォールバックする。tri() は現在の色で塗りつぶし三角形1枚を描く。
 // どちらもスクリプトスレッドで内部バッファに貯め、適切なタイミング
 // （他描画・読戻し・フレーム境界・上限・src/sel/blend 切替）でまとめて
-// Draw する。これにより gquad() 連打でも Draw 呼出は数回に畳まれる。
+// Draw する。これにより gfxquad() 連打でも Draw 呼出は数回に畳まれる。
 
 // degenArea2 はこれより小さい2倍面積を空と見なし描画しない。
 // ゼロを通るアニメでもエラーにせずそのフレームは何も描かない。
@@ -54,7 +54,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 `
 
 // quadEntry はバッファ済み四角形1面。w は同次重み、alpha は
-// 追加時点の galpha（0..1）。色は白（テクスチャそのまま）。
+// 追加時点の全体アルファ（0..1）。色は白（テクスチャそのまま）。
 type quadEntry struct {
 	x, y, u, v, w [4]float64
 	alpha         float32
@@ -172,7 +172,7 @@ func (b *WindowBackend) flatWhite() *ebiten.Image {
 }
 
 // perspVert はラスタ頂点1つを詰める。射影ペイロードは custom、色合いは
-// 乗数（シェーダが clr *= color するため galpha 合成は Blit と同じ）。
+// 乗数（シェーダが clr *= color するため全体アルファ合成は Blit と同じ）。
 func perspVert(dx, dy, u, v, w float64, alpha float32) ebiten.Vertex {
 	return ebiten.Vertex{
 		DstX:   float32(dx),
@@ -189,7 +189,7 @@ func perspVert(dx, dy, u, v, w float64, alpha float32) ebiten.Vertex {
 // フォールバックしてバッファする。成功時は AppendQuad へ委ねる。
 // スクリプトスレッド用。
 func (b *WindowBackend) QuadBuffered(src int, dx, dy, su, sv [4]float64) error {
-	const name = "gquad"
+	const name = "gfxquad"
 	if !finiteFloats(dx[0], dy[0], dx[1], dy[1], dx[2], dy[2], dx[3], dy[3],
 		su[0], sv[0], su[1], sv[1], su[2], sv[2], su[3], sv[3]) {
 		return fmt.Errorf("%s：座標は有限の数値である必要があります", name)
@@ -231,7 +231,7 @@ func (b *WindowBackend) TriBuffered(x, y [3]float64, fg [4]int) error {
 // 同一 src/sel/blend が続く間は貯め、切替・上限で古い分を先に流す。
 // スクリプトスレッド用（mu 内で完結）。
 func (b *WindowBackend) AppendQuad(src int, dx, dy, su, sv, w [4]float64) error {
-	const name = "gquad"
+	const name = "gfxquad"
 	if !b.hasBuf(src) {
 		return fmt.Errorf("%s：不明なバッファ %d です", name, src)
 	}
@@ -269,7 +269,7 @@ func (b *WindowBackend) AppendTri(x, y [3]float64, fg [4]int) {
 	b.flushTextBatchLocked()
 	sel := b.sel
 	blend := b.blend
-	// fg に galpha を掛けた頂点色（FillRect の fillColor と同じ）。
+	// fg に全体アルファを掛けた頂点色（FillRect の fillColor と同じ）。
 	a := float32(fg[3]) * float32(b.alpha) / (255 * 255)
 	col := [4]float32{
 		float32(fg[0]) / 255,

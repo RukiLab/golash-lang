@@ -79,13 +79,13 @@ const (
 	OpNot                 // NOT A,B         !（整数条件を検査し 1/0 を返す）
 	OpNeg                 // NEG A,B         単項 -（型分岐内蔵、void は負数化エラー）
 	OpBitNot              // BITNOT A,B      ~（整数のみ）
-	OpRepDisp             // REPDISP A,sBx   配列ならジャンプ・整数なら継続・他はエラー
+	OpRepDisp             // REPDISP A,sBx   配列・文字列ならジャンプ・整数なら継続・他はエラー
 	OpRepIntErr           // REPITMERR       整数 repeat の as i,x 形エラー（無条件）
 	OpForIPrep            // FORIPREP A      整数ループ準備（負数検査・制御 push）
-	OpForAPrep            // FORAPREP A      配列ループ準備（スナップショット・制御 push）
+	OpForAPrep            // FORAPREP A      配列・文字列ループ準備（スナップショット・制御 push）
 	OpSaveVar             // SAVEVAR A,B,D   ループ変数の退避（A:スロット/NoRegでグローバル B:フラグ D:名前）
 	OpForILoop            // FORILOOP A,sBx  整数ループ継続判定（R[A] = 現在値）
-	OpForALoop            // FORALOOP A,B,sBx 配列ループ継続判定（R[A]=添字 R[B]=要素）
+	OpForALoop            // FORALOOP A,B,sBx 配列・文字列ループ継続判定（R[A]=添字 R[B]=要素）
 	OpPutN                // PUTN A,B        slot[A] = R[B]（検査なし・ループ変数書込用）
 	OpPutG                // PUTG A,D        global[Names[D]] = R[A]（検査なし）
 	OpPopLoop             // POPLOOP         ループ制御 pop＋束縛復元

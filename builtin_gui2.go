@@ -99,17 +99,28 @@ func init() {
 		return Int(int64(wb.MouseWheel())), nil
 	})
 
-	// padcount(): 接続中のゲームパッド数。
-	register("padcount", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "padcount")
+	// pad(): 接続中のゲームパッド名を配列で返す。要素数が接続数。
+	register("pad", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "pad")
 		if err != nil {
 			return Null(), err
 		}
-		return Int(int64(wb.PadCount())), nil
+		n := wb.PadCount()
+		elems := make([]Value, n)
+		for i := 0; i < n; i++ {
+			name, err := wb.PadName(i)
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			elems[i] = Str(name)
+		}
+		return ArrayOf(elems), nil
 	})
 
-	// padbtn(id, btn): 標準配置のボタン（0-16）。
-	register("padbtn", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// padbtn(id, btn [, mode]): 標準配置のボタン（0-16）。
+	// mode 省略時・0 は押されている間 1 を返し続けるレベル検出。
+	// mode 非0 は押した瞬間だけ 1 になる立上り検出で、呼び出しで消費される。
+	register("padbtn", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "padbtn")
 		if err != nil {
 			return Null(), err
@@ -121,6 +132,20 @@ func init() {
 		btn, err := needInt("padbtn", args, 1, at)
 		if err != nil {
 			return Null(), err
+		}
+		mode := false
+		if len(args) == 3 {
+			mode, err = needTruthy("padbtn", args, 2, at)
+			if err != nil {
+				return Null(), err
+			}
+		}
+		if mode {
+			hit, err := wb.PadButtonHit(int(id), int(btn))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return IntOfBool(hit), nil
 		}
 		down, err := wb.PadButton(int(id), int(btn))
 		if err != nil {
@@ -150,23 +175,6 @@ func init() {
 		return Float(v), nil
 	})
 
-	// padname(id): ゲームパッド名。
-	register("padname", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "padname")
-		if err != nil {
-			return Null(), err
-		}
-		id, err := needInt("padname", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		name, err := wb.PadName(int(id))
-		if err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Str(name), nil
-	})
-
 	// touch(): 接触中のタッチ位置を [[x, y], ...] で返す（ウィンドウピクセル）。
 	register("touch", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "touch")
@@ -185,26 +193,21 @@ func init() {
 		return ArrayOf(elems), nil
 	})
 
-	// dropfiles(): 前回呼び出し以降にウィンドウへドロップされた名前
-	// （消費される。なければ空）。
-	register("dropfiles", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "dropfiles")
-		if err != nil {
-			return Null(), err
-		}
-		names := wb.DropFiles()
-		elems := make([]Value, len(names))
-		for i, s := range names {
-			elems[i] = Str(s)
-		}
-		return ArrayOf(elems), nil
-	})
-
+	// dropload(): 前回呼び出し以降にウィンドウへドロップされた名前
+	// （消費される。なければ空）を返す。
 	// dropload(name): ドロップされたファイルをバッファに展開し、その id を返す。
-	register("dropload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+	register("dropload", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "dropload")
 		if err != nil {
 			return Null(), err
+		}
+		if len(args) == 0 {
+			names := wb.DropNames()
+			elems := make([]Value, len(names))
+			for i, s := range names {
+				elems[i] = Str(s)
+			}
+			return ArrayOf(elems), nil
 		}
 		p, err := needString("dropload", args, 0, at)
 		if err != nil {
@@ -267,104 +270,104 @@ func init() {
 		return Null(), nil
 	})
 
-	// mmload(path): wav/mp3/ogg をデコードし、サウンド id を返す。
-	register("mmload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mmload")
+	// sndload(path): wav/mp3/ogg をデコードし、サウンド id を返す。
+	register("sndload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "sndload")
 		if err != nil {
 			return Null(), err
 		}
-		p, err := needString("mmload", args, 0, at)
+		p, err := needString("sndload", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		id, err := wb.MmLoad(in.resolvePath(p))
+		id, err := wb.SndLoad(in.resolvePath(p))
 		if err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Int(int64(id)), nil
 	})
 
-	// mmplay(id [, loop]): サウンドを再生する。現在の再生があれば
+	// sndplay(id [, loop]): サウンドを再生する。現在の再生があれば
 	// 最初から再開する。loop が非0の場合はループ再生する。
-	register("mmplay", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mmplay")
+	register("sndplay", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "sndplay")
 		if err != nil {
 			return Null(), err
 		}
-		id, err := needInt("mmplay", args, 0, at)
+		id, err := needInt("sndplay", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
 		loop := false
 		if len(args) == 2 {
 			var err error
-			loop, err = needTruthy("mmplay", args, 1, at)
+			loop, err = needTruthy("sndplay", args, 1, at)
 			if err != nil {
 				return Null(), err
 			}
 		}
-		if err := wb.MmPlay(int(id), loop); err != nil {
+		if err := wb.SndPlay(int(id), loop); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil
 	})
 
-	// mmstop([id]): 1つのサウンドを停止する。引数なしならすべて。
+	// sndstop([id]): 1つのサウンドを停止する。引数なしならすべて。
 	// 未知の id は無音で何もしない。
-	register("mmstop", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mmstop")
+	register("sndstop", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "sndstop")
 		if err != nil {
 			return Null(), err
 		}
 		if len(args) == 0 {
-			wb.MmStop(nil)
+			wb.SndStop(nil)
 			return Null(), nil
 		}
-		id, err := needInt("mmstop", args, 0, at)
+		id, err := needInt("sndstop", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
 		i := int(id)
-		wb.MmStop(&i)
+		wb.SndStop(&i)
 		return Null(), nil
 	})
 
-	// mmvol(id, vol): サウンドの音量をパーセントで（0..100、既定 100）。
-	register("mmvol", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mmvol")
+	// sndvol(id, vol): サウンドの音量をパーセントで（0..100、既定 100）。
+	register("sndvol", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "sndvol")
 		if err != nil {
 			return Null(), err
 		}
-		id, err := needInt("mmvol", args, 0, at)
+		id, err := needInt("sndvol", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		vol, err := needInt("mmvol", args, 1, at)
+		vol, err := needInt("sndvol", args, 1, at)
 		if err != nil {
 			return Null(), err
 		}
-		if err := wb.MmVolume(int(id), int(vol)); err != nil {
+		if err := wb.SndVolume(int(id), int(vol)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil
 	})
 
-	// mmpitch(id, pitch): サウンドのピッチ（再生速度）をパーセントで（25..400、既定 100 = 原速）。
+	// sndpitch(id, pitch): サウンドのピッチ（再生速度）をパーセントで（25..400、既定 100 = 原速）。
 	// 50 で1オクターブ低く半分の速さ、200 で1オクターブ高く倍速になる。
-	register("mmpitch", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mmpitch")
+	register("sndpitch", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "sndpitch")
 		if err != nil {
 			return Null(), err
 		}
-		id, err := needInt("mmpitch", args, 0, at)
+		id, err := needInt("sndpitch", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		pitch, err := needInt("mmpitch", args, 1, at)
+		pitch, err := needInt("sndpitch", args, 1, at)
 		if err != nil {
 			return Null(), err
 		}
-		if err := wb.MmPitch(int(id), int(pitch)); err != nil {
+		if err := wb.SndPitch(int(id), int(pitch)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
 		return Null(), nil

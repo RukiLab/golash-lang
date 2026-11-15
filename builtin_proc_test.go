@@ -20,7 +20,7 @@ func TestProcSession(t *testing.T) {
 	src := fmt.Sprintf(`
 p = procopen(%s, %s, %s)
 if p[0] < 0
-    mes("ERR " + p[1])
+    msg("ERR " + p[1])
 else
     out = ""
     i = 0
@@ -35,8 +35,8 @@ else
     end
     out = out + procread(p[0])
     code = procclose(p[0])
-    mes("OUT=" + strtrim(out))
-    mes("CODE=" + str(code))
+    msg("OUT=" + strtrim(out))
+    msg("CODE=" + str(code))
 end
 `, strconv.Quote(cmd), strconv.Quote(arg1), strconv.Quote(arg2))
 	out, errout, _, err := runIO(t, src, "")
@@ -64,10 +64,10 @@ func TestProcStdin(t *testing.T) {
 	src := fmt.Sprintf(`
 p = procopen(%s, %s, %s)
 if p[0] < 0
-    mes("ERR " + p[1])
+    msg("ERR " + p[1])
 else
-    mes(procwrite(p[0], "hello" + chr(10)))
-    mes(proceof(p[0]))
+    msg(procwrite(p[0], "hello" + chr(10)))
+    msg(proceof(p[0]))
     out = ""
     i = 0
     while i < 300
@@ -80,8 +80,8 @@ else
         i = i + 1
     end
     out = out + procread(p[0])
-    mes("OUT=" + strtrim(out))
-    mes("CODE=" + str(procclose(p[0])))
+    msg("OUT=" + strtrim(out))
+    msg("CODE=" + str(procclose(p[0])))
 end
 `, strconv.Quote(cmd), strconv.Quote(arg1), strconv.Quote(arg2))
 	out, _, _, err := runIO(t, src, "")
@@ -109,7 +109,7 @@ func TestProcExitCode(t *testing.T) {
 	src := fmt.Sprintf(`
 p = procopen(%s, %s, %s)
 if p[0] < 0
-    mes("ERR")
+    msg("ERR")
 else
     i = 0
     while i < 300
@@ -120,7 +120,7 @@ else
         sleep(10)
         i = i + 1
     end
-    mes("CODE=" + str(procclose(p[0])))
+    msg("CODE=" + str(procclose(p[0])))
 end
 `, strconv.Quote(cmd), strconv.Quote(arg1), strconv.Quote(arg2))
 	out, _, _, err := runIO(t, src, "")
@@ -135,8 +135,8 @@ end
 func TestProcOpenError(t *testing.T) {
 	out, _, _, err := runIO(t, `
 p = procopen("__golash_no_such_command_12345__")
-mes(p[0] < 0)
-mes(p[1] != "")
+msg(p[0] < 0)
+msg(p[1] != "")
 `, "")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -149,11 +149,11 @@ mes(p[1] != "")
 func TestProcPollUnknown(t *testing.T) {
 	out, _, _, err := runIO(t, `
 st = procpoll(999999)
-mes(st[0])
-mes(st[1])
-mes(procread(999999) == "")
-mes(procwrite(999999, "x") == false)
-mes(procclose(999999))
+msg(st[0])
+msg(st[1])
+msg(procread(999999) == "")
+msg(procwrite(999999, "x") == false)
+msg(procclose(999999))
 `, "")
 	if err != nil {
 		t.Fatalf("run: %v", err)

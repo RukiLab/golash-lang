@@ -22,4 +22,3 @@ func dllOpen(path string) (*dllHandle, error) {
 func dllSym(h *dllHandle, name string) (uintptr, error) {
 	return purego.Dlsym(h.handle, name)
 }
-

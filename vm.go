@@ -308,7 +308,6 @@ func (m *vmachine) unwindAll() {
 func (m *vmachine) runMain(prog *VMProgram) (err error) {
 	m.addProg(prog)
 	m.prog = prog
-	m.in.vm = m
 	baseFrames := len(m.frames)
 	baseDepth := m.depth
 	defer func() {
@@ -351,7 +350,6 @@ func (m *vmachine) dropFrames(baseFrames int) {
 // evalOne は単一式を評価する（REPL の bare-expression echo 用）。
 // 共有の globals/funcs を使い、結果レジスタの値を返す。
 func (m *vmachine) evalOne(x Expr, at Pos) (out Value, err error) {
-	m.in.vm = m
 	g := &vmcGlobal{
 		constMap: map[string]int{},
 		nameMap:  map[string]int{},
@@ -527,33 +525,52 @@ func (m *vmachine) loop(pc int) error {
 			}
 		case OpCkInt:
 			if regs[a].K != KInt {
-				return rtErrf(pos, "配列のインデックスは整数である必要があります。%s が指定されました", typeNameOf(regs[a]))
+				return rtErrf(pos, "インデックスは整数である必要があります。%s が指定されました", typeNameOf(regs[a]))
 			}
 		case OpCkNeg:
 			if regs[a].I < 0 {
-				return rtErrf(pos, "配列のインデックスは 0 以上である必要があります。%d が指定されました", regs[a].I)
+				return rtErrf(pos, "インデックスは 0 以上である必要があります。%d が指定されました", regs[a].I)
 			}
 		case OpCkArr:
+			if regs[a].K == KString {
+				return rtErrf(pos, "文字列はインデックスで変更できません（文字列は不変です）")
+			}
 			if regs[a].K != KArray {
 				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列に対応しています）", typeNameOf(regs[a]))
 			}
 		case OpCkBnd:
 			idx := regs[a].I
-			arr := regs[b].Arr
-			if idx < 0 || int(idx) >= len(arr.Elems) {
-				return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idx, len(arr.Elems))
+			var n int
+			switch regs[b].K {
+			case KArray:
+				n = len(regs[b].Arr.Elems)
+			case KString:
+				n = len([]rune(regs[b].S))
+			default:
+				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列または文字列に対応しています）", typeNameOf(regs[b]))
+			}
+			if idx < 0 || int(idx) >= n {
+				return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idx, n)
 			}
 		case OpGetI:
 			base := regs[b]
 			idxv := regs[c]
 			if idxv.K != KInt {
-				return rtErrf(pos, "配列のインデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
+				return rtErrf(pos, "インデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
 			}
-			if base.K != KArray {
-				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列に対応しています）", typeNameOf(base))
+			if base.K != KArray && base.K != KString {
+				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列または文字列に対応しています）", typeNameOf(base))
 			}
 			if idxv.I < 0 {
-				return rtErrf(pos, "配列のインデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
+				return rtErrf(pos, "インデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
+			}
+			if base.K == KString {
+				r := []rune(base.S)
+				if int(idxv.I) >= len(r) {
+					return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idxv.I, len(r))
+				}
+				regs[a] = Str(string(r[int(idxv.I)]))
+				break
 			}
 			if int(idxv.I) >= len(base.Arr.Elems) {
 				return rtErrf(pos, "インデックス %d は範囲外です（長さ %d）", idxv.I, len(base.Arr.Elems))
@@ -563,13 +580,16 @@ func (m *vmachine) loop(pc int) error {
 			base := regs[a]
 			idxv := regs[b]
 			if idxv.K != KInt {
-				return rtErrf(pos, "配列のインデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
+				return rtErrf(pos, "インデックスは整数である必要があります。%s が指定されました", typeNameOf(idxv))
+			}
+			if base.K == KString {
+				return rtErrf(pos, "文字列はインデックスで変更できません（文字列は不変です）")
 			}
 			if base.K != KArray {
 				return rtErrf(pos, "%s にインデックスでアクセスできません（[...] は配列に対応しています）", typeNameOf(base))
 			}
 			if idxv.I < 0 {
-				return rtErrf(pos, "配列のインデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
+				return rtErrf(pos, "インデックスは 0 以上である必要があります。%d が指定されました", idxv.I)
 			}
 			if err := setIndex(base.Arr, int(idxv.I), regs[c], pos); err != nil {
 				return err
@@ -792,18 +812,18 @@ func (m *vmachine) loop(pc int) error {
 		case OpRepDisp:
 			v := regs[a]
 			switch v.K {
-			case KArray:
+			case KArray, KString:
 				next = pc + 1 + int(int32(d))
 			case KInt:
 			default:
-				return rtErrf(pos, "repeat は整数または配列が必要です。%s が指定されました", typeNameOf(v))
+				return rtErrf(pos, "repeat は整数・配列・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
 		case OpRepIntErr:
-			return rtErrf(pos, "整数の repeat では変数は 1 つまでです（as i, item は配列専用です）")
+			return rtErrf(pos, "整数の repeat では変数は 1 つまでです（as i, item は配列・文字列用です）")
 		case OpForIPrep:
 			v := regs[a]
 			if v.K != KInt {
-				return rtErrf(pos, "repeat は整数または配列が必要です。%s が指定されました", typeNameOf(v))
+				return rtErrf(pos, "repeat は整数・配列・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
 			if v.I < 0 {
 				return rtErrf(pos, "repeat の回数は 0 以上である必要があります。%d が指定されました", v.I)
@@ -816,10 +836,19 @@ func (m *vmachine) loop(pc int) error {
 			}
 		case OpForAPrep:
 			v := regs[a]
-			if v.K != KArray {
-				return rtErrf(pos, "repeat は整数または配列が必要です。%s が指定されました", typeNameOf(v))
+			var snap []Value
+			switch v.K {
+			case KArray:
+				snap = append([]Value(nil), v.Arr.Elems...)
+			case KString:
+				rs := []rune(v.S)
+				snap = make([]Value, len(rs))
+				for i, r := range rs {
+					snap[i] = Str(string(r))
+				}
+			default:
+				return rtErrf(pos, "repeat は整数・配列・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
-			snap := append([]Value(nil), v.Arr.Elems...)
 			m.pushLoop(fr, vmLoop{isArray: true, idx: -1, snap: snap})
 		case OpSaveVar:
 			flags := b
@@ -1094,10 +1123,7 @@ func (m *vmachine) loop(pc int) error {
 		case OpCallB:
 			argc := int(c)
 			copy(m.argsBuf, regs[int(b):int(b)+argc])
-			prevFrame, prevProto := m.in.curFrame, m.in.curProto
-			m.in.curFrame, m.in.curProto = fr, proto
 			v, err := callBuiltinByID(int(d), m.in, m.argsBuf[:argc], pos)
-			m.in.curFrame, m.in.curProto = prevFrame, prevProto
 			if err != nil {
 				return err
 			}

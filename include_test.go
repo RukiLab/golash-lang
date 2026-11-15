@@ -46,7 +46,7 @@ func runFileSrc(t *testing.T, src string) (string, error) {
 func TestIncludeBasic(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "lib.gsh"), "def double(x)\nreturn x * 2\nend\nanswer = 20\n")
-	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"lib.gsh\"\nmes(double(21))\nmes(answer + 1)\n")
+	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"lib.gsh\"\nmsg(double(21))\nmsg(answer + 1)\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -59,7 +59,7 @@ func TestIncludeBasic(t *testing.T) {
 func TestIncludeNestedDir(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "sub", "util.gsh"), "def inc(x)\nreturn x + 1\nend\n")
-	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"sub/util.gsh\"\nmes(inc(41))\n")
+	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"sub/util.gsh\"\nmsg(inc(41))\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -73,7 +73,7 @@ func TestIncludeOnce(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "base.gsh"), "def f()\nreturn 7\nend\n")
 	writeFile(t, filepath.Join(dir, "mid.gsh"), "include \"base.gsh\"\n")
-	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"base.gsh\"\ninclude \"mid.gsh\"\nmes(f())\n")
+	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"base.gsh\"\ninclude \"mid.gsh\"\nmsg(f())\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -122,7 +122,7 @@ func TestIncludeMalformed(t *testing.T) {
 func TestIncludeErrorPosition(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "lib.gsh"), "def boom()\nreturn nosuchvar\nend\n")
-	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"lib.gsh\"\nmes(boom())\n")
+	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"lib.gsh\"\nmsg(boom())\n")
 	_, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err == nil || !strings.Contains(err.Error(), "lib.gsh:2:8") {
 		t.Fatalf("err = %v", err)
@@ -139,7 +139,7 @@ func TestIncludeErrorPosition(t *testing.T) {
 func TestIncludeArrayAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "types.gsh"), "point = [3, 4]\n")
-	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"types.gsh\"\nmes(point[0])\n")
+	writeFile(t, filepath.Join(dir, "main.gsh"), "include \"types.gsh\"\nmsg(point[0])\n")
 	got, err := runFile(t, filepath.Join(dir, "main.gsh"))
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -162,7 +162,7 @@ func TestModeResolution(t *testing.T) {
 		return mode
 	}
 	// GUI 邨・ｾｼ縺ｿ縺後↑縺代ｌ縺ｰ CUI縲・
-	if m := modeOf("a.gsh", "mes(\"hi\")\n"); m != "cli" {
+	if m := modeOf("a.gsh", "msg(\"hi\")\n"); m != "cli" {
 		t.Fatalf("auto plain = %q", m)
 	}
 	// 蛻ｰ驕泌庄閭ｽ縺ｪ GUI 邨・ｾｼ縺ｿ縺後≠繧後・ GUI縲・
@@ -170,7 +170,7 @@ func TestModeResolution(t *testing.T) {
 		t.Fatalf("auto gui = %q", m)
 	}
 	// 蜻ｼ縺ｰ繧後↑縺・未謨ｰ縺ｮ GUI 蜻ｼ縺ｳ蜃ｺ縺励・辟｡隕悶☆繧具ｼ・3d 縺ｮ繝倥Ν繝大ｯｾ遲厄ｼ峨・
-	if m := modeOf("c.gsh", "def helper()\nscreen(320, 240)\nend\nmes(\"hi\")\n"); m != "cli" {
+	if m := modeOf("c.gsh", "def helper()\nscreen(320, 240)\nend\nmsg(\"hi\")\n"); m != "cli" {
 		t.Fatalf("unreachable gui = %q", m)
 	}
 	if m := modeOf("d.gsh", "def helper()\nscreen(320, 240)\nend\nhelper()\n"); m != "gui" {
@@ -180,7 +180,7 @@ func TestModeResolution(t *testing.T) {
 		t.Fatalf("nested gui = %q", m)
 	}
 	// mode 螳｣險縺ｯ蟒・ｭ｢縺輔ｌ縺ｦ縺・ｋ縲・
-	writeFile(t, filepath.Join(dir, "m.gsh"), "mode cli\nmes(1)\n")
+	writeFile(t, filepath.Join(dir, "m.gsh"), "mode cli\nmsg(1)\n")
 	if _, _, err := ParseFileMode(filepath.Join(dir, "m.gsh")); err == nil ||
 		!strings.Contains(err.Error(), "mode は廃止されました") {
 		t.Fatalf("mode declaration err = %v", err)

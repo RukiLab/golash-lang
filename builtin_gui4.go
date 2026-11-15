@@ -1,4 +1,4 @@
-// GUI 組込（G4 描画拡張: pngsave, font）。
+// GUI 組込（G4 描画拡張: font）。
 // 常に登録される。GUI 呼出にはウィンドウ（GUI バックエンド）が必要で、
 // なければエラーを報告する。
 package main
@@ -6,56 +6,18 @@ package main
 import "os"
 
 func init() {
-	// pngsave(path [, id]): 描画バッファを PNG として保存する（id は
-	// 既定で現在のターゲット）。
-	register("pngsave", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "pngsave")
-		if err != nil {
-			return Null(), err
-		}
-		p, err := needString("pngsave", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		p = in.resolvePath(p)
-		id := int64(wb.CurrentSel())
-		if len(args) == 2 {
-			id, err = needInt("pngsave", args, 1, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		if err := wb.SavePNG(p, int(id)); err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Null(), nil
-	})
-
-	// galpha(a): 描画全体のアルファ 0-255（図形とブリット。文字は
-	// 不透明なまま）。galpha(255) で完全な不透明度に戻る。
-	register("galpha", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "galpha")
-		if err != nil {
-			return Null(), err
-		}
-		a, err := needInt("galpha", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		if err := wb.SetAlpha(int(a)); err != nil {
-			return Null(), rtErrf(at, "%s", err.Error())
-		}
-		return Null(), nil
-	})
-
+	// font(): 現在の [spec, size] を返す。
 	// font(size) / font(spec) / font(spec, size): 文字フェイスの
 	// サイズをピクセルで（セルグリッドもこれに応じてスケールする）。
 	// spec はフォントファイルのパスまたはシステムフォント名
 	// （例: "msgothic.ttc", "YuGothR.ttc"）。
-	register("font", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	register("font", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "font")
 		if err != nil {
 			return Null(), err
+		}
+		if len(args) == 0 {
+			return ArrayOf([]Value{Str(wb.FontFile()), Int(int64(wb.FontSize()))}), nil
 		}
 		if len(args) == 1 && args[0].K == KInt {
 			if err := wb.SetFontSize(int(args[0].I)); err != nil {

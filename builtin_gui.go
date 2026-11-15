@@ -30,11 +30,10 @@ func guiResizeScreen(wb *gui.WindowBackend, w, h int64, at Pos) (Value, error) {
 }
 
 func init() {
-	// screen(...) はウィンドウと描画バッファを引数の個数で切り替える:
-	//   screen()        → [OSウィンドウ幅, 高さ]
-	//   screen(id)      → バッファ id の [幅, 高さ]（0 はメインキャンバス）
-	//   screen(w, h)    → ウィンドウ/メインキャンバスを w x h にリサイズ
-	//   screen(id,w,h)  → バッファ id を作成・置換（0 はメインのリサイズ）
+	// screen(): OS ウィンドウの [幅, 高さ]。
+	// screen(id): 描画バッファ id の [幅, 高さ]（0 はメインキャンバス）。
+	// screen(w, h): ウィンドウ/メインキャンバスを w x h にリサイズ。
+	// screen(id, w, h): バッファ id を作成・置換（0 はメインのリサイズ）。
 	register("screen", 0, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "screen")
 		if err != nil {
@@ -87,13 +86,14 @@ func init() {
 		}
 	})
 
-	// gsel(id): 描画バッファを切り替える（0 = メイン、表示対象）。
-	register("gsel", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "gsel")
+	// gfxsel(id) は描画バッファを選択する（0 はメイン、表示対象）。
+	// サイズの取得・変更は screen で行う。
+	register("gfxsel", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxsel")
 		if err != nil {
 			return Null(), err
 		}
-		id, err := needInt("gsel", args, 0, at)
+		id, err := needInt("gfxsel", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
@@ -198,9 +198,9 @@ func init() {
 		return Null(), nil
 	})
 
-	// ellipse(x, y, w, h [, fill]): (x, y) を中心に全幅 w・全高 h の
-	// 楕円を現在の色で描く（w == h で真円）。中心基準のため負の w/h は
-	// 絶対値と同じ形になる。w/h が 0 は何も描画しない。
+	// ellipse(x, y, w, h [, fill]): (x, y) を左上とする w x h の
+	// 楕円を現在の色で描く（w == h で真円）。負の w/h は左上へ
+	// 拡張する向きに正規化する（rect と同じ）。w/h が 0 は何も描画しない。
 	// fill が非0なら塗り潰し（0=false、非0=true）。
 	register("ellipse", 4, 5, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "ellipse")
@@ -223,7 +223,7 @@ func init() {
 		if err != nil {
 			return Null(), err
 		}
-		// 負の w/h は中心基準のため絶対値と同じ形になる（バックエンドで吸収）。
+		// 負の w/h は左上へ拡張する向きに正規化する（バックエンドで吸収）。
 		// 0 は何も描画しない（エラーにしない）。
 		fill := false
 		if len(args) == 5 {
@@ -236,30 +236,30 @@ func init() {
 		return Null(), nil
 	})
 
-	// gcopy(src, sx, sy, w, h, dx, dy [, dw, dh]): バッファの
+	// gfxcopy(src, sx, sy, w, h, dx, dy [, dw, dh]): バッファの
 	// 領域を (dx, dy) に転送する。引数7個は等倍コピー。dw, dh は
 	// コピー先サイズ。コピー元は (sx, sy) を角とした |w| x |h|（負は
 	// 逆向きに正規化）、コピー先は (dx, dy) を角とした |dw| x |dh|
 	//（等倍時は |w| x |h|。負は逆向きに正規化した上で反転描画）。
 	// w/h/dw/dh が 0 はエラー。
-	register("gcopy", 7, 9, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "gcopy")
+	register("gfxcopy", 7, 9, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxcopy")
 		if err != nil {
 			return Null(), err
 		}
 		if len(args) == 8 {
-			return Null(), rtErrf(at, "gcopy は引数を 7 個または 9 個必要としますが、%d 個が渡されました", len(args))
+			return Null(), rtErrf(at, "gfxcopy は引数を 7 個または 9 個必要としますが、%d 個が渡されました", len(args))
 		}
 		nums := make([]int, 7)
 		for i := range nums {
-			v, err := needInt("gcopy", args, i, at)
+			v, err := needInt("gfxcopy", args, i, at)
 			if err != nil {
 				return Null(), err
 			}
 			nums[i] = int(v)
 		}
 		if nums[3] == 0 || nums[4] == 0 {
-			return Null(), rtErrf(at, "gcopy のサイズは 0 以外である必要があります。%d x %d が指定されました", nums[3], nums[4])
+			return Null(), rtErrf(at, "gfxcopy のサイズは 0 以外である必要があります。%d x %d が指定されました", nums[3], nums[4])
 		}
 		dx, dy := nums[5], nums[6]
 		if len(args) == 7 {
@@ -268,11 +268,11 @@ func init() {
 			}
 			return Null(), nil
 		}
-		dw, err := needInt("gcopy", args, 7, at)
+		dw, err := needInt("gfxcopy", args, 7, at)
 		if err != nil {
 			return Null(), err
 		}
-		dh, err := needInt("gcopy", args, 8, at)
+		dh, err := needInt("gfxcopy", args, 8, at)
 		if err != nil {
 			return Null(), err
 		}
@@ -282,37 +282,71 @@ func init() {
 		return Null(), nil
 	})
 
-	// gmode(mode): 0 通常描画、1 加算合成、2 乗算合成。
-	register("gmode", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "gmode")
+	// gfxmode(): 現在の [mode, alpha] を返す。
+	// gfxmode(mode [, alpha]): 合成モードと描画全体のアルファを設定する。
+	// mode は 0 通常描画、1 加算合成、2 乗算合成。alpha は 0-255 で、
+	// 省略時は現在の値を維持する（図形とブリットに適用。文字は不透明なまま）。
+	register("gfxmode", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxmode")
 		if err != nil {
 			return Null(), err
 		}
-		m, err := needInt("gmode", args, 0, at)
+		if len(args) == 0 {
+			m, a := wb.Mode()
+			return ArrayOf([]Value{Int(int64(m)), Int(int64(a))}), nil
+		}
+		m, err := needInt("gfxmode", args, 0, at)
 		if err != nil {
 			return Null(), err
+		}
+		hasAlpha := len(args) == 2
+		var a int64
+		if hasAlpha {
+			a, err = needInt("gfxmode", args, 1, at)
+			if err != nil {
+				return Null(), err
+			}
+			if a < 0 || a > 255 {
+				return Null(), argErr("gfxmode", 1, at, "不透明度は 0 から 255 の範囲で指定してください。%d が指定されました", a)
+			}
 		}
 		if err := wb.SetBlend(int(m)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
+		if hasAlpha {
+			if err := wb.SetAlpha(int(a)); err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+		}
 		return Null(), nil
 	})
 
-	// picload(path): 画像を新しいバッファに読み込み、その id を返す。
-	register("picload", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "picload")
+	// gfxfile(path): 画像を読み込み、画像バッファ id を返す。
+	// gfxfile(path, id): バッファ id を PNG として保存する。
+	register("gfxfile", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "gfxfile")
 		if err != nil {
 			return Null(), err
 		}
-		p, err := needString("picload", args, 0, at)
+		p, err := needString("gfxfile", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		id, err := wb.PicLoad(in.resolvePath(p))
+		if len(args) == 1 {
+			id, err := wb.PicLoad(in.resolvePath(p))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return Int(int64(id)), nil
+		}
+		id, err := needInt("gfxfile", args, 1, at)
 		if err != nil {
+			return Null(), err
+		}
+		if err := wb.SavePNG(in.resolvePath(p), int(id)); err != nil {
 			return Null(), rtErrf(at, "%s", err.Error())
 		}
-		return Int(int64(id)), nil
+		return Null(), nil
 	})
 
 }

@@ -604,7 +604,7 @@ def draw_block(c, r)
     end
     local px = c * BLOCK_SIZE
     local py = (r - BUFFER_ROWS) * BLOCK_SIZE
-    gcopy(block_img, 0, 0, BLOCK_SIZE, BLOCK_SIZE, px, py)
+    gfxcopy(block_img, 0, 0, BLOCK_SIZE, BLOCK_SIZE, px, py)
 end
 
 def draw_field()
@@ -641,38 +641,38 @@ def draw()
         draw_piece()
     end
     // 常時画面最上部にステータスを小さく表示
-    color()
+    color(0, 0, 0)
     pos(4, 2)
-    mes("Lv:" + level + " Sc:" + score)
+    msg("Lv:" + level + " Sc:" + score)
     // ポーズ表示
     if game_state == STATE_PAUSE
-        color()
+        color(0, 0, 0)
         pos(36, 120)
-        mes("== PAUSED ==")
+        msg("== PAUSED ==")
     end
     // ゲームオーバー表示
     if game_state == STATE_GAMEOVER
         color(255, 60, 60)
         pos(38, 80)
-        mes("GAME OVER")
-        color()
+        msg("GAME OVER")
+        color(0, 0, 0)
         pos(32, 110)
-        mes("Level: " + level)
+        msg("Level: " + level)
         pos(32, 130)
-        mes("Score: " + score)
+        msg("Score: " + score)
         pos(32, 150)
-        mes("Lines: " + lines_cleared)
+        msg("Lines: " + lines_cleared)
         pos(32, 190)
-        mes("[R] : Retry")
+        msg("[R] : Retry")
         pos(32, 210)
-        mes("[Q] : Quit")
+        msg("[Q] : Quit")
     end
 end
 
 // 画面サイズは拡張せず、元の 10×20 マス（160×320）を維持
 screen(BLOCK_SIZE * COLS, BLOCK_SIZE * VISIBLE_ROWS)
 title("Falling")
-block_img = picload("assets/block.png")
+block_img = gfxfile("assets/block.png")
 init_game()
 while is_running
     handle_input()

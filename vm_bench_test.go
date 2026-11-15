@@ -24,7 +24,7 @@ func mustParseB(b *testing.B, src string) *Program {
 
 const benchLoopSrc = "i = 0\nwhile i < 1000000\ni = i + 1\nend\n"
 
-const benchFibSrc = "def fib(n)\nif n < 2\nreturn n\nend\nreturn fib(n - 1) + fib(n - 2)\nend\nmes(fib(24))\n"
+const benchFibSrc = "def fib(n)\nif n < 2\nreturn n\nend\nreturn fib(n - 1) + fib(n - 2)\nend\nmsg(fib(24))\n"
 
 // vmAllocsPerRun は VM 1 実行あたりの平均割当て数を返す（機械は毎回新規）。
 func vmAllocsPerRun(b *testing.B, src string, runs int) float64 {
@@ -79,7 +79,7 @@ func vmAllocsPerRunT(t *testing.T, src string) float64 {
 // TestVMRepIncClosedForm は単一加算ループの閉形最適化を検証する。
 // 1000万回の反復が一括適用で完結すること（値の正確さ＋余裕ある時間内）。
 func TestVMRepIncClosedForm(t *testing.T) {
-	src := "i = 0\nrepeat 10000000\ni += 1\nend\nmes(i)\n"
+	src := "i = 0\nrepeat 10000000\ni += 1\nend\nmsg(i)\n"
 	prog, err := Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)

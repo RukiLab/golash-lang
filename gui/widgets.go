@@ -29,13 +29,6 @@ const (
 	wArea
 )
 
-// ButtonImage は button の1状態分の画像指定。Buf は picload 等の
-// バッファ id (0 は空きスロット)、SX/SY は切出し左上。切出しサイズは
-// ボタンの w/h (原寸コピー、拡縮しない)。
-type ButtonImage struct {
-	Buf, SX, SY int
-}
-
 // widgetEntry は自前描画ウィジェットの状態。mu で保護される。
 // ebitenui の子は持たない。配置は Add* で同期的に更新され、
 // ゲームスレッドはスナップショットして描く。
@@ -54,9 +47,6 @@ type widgetEntry struct {
 	// label は描画用の短縮済み、rawLabel は呼出時の原文。
 	label    string
 	rawLabel string
-	// gimgs は button の画像指定 (最大4: 通常/ホバー/押下/無効)。
-	// 各要素は (buf, sx, sy) で、ボタンサイズ w x h で切り出す。
-	gimgs []ButtonImage
 	// chkbox。
 	checked bool
 	// list/combo。items は描画用の短縮済み、rawItems は原文。
@@ -87,16 +77,16 @@ type widgetEntry struct {
 // ---------- テーマ (Windows 標準: 白、灰色の枠、黒文字) ----------
 
 var (
-	themeWhite      = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
-	themeFrame      = color.NRGBA{0x80, 0x80, 0x80, 0xFF}
-	themeInk        = color.NRGBA{0x00, 0x00, 0x00, 0xFF}
-	themeGrey       = color.NRGBA{0x77, 0x77, 0x77, 0xFF}
-	themeHover      = color.NRGBA{0xE5, 0xF3, 0xFF, 0xFF}
-	themeFocusBg    = color.NRGBA{224, 238, 249, 0xFF}
-	themeFocusFrame = color.NRGBA{38, 140, 218, 0xFF}
-	themePressBg    = color.NRGBA{204, 228, 247, 0xFF}
-	themePressFrame = color.NRGBA{34, 108, 169, 0xFF}
-	themeFaceDis    = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}
+	themeWhite             = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+	themeFrame             = color.NRGBA{0x80, 0x80, 0x80, 0xFF}
+	themeInk               = color.NRGBA{0x00, 0x00, 0x00, 0xFF}
+	themeGrey              = color.NRGBA{0x77, 0x77, 0x77, 0xFF}
+	themeHover             = color.NRGBA{0xE5, 0xF3, 0xFF, 0xFF}
+	themeFocusBg           = color.NRGBA{224, 238, 249, 0xFF}
+	themeFocusFrame        = color.NRGBA{38, 140, 218, 0xFF}
+	themePressBg           = color.NRGBA{204, 228, 247, 0xFF}
+	themePressFrame        = color.NRGBA{34, 108, 169, 0xFF}
+	themeFaceDis           = color.NRGBA{0xF0, 0xF0, 0xF0, 0xFF}
 	themeScrollThumb       = color.NRGBA{0xC1, 0xC1, 0xC1, 0xFF}
 	themeScrollThumbHover  = color.NRGBA{0xA6, 0xA6, 0xA6, 0xFF}
 	themeScrollThumbPress  = color.NRGBA{0x78, 0x78, 0x78, 0xFF}
@@ -185,7 +175,7 @@ func (b *WindowBackend) advanceWidgetCursorLocked(y, h int) {
 	b.lineStartX = 0
 }
 
-// areaWrapLocked は mesbox 本文を折り返す。
+// areaWrapLocked は msgbox 本文を折り返す。
 // あふれたときだけバー幅を差し引き、それ以外は枠いっぱいを使う。
 func (b *WindowBackend) areaWrapLocked(text string, gw, gh int) []string {
 	rh := b.rowHLocked()
@@ -240,44 +230,22 @@ func (b *WindowBackend) wrapLinesLocked(s string, maxW int) []string {
 
 // AddButton はボタンを作成 (または置換) する。同期的に状態だけを更新し、
 // ゲームスレッドへの往復はしないため配置は軽い。
-// imgs は最大4つ (通常/ホバー/押下/無効) の (buf, sx, sy)。切出しサイズは
-// ボタンの w/h で原寸コピーする (拡縮しない)。buf==0 は空きスロットで
-// sx==sy==0 が必要。省略されたホバー・押下は通常画像、省略された無効は
-// 通常画像の減光コピーになる。
-func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...ButtonImage) error {
+func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("button のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
-	}
-	if len(imgs) > 4 {
-		return fmt.Errorf("button：画像は最大 4 状態（通常/ホバー/押下/無効）です。%d 状態が指定されました", len(imgs))
-	}
-	for i, im := range imgs {
-		if im.Buf == 0 {
-			if im.SX != 0 || im.SY != 0 {
-				return fmt.Errorf("button：画像なし(0)の場合は座標も 0 を指定してください。状態 %d が %d, %d です", i, im.SX, im.SY)
-			}
-			continue
-		}
-		if !b.hasBuf(im.Buf) {
-			return fmt.Errorf("button：不明な画像バッファ %d です", im.Buf)
-		}
-		if im.SX < 0 || im.SY < 0 {
-			return fmt.Errorf("button：切出し座標は 0 以上である必要があります。状態 %d が %d, %d です", i, im.SX, im.SY)
-		}
 	}
 	fitted := fitText(label, w-buttonPadX, b.TextWidth)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if old, ok := b.widgets[id]; ok && old.kind == wButton &&
 		old.gx == x && old.gy == y && old.gw == w && old.gh == h &&
-		old.rawLabel == label && slices.Equal(old.gimgs, imgs) {
+		old.rawLabel == label {
 		b.advanceWidgetCursorLocked(y, h)
 		return nil
 	}
 	if old, ok := b.widgets[id]; ok && old.kind == wButton {
 		old.gx, old.gy, old.gw, old.gh = x, y, w, h
 		old.label, old.rawLabel = fitted, label
-		old.gimgs = append([]ButtonImage(nil), imgs...)
 		b.advanceWidgetCursorLocked(y, h)
 		return nil
 	}
@@ -288,7 +256,6 @@ func (b *WindowBackend) AddButton(id int, label string, x, y, w, h int, imgs ...
 		id: id, kind: wButton,
 		gx: x, gy: y, gw: w, gh: h,
 		label: fitted, rawLabel: label,
-		gimgs:  append([]ButtonImage(nil), imgs...),
 		selIdx: -1,
 	}
 	// disabled は新規でも引き継がない (新規 id は有効)。既存の別種別からの
@@ -370,9 +337,9 @@ func (b *WindowBackend) AddList(id, x, y, w, h int, items []string) error {
 	b.widgets[id] = &widgetEntry{
 		id: id, kind: wList,
 		gx: x, gy: y, gw: w, gh: h,
-		items: append([]string(nil), fitted...),
+		items:    append([]string(nil), fitted...),
 		rawItems: rawCopy,
-		selIdx: -1,
+		selIdx:   -1,
 	}
 	b.advanceWidgetCursorLocked(y, h)
 	return nil
@@ -434,28 +401,6 @@ func (b *WindowBackend) SelectedIndex(id int) (int, error) {
 		return 0, fmt.Errorf("objget：不明な listbox %d です", id)
 	}
 	return e.selIdx, nil
-}
-
-// ListItems は listbox の項目原文を返す (wbind_items 用)。
-func (b *WindowBackend) ListItems(id int) ([]string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	e, ok := b.widgets[id]
-	if !ok || e.kind != wList {
-		return nil, fmt.Errorf("不明な listbox %d です", id)
-	}
-	return append([]string(nil), e.rawItems...), nil
-}
-
-// ComboItems は combox の項目原文を返す (wbind_items 用)。
-func (b *WindowBackend) ComboItems(id int) ([]string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	e, ok := b.widgets[id]
-	if !ok || e.kind != wCombo {
-		return nil, fmt.Errorf("不明な combox %d です", id)
-	}
-	return append([]string(nil), e.rawItems...), nil
 }
 
 func (b *WindowBackend) clampListScrollLocked(e *widgetEntry) {
@@ -529,7 +474,7 @@ func (b *WindowBackend) AddCheck(id int, label string, x, y, w, h int, checked b
 		gx: x, gy: y, gw: w, gh: h,
 		label: label, rawLabel: label,
 		checked: checked,
-		selIdx: -1,
+		selIdx:  -1,
 	}
 	b.advanceWidgetCursorLocked(y, h)
 	return nil
@@ -590,7 +535,7 @@ func (b *WindowBackend) WidgetType(id int) (string, error) {
 	case wCombo:
 		return "combox", nil
 	case wArea:
-		return "mesbox", nil
+		return "msgbox", nil
 	}
 	return "", fmt.Errorf("不明なウィジェット %d です", id)
 }
@@ -667,9 +612,9 @@ func (b *WindowBackend) AddCombo(id, x, y, w, h int, items []string, sel int) er
 	e := &widgetEntry{
 		id: id, kind: wCombo,
 		gx: x, gy: y, gw: w, gh: h,
-		items: append([]string(nil), items...),
+		items:    append([]string(nil), items...),
 		rawItems: append([]string(nil), items...),
-		selIdx: -1,
+		selIdx:   -1,
 	}
 	if sel >= 0 {
 		e.selIdx = sel
@@ -687,7 +632,7 @@ func (b *WindowBackend) AddCombo(id, x, y, w, h int, items []string, sel int) er
 // 配置後は自動で改行する (x=0, y+h)。
 func (b *WindowBackend) AddArea(id, x, y, w, h int, text string) error {
 	if w <= 0 || h <= 0 {
-		return fmt.Errorf("mesbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
+		return fmt.Errorf("msgbox のサイズは正の値である必要があります。%d x %d が指定されました", w, h)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -715,8 +660,8 @@ func (b *WindowBackend) AddArea(id, x, y, w, h int, text string) error {
 	e := &widgetEntry{
 		id: id, kind: wArea,
 		gx: x, gy: y, gw: w, gh: h,
-		cached: text,
-		selIdx: -1,
+		cached:      text,
+		selIdx:      -1,
 		stickBottom: true,
 	}
 	e.wrapped = b.areaWrapLocked(text, w, h)
@@ -733,7 +678,7 @@ func (b *WindowBackend) AreaText(id int) (string, error) {
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wArea {
-		return "", fmt.Errorf("objget：不明な mesbox %d です", id)
+		return "", fmt.Errorf("objget：不明な msgbox %d です", id)
 	}
 	return e.cached, nil
 }
@@ -744,7 +689,7 @@ func (b *WindowBackend) SetAreaText(id int, text string) error {
 	defer b.mu.Unlock()
 	e, ok := b.widgets[id]
 	if !ok || e.kind != wArea {
-		return fmt.Errorf("objset：不明な mesbox %d です", id)
+		return fmt.Errorf("objset：不明な msgbox %d です", id)
 	}
 	if e.cached == text {
 		return nil
@@ -815,6 +760,17 @@ func (b *WindowBackend) SetEnabled(id int, on bool) error {
 		e.edit.focused = false
 	}
 	return nil
+}
+
+// Enabled はウィジェットが有効か報告する。
+func (b *WindowBackend) Enabled(id int) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.widgets[id]
+	if !ok {
+		return false, fmt.Errorf("objenable：不明なウィジェット %d です", id)
+	}
+	return !e.disabled, nil
 }
 
 // RemoveWidget は1つのウィジェットを落とす。
@@ -1147,7 +1103,7 @@ func (b *WindowBackend) pumpComboExpandedLocked(e *widgetEntry, mx, my int, just
 		}
 	}
 	// ドロップダウンのスクロールバー (drawComboDrop と同じ sbW=10)。
-	// listbox/mesbox と同様にドラッグとトラッククリックでスクロールし、
+	// listbox/msgbox と同様にドラッグとトラッククリックでスクロールし、
 	// 閉じたり項目選択したりしない。
 	const comboSbW = 10
 	if n > rows {
@@ -1260,11 +1216,9 @@ func (b *WindowBackend) drawWidgets(screen *ebiten.Image) {
 		// スライスの別名回避。
 		cp.items = append([]string(nil), e.items...)
 		cp.rawItems = append([]string(nil), e.rawItems...)
-		cp.gimgs = append([]ButtonImage(nil), e.gimgs...)
 		cp.wrapped = append([]string(nil), e.wrapped...)
 		ss = append(ss, snap{e: cp, face: b.face, faceSize: b.fontSize, lineH: b.lineH, gdi: b.gdiSnapLocked()})
 	}
-	targets := b.targets
 	dlgActive := b.dialogActiveLocked()
 	b.mu.Unlock()
 	// ID 順で安定描画。
@@ -1279,14 +1233,14 @@ func (b *WindowBackend) drawWidgets(screen *ebiten.Image) {
 		e := &ss[i].e
 		switch e.kind {
 		case wButton:
-			drawButton(screen, e, ss[i].face, ss[i].gdi, mx, my, down, targets)
+			drawButton(screen, e, ss[i].face, ss[i].gdi, mx, my, down)
 		case wCheck:
 			drawCheck(screen, e, ss[i].face, ss[i].gdi, ss[i].lineH, mx, my, down)
 		case wList:
 			drawList(screen, e, ss[i].face, ss[i].gdi, ss[i].lineH, mx, my, down)
 		case wCombo:
 			// 閉じた分だけここで描く。展開ドロップは後で前面に。
-			drawComboClosed(screen, e, ss[i].face, ss[i].gdi, mx, my, down, targets)
+			drawComboClosed(screen, e, ss[i].face, ss[i].gdi, mx, my, down)
 		case wArea:
 			drawArea(screen, e, ss[i].face, ss[i].gdi, ss[i].lineH)
 		case wInput:
@@ -1303,7 +1257,7 @@ func (b *WindowBackend) drawWidgets(screen *ebiten.Image) {
 	b.drawDialog(screen)
 }
 
-func drawButton(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, mx, my int, down bool, targets map[int]*ebiten.Image) {
+func drawButton(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, mx, my int, down bool) {
 	x, y, w, h := float32(e.gx), float32(e.gy), float32(e.gw), float32(e.gh)
 	bg, bd := themeWhite, themeFrame
 	hover := ptIn(mx, my, e.gx, e.gy, e.gw, e.gh)
@@ -1318,64 +1272,6 @@ func drawButton(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs 
 	}
 	vector.DrawFilledRect(screen, x, y, w, h, bg, false)
 	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, bd, false)
-	// 画像ボタン: (buf, sx, sy) からボタンサイズ w x h を原寸で切り出す。
-	// 状態ごとに選択し、省略時は通常に、無効の省略時は通常の減光に
-	// フォールバックする。
-	if len(e.gimgs) > 0 && e.gimgs[0].Buf != 0 {
-		idle := e.gimgs[0]
-		cur := idle
-		dim := false
-		if e.disabled {
-			if len(e.gimgs) >= 4 && e.gimgs[3].Buf != 0 {
-				cur = e.gimgs[3]
-			} else {
-				cur = idle
-				dim = true
-			}
-		} else if pressing {
-			if len(e.gimgs) >= 3 && e.gimgs[2].Buf != 0 {
-				cur = e.gimgs[2]
-			} else {
-				cur = idle
-			}
-		} else if hover {
-			if len(e.gimgs) >= 2 && e.gimgs[1].Buf != 0 {
-				cur = e.gimgs[1]
-			} else {
-				cur = idle
-			}
-		}
-		if src := targets[cur.Buf]; src != nil {
-			sb := src.Bounds()
-			sw, sh := sb.Dx(), sb.Dy()
-			// 要求矩形 (sx, sy, sx+gw, sy+gh) を src 内でクリップ。
-			x0, y0 := cur.SX, cur.SY
-			x1, y1 := x0+e.gw, y0+e.gh
-			if x0 < 0 {
-				x0 = 0
-			}
-			if y0 < 0 {
-				y0 = 0
-			}
-			if x1 > sw {
-				x1 = sw
-			}
-			if y1 > sh {
-				y1 = sh
-			}
-			if x0 < x1 && y0 < y1 {
-				part := src.SubImage(image.Rect(x0, y0, x1, y1)).(*ebiten.Image)
-				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(float64(e.gx+(x0-cur.SX)), float64(e.gy+(y0-cur.SY)))
-				if dim {
-					op.ColorScale.Scale(0.6, 0.6, 0.6, 1)
-				}
-				screen.DrawImage(part, op)
-				// 枠をもう一度。
-				vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, bd, false)
-			}
-		}
-	}
 	if e.label == "" || face == nil {
 		return
 	}
@@ -1515,7 +1411,7 @@ func drawList(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gd
 	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, themeFrame, false)
 }
 
-func drawComboClosed(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, mx, my int, down bool, targets map[int]*ebiten.Image) {
+func drawComboClosed(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, mx, my int, down bool) {
 	x, y, w, h := float32(e.gx), float32(e.gy), float32(e.gw), float32(e.gh)
 	hover := ptIn(mx, my, e.gx, e.gy, e.gw, e.gh)
 	pressing := (hover && down) || e.expanded
@@ -1544,7 +1440,7 @@ func drawComboClosed(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace
 		drawFaceText(screen, sel, face, float64(e.gx+4), float64(e.gy)+(float64(e.gh)-th)/2, fg, gs)
 	}
 	// 矢印 (▼相当の三角)。
-	ax := float32(e.gx+e.gw-16)
+	ax := float32(e.gx + e.gw - 16)
 	ay := float32(e.gy + e.gh/2)
 	sz := float32(5)
 	var p vector.Path
@@ -1560,7 +1456,6 @@ func drawComboClosed(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace
 	cs.Reset()
 	cs.ScaleWithColor(fg)
 	vector.FillPath(screen, &p, &vector.FillOptions{}, &vector.DrawPathOptions{ColorScale: cs})
-	_ = targets
 }
 
 func drawComboDrop(screen *ebiten.Image, e *widgetEntry, face *text.GoTextFace, gs gdiSnap, lineH float64, mx, my int) {
@@ -1753,6 +1648,9 @@ func (b *WindowBackend) Dialog(msg string, mode int) (bool, error) {
 	for k := range b.keyHit {
 		b.keyHit[k] = false
 	}
+	for k := range b.padHit {
+		b.padHit[k] = false
+	}
 	b.wheelAccum = 0
 	b.imePending = ""
 	b.imeComposing = ""
@@ -1761,9 +1659,9 @@ func (b *WindowBackend) Dialog(msg string, mode int) (bool, error) {
 	b.charSt = charRep{}
 	b.dlg = &dialogState{
 		active: true, lines: lines,
-		labels: append([]string(nil), labels...),
-		values: append([]bool(nil), values...),
-		winRect: image.Rect(wx, wy, wx+bw, wy+bh),
+		labels:   append([]string(nil), labels...),
+		values:   append([]bool(nil), values...),
+		winRect:  image.Rect(wx, wy, wx+bw, wy+bh),
 		btnRects: rects, result: res,
 	}
 	b.mu.Unlock()

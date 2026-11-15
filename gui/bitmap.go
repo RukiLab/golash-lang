@@ -10,7 +10,7 @@ import (
 // DrawBitmap uploads premultiplied RGBA pixels to a cached image and draws it
 // at (dx, dy) (absolute pixels), scaled to (dw x dh).
 // (dx, dy) を角とした |dw| x |dh| へ写す。負の dw/dh は逆向きに正規化した
-// 上で反転描画する（gcopy と同様）。w/h の負は配列解釈の絶対値のみに使い、
+// 上で反転描画する（gfxcopy と同様）。w/h の負は配列解釈の絶対値のみに使い、
 // 反転は dw/dh 側で表す。w/h/dw/dh が 0 はエラー。
 //
 // key selects the cache slot, so repeated uses at
@@ -19,7 +19,7 @@ import (
 // into the same memory before the game thread runs the upload.
 func (b *WindowBackend) DrawBitmap(key int, pixels []byte, dx, dy, w, h, dw, dh int) error {
 	if w == 0 || h == 0 {
-		return fmt.Errorf("gblit のサイズは 0 以外である必要があります (%d x %d)", w, h)
+		return fmt.Errorf("gfxblit のサイズは 0 以外である必要があります (%d x %d)", w, h)
 	}
 	aw, ah := w, h
 	if aw < 0 {
@@ -29,10 +29,10 @@ func (b *WindowBackend) DrawBitmap(key int, pixels []byte, dx, dy, w, h, dw, dh 
 		ah = -ah
 	}
 	if aw > MaxImageDim || ah > MaxImageDim {
-		return fmt.Errorf("gblit のサイズは上限 %d x %d までです (%d x %d)", MaxImageDim, MaxImageDim, w, h)
+		return fmt.Errorf("gfxblit のサイズは上限 %d x %d までです (%d x %d)", MaxImageDim, MaxImageDim, w, h)
 	}
 	if dw == 0 || dh == 0 {
-		return fmt.Errorf("gblit のコピー先サイズは 0 以外である必要があります (%d x %d)", dw, dh)
+		return fmt.Errorf("gfxblit のコピー先サイズは 0 以外である必要があります (%d x %d)", dw, dh)
 	}
 	adw, adh := dw, dh
 	if adw < 0 {
@@ -43,14 +43,14 @@ func (b *WindowBackend) DrawBitmap(key int, pixels []byte, dx, dy, w, h, dw, dh 
 	}
 	n := aw * ah * 4
 	if len(pixels) != n {
-		return fmt.Errorf("gblit のピクセル数が足りません (必要 %d バイト、指定 %d バイト)", n, len(pixels))
+		return fmt.Errorf("gfxblit のピクセル数が足りません (必要 %d バイト、指定 %d バイト)", n, len(pixels))
 	}
 	cp := make([]byte, n)
 	copy(cp, pixels)
 
 	// 描画先・合成モード・不透明度は enqueue 時点の値で固定する。
-	// gblit の後に gsel(0) が呼ばれても、モデルが buffer 0 に
-	// 描かれて gcopy に上書きされる競合を避ける。
+	// gfxblit の後に gfxsel(0) が呼ばれても、モデルが buffer 0 に
+	// 描かれて gfxcopy に上書きされる競合を避ける。
 	dstSel := b.currentSel()
 	blend := b.currentBlend()
 	alpha := b.alphaScale()

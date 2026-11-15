@@ -256,7 +256,7 @@ func runGUIWith(scriptDir string, scriptArgs []string, run func(in *Interp) erro
 			}()
 			if runErr != nil {
 				// 端末に報告し、それをウィンドウ自体にも表示する
-				// （dialog() と同じ外観）: ネイティブのポップアップは
+				// （ウィンドウ内ダイアログ）: ネイティブのポップアップは
 				// ゲームウィンドウの陰に隠れうる。そして終了する:
 				// 正常終了（ウィンドウは開いたまま）と違い、エラーは
 				// ウィンドウを閉じる。下記の終了コードは 1。

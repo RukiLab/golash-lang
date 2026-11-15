@@ -14,21 +14,21 @@ func init() {
 	})
 
 	// cls(): clear the screen. GUIではキャンバス/テキストを消去します。
-	// ウィジェットは残ります（消去は clrobj() のみ）。
+	// ウィジェットは残ります（消去は objdel() のみ）。
 	register("cls", 0, 0, func(in *Interp, args []Value, at Pos) (Value, error) {
 		in.be.Clear()
 		return Null(), nil
 	})
 
+	// color(): 現在の文字・描画色を [r, g, b, a] で返す。
 	// color(r, g, b [, a]): 文字・描画色を設定する (各 0-255)。
 	// a は不透明度 (0 が透明 .. 255 が不透明、既定値 255)。
-	// 端末は文字の不透明度を描画できないため、CUI では無視される。
+	// 端末は文字の不透明度を描画できないため、CUI では描画に使わない。
 	// color(rgb): 0xRRGGBB 形式の整数で色を設定する (pget()形式)。
-	// color() で色をリセットする。
 	register("color", 0, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if len(args) == 0 {
-			in.be.ResetColor()
-			return Null(), nil
+			c := in.be.Color()
+			return ArrayOf([]Value{Int(int64(c[0])), Int(int64(c[1])), Int(int64(c[2])), Int(int64(c[3]))}), nil
 		}
 		if len(args) == 1 {
 			v, err := needInt("color", args, 0, at)
@@ -42,7 +42,7 @@ func init() {
 			return Null(), nil
 		}
 		if len(args) != 3 && len(args) != 4 {
-			return Null(), rtErrf(at, "color は 0 個、1 個、3 個または 4 個の引数が必要ですが、%d 個が渡されました", len(args))
+			return Null(), rtErrf(at, "color は 1 個、3 個または 4 個の引数が必要ですが、%d 個が渡されました", len(args))
 		}
 		rgba := []int{0, 0, 0, 255}
 		for i := range args {
@@ -74,8 +74,16 @@ func init() {
 		return Null(), nil
 	})
 
-	// pos(x, y): move the cursor. CUIでは文字セル、GUIではピクセル基準。負値も許可し画面外への描画に利用できます。
-	register("pos", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// pos(): 現在の描画・配置位置を [x, y] で返す。
+	// pos(x, y): カーソルを移動する。CUIでは文字セル、GUIではピクセル基準。負値も許可し画面外への描画に利用できます。
+	register("pos", 0, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+		if len(args) == 0 {
+			x, y := in.be.Position()
+			return ArrayOf([]Value{Int(int64(x)), Int(int64(y))}), nil
+		}
+		if len(args) != 2 {
+			return Null(), rtErrf(at, "pos は 0 個または 2 個の引数が必要ですが、%d 個が渡されました", len(args))
+		}
 		x, err := needInt("pos", args, 0, at)
 		if err != nil {
 			return Null(), err
@@ -99,11 +107,11 @@ func init() {
 	// コードは asc() で取得)。フォーカスされた inputbox が
 	// ストリームを占有する (その間 input() は "" を返す)。
 	// GUI では引数を取らない: プロンプトは毎回繰り返し表示されるため、
-	// 代わりに mes() で表示すること。
+	// 代わりに msg() で表示すること。
 	register("input", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if ir, ok := in.be.(immediateReader); ok {
 			if len(args) != 0 {
-				return Null(), rtErrf(at, "input は GUI では引数を取りません（プロンプトは mes() で表示してください）。%d 個が渡されました", len(args))
+				return Null(), rtErrf(at, "input は GUI では引数を取りません（プロンプトは msg() で表示してください）。%d 個が渡されました", len(args))
 			}
 			return Str(ir.ReadImmediate()), nil
 		}

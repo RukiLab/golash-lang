@@ -8,18 +8,48 @@ Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで
 
 ## [Unreleased]
 
+### 追加
+- 文字列の添字アクセス `s[i]` を追加（rune 単位で1文字の文字列を返す。読み取り専用で、`s[0] = "x"` はエラー）。
+- `repeat` の反復対象に文字列を追加（`repeat s as ch` は1文字ずつ、`repeat s as i, ch` は rune 単位の添字と1文字）。旧 `repeat "s"` はエラーだったが、文字列の反復になる。
+
 ### 削除
 - GUI 組込 `winmove(x, y)` を廃止（未定義関数になる）。
-- GUI 組込 `screensize()` / `buffer(id, w, h)` を廃止し `screen` に統合（未定義関数になる）。
+- GUI 組込 `buffer(id, w, h)` を廃止し `screen(id, w, h)` に統合。`screensize` を廃止し `screen` に統合（未定義関数になる）。
+- 組込 `delete` / `bcopy` を廃止し、`filedel` / `filecopy` に改名（未定義関数になる）。
+- 組込 `notemax(s)` / `noteget(s, i)` / `noteadd(s, i, line)` / `notedel(s, i)` を廃止（未定義関数になる）。行単位の操作は `split(s, "\n")` と `join` / `insert` / `remove` で行う。
+- 組込 `noteload` / `notesave` / `bload` / `bsave` を廃止し、`txtfile` / `binfile` に分離（未定義関数になる）。
+- `button` の画像指定（`buf, sx, sy` の最大4状態）を廃止（`button(id, w, h, label)` のみ）。
+- 組込 `clrobj` を `objdel` に改名（未定義関数になる）。
+- GUI変数バインド（`wbind` / `wbind_items` / `wunbind` / `wsync`）を廃止（未定義関数になる）。
+- 組込 `picload` / `pngsave` を廃止し、`gfxfile` に統合（未定義関数になる）。
 
 ### 変更
+- ディレクトリ系組込の命名を統一：`cwd([path])` を `curdir([path])`、`direxe()` を `exedir()`、`mkdir(path)` を `dirmake(path)` に改名。旧名は未定義関数になる。
+- `button` の引数順を `button(id, w, h, label)` に変更（ラベルを末尾へ移動）。
+- `objset(id, val)` は変数ではなく値そのものを設定する（変数バインドを廃止）。
+- `pos()` は現在位置 `[x, y]`、`gfxmode()` は現在の `[mode, alpha]`、`font()` は現在の `[spec, size]`、`objenable(id)` は現在の有効状態（`1`/`0`）を返すようにした。
+- `gfxfile(path)` は画像読み込み（バッファ id を返す）、`gfxfile(path, id)` は指定バッファの PNG 保存。
+- `color()` を現在色の取得（`[r, g, b, a]`）に変更。色のリセット機能は廃止。
+- `padbtn(id, btn [, mode])` にモードを追加：省略・`0` はレベル検出、非0 は立上り検出（呼び出しで消費）。
+- `dialog` を OS ネイティブのダイアログに変更：`0`=標準メッセージ＋OK、`1`=警告＋OK、`2`=標準＋はい/いいえ、`3`=警告＋はい/いいえ、`4`=ファイルを開く、`5`=ファイルを保存。旧 `3`/`4` のファイルダイアログは `4`/`5` に移動する。`0`/`1` はウィンドウ内ダイアログから OS のメッセージボックスに変わり、`dialog` は GUI 専用ではなくなった（CUI でも同じ OS ダイアログが開く）。
+- サウンド組込 `mmload` / `mmplay` / `mmstop` / `mmvol` / `mmpitch` を `sndload` / `sndplay` / `sndstop` / `sndvol` / `sndpitch` に改名。旧名は未定義関数になる。
+- 組込 `dropfiles` を `dropload` に統合。`dropload()` は前回呼び出し以降にドロップされたファイル名の配列を返し、`dropload(name)` はその画像を読み込んでバッファIDを返す。旧 `dropfiles` は未定義関数になる。
+- 組込 `mes` を `msg`、GUI組込 `mesbox` を `msgbox`、`logmes` を `logmsg` に改名。旧名は未定義関数になる。
+- 組込 `strlen` / `length` を廃止し、`len` に統合（文字列は rune 数、配列は要素数）。旧名は未定義関数になる。
+- 組込 `strmid` を `slice` に統合し、文字列と配列の共通操作にした：`slice(s | arr, start [, end])`。文字列は rune、配列は要素単位で、範囲は `[start, end)`。`start` / `end` が負なら末尾から数え、`end` を省略すると末尾までを複製する。旧 `strmid(s, start, count)` の第3引数は個数から終端（排他的）に変わる。元の配列は変更しない。旧 `strmid` は未定義関数になる。
+- 組込 `instr` を `find` に統合し、文字列と配列の共通操作にした：`find(s | arr, needle [, start])`。文字列は rune 単位の絶対位置、配列は添字を返し、見つからなければ `-1`。3引数形は `instr(s, start, sub)` から `find(s, sub, start)` に引数順が変わる。旧 `instr` は未定義関数になる。
+- 配列を破壊的に変更する `push` / `pop` / `sort` / `reverse` / `insert` / `remove` は統合せず、個別の関数のまま残す（`slice` / `find` は非破壊）。
+- 添字エラーの文言を配列・文字列共通に変更：`配列のインデックスは…` ではなく `インデックスは…`。文字列への添字代入は `文字列はインデックスで変更できません` になる。
+- 組込 `padcount` / `padname` を廃止し、`pad()` に統合（接続中のゲームパッド名の配列を返す。要素数が接続数、`pad()[i]` が名前）。旧名は未定義関数になる。
+- ファイル入出力を `txtfile` / `binfile` に分離：`txtfile(path)` はテキスト読み込み（`\r\n` は `\n` に正規化）、`txtfile(path, s)` はテキスト保存、`binfile(path)` はバイト配列読み込み、`binfile(path, arr)` / `binfile(path, arr, size)` はバイト列保存（`size` は先頭から書き込むバイト数）。
+- GUI 描画系の接頭辞を整理：`gcopy` / `gmode` / `gquad` / `gblit` は `gfxcopy` / `gfxmode` / `gfxquad` / `gfxblit` に改名。`galpha` は `gfxmode(mode [, alpha])` に統合（`alpha` 省略時は現在の不透明度を維持）、`gsel` は `gfxsel(id)` に改名。旧名はすべて未定義関数になる。
 - `mousex()` / `mousey()` を `mouse()` に統合し、カーソル位置を `[x, y]`（ウィンドウピクセル）の配列で返すように変更。旧名は未定義関数になる。
 - `touchcount()` / `touchx(i)` / `touchy(i)` を `touch()` に統合し、接触中の各タッチ位置を `[[x, y], ...]`（ウィンドウピクセル）の配列で返すように変更。接触がなければ `[]`。旧名は未定義関数になる。
-- 描画関数のサイズに負値を許容。`rect(x,y,w,h)` は従来通り逆向きに正規化、`ellipse(x,y,w,h)` は中心基準のため絶対値と同じ形（`0` は無描画）。`gcopy` はコピー元を逆向きに正規化し、コピー先サイズの負は逆向きに正規化＋反転描画（等倍時は `w`・`h` の負が反転）。`gblit` は `w`・`h` の負を絶対値で解釈し、コピー先サイズの負は反転描画。いずれも `0` はエラー（`ellipse` の `0` は無描画のまま）。
-- `screen` に `screensize` と `buffer` を統合し、引数の個数で挙動を分岐：`screen()` は OS ウィンドウサイズ、`screen(id)` は描画バッファのサイズ（`0` はメインキャンバス）、`screen(w, h)` はウィンドウ／メインキャンバスのリサイズ、`screen(id, w, h)` はバッファの作成・置換（`id` が `0` ならメインキャンバスのリサイズ）。
-- get/set 系を `val` の有無で統合：`clip([s])`・`env(name [, val])`・`http(url [, val])`・`cwd([path])` に一本化。`val`（`s`・`val`・`path`）があれば set（設定・送信・変更）、なければ get（取得）になる。旧 `clipget` / `clipset`・`getenv` / `setenv`・`httpget` / `httppost`・`getcwd` / `chdir` は廃止し、未定義関数になる。`http` の送信は `application/json` 固定で、`val` は文字列で渡す。応答は常に本文を文字列で返す（JSON の解釈はしない）。ファイル保存（`path`）・`contentType` 指定は廃止し、保存は `notesave(path, http(url))` を使うこと。
+- 描画関数のサイズに負値を許容。`rect(x,y,w,h)` は従来通り逆向きに正規化、`ellipse(x,y,w,h)` は左上原点のため `rect` と同じく負の `w`・`h` を左上へ拡張する向きに正規化（`0` は無描画）。`gfxcopy` はコピー元を逆向きに正規化し、コピー先サイズの負は逆向きに正規化＋反転描画（等倍時は `w`・`h` の負が反転）。`gfxblit` は `w`・`h` の負を絶対値で解釈し、コピー先サイズの負は反転描画。いずれも `0` はエラー（`ellipse` の `0` は無描画のまま）。
+- 画面サイズの取得・変更・バッファ作成を `screen` に集約：`screen()` は OS ウィンドウ、`screen(id)` は描画バッファ（`0` はメインキャンバス）の `[幅, 高さ]`。`screen(w, h)` はウィンドウ／メインキャンバスのリサイズ、`screen(id, w, h)` はバッファの作成・置換（`id` が `0` ならメインのリサイズ）。描画バッファの選択は `screen(id)` から分離した `gfxsel(id)` で行う。
+- get/set 系を `val` の有無で統合：`clip([s])`・`env(name [, val])`・`http(url [, val])`・`curdir([path])` に一本化。`val`（`s`・`val`・`path`）があれば set（設定・送信・変更）、なければ get（取得）になる。旧 `clipget` / `clipset`・`getenv` / `setenv`・`httpget` / `httppost`・`getcwd` / `chdir` は廃止し、未定義関数になる。`http` の送信は `application/json` 固定で、`val` は文字列で渡す。応答は常に本文を文字列で返す（JSON の解釈はしない）。ファイル保存（`path`）・`contentType` 指定は廃止し、保存は `txtfile(path, http(url))` を使うこと。
 - 版管理を SemVer（`MAJOR.MINOR.PATCH`）から `MAJOR.MINOR` のドット1つに変更し、`0.9` を採用。`VERSION`・処理系の `golashVersion`・ルート `package.json`・VS Code 拡張の `package.json`・各ドキュメントの `v<X.Y>` 表記を `TestVersionPinnedEverywhere` が検査します。`tools/bumpver.go` は `-bump major|minor` のみ（`-bump patch` 廃止）。`gsh version` の出力から `(SemVer)` 表示と `-json` の `"semver"` 欄を廃止（例 `Golash v0.9`・`{"name":"Golash","version":"0.9"}`）。0.8 以前の `## [0.8.x]` 見出しは履歴として残します。
-- `bool` 型を廃止。`true` は整数 `1`、`false` は整数 `0` の糖衣構文になり、比較・論理演算・条件式・真偽を返す組込はすべて `int` の `1`/`0` を返す。条件式と論理演算子の左右は整数（`0`=偽、非0=真）。二値引数（`cursor([v])`・`fullscreen([v])`・`resizable([v])`・`ime([v])`・`getkey(code [, mode])`・`ellipse(x, y, w, h [, fill])`・`mmplay(id [, loop])`・`objset(id, val)` の `chkbox` 状態変更・`objenable`・`chkbox`）は整数で指定し、状態は `1`/`0` で返す。`getkey` の `mode` は省略・0 = レベル検出、非0 = 立上り検出。`dialog` の `mode`（`0`/`1`/`3`/`4`）など多値の引数は従来通り整数。`dlldef` の旧 `bool` 型は `int` の別名として受理する。
+- `bool` 型を廃止。`true` は整数 `1`、`false` は整数 `0` の糖衣構文になり、比較・論理演算・条件式・真偽を返す組込はすべて `int` の `1`/`0` を返す。条件式と論理演算子の左右は整数（`0`=偽、非0=真）。二値引数（`cursor([v])`・`fullscreen([v])`・`resizable([v])`・`ime([v])`・`getkey(code [, mode])`・`ellipse(x, y, w, h [, fill])`・`sndplay(id [, loop])`・`objset(id, val)` の `chkbox` 状態変更・`objenable`・`chkbox`）は整数で指定し、状態は `1`/`0` で返す。`getkey` の `mode` は省略・0 = レベル検出、非0 = 立上り検出。`dialog` の `mode`（`0`〜`5`）など多値の引数は従来通り整数。`dlldef` の旧 `bool` 型は `int` の別名として受理する。
 - `srcanalyze(src)` を廃止し、エディタ支援は字句解析の `lextokens(src)`（`[エラー文字列, トークン列]` を値で返す）に一本化。構文木の返却は行わず、エディタのアウトライン・診断はトークン列から組み立てる。旧名の呼出しは未定義エラーになる。
 - ブロックコメント（`/* */`、入れ子可）を廃止。`/*` はコメントではなく `SLASH` + `STAR` の2トークンとして扱う。`lextokens(src)` 組込も廃止し、字句解析は Golash 自体で書く（`GolashProjects/golash-editor/lex.gsh` の `lx_lex`）。エディタは Go 側の字句解析器を使わず、すべて `lx_lex` で解析する。
 - エディタの再解析は画面に表示されている行のみ字句解析するように変更（`hl_vis_rows` 行の窓解析。スクロール・リサイズは即時再解析）。アウトラインは全行走査の `hl_scan_defs` で保つため表示外の定義も消えず、保存・実行時の診断（`hl_check_mem`）も従来通り全文で行う。

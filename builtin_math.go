@@ -52,7 +52,7 @@ func init() {
 		return Null(), argErr("float", 0, at, "%s を浮動小数に変換できません", typeNameOf(args[0]))
 	})
 
-	// str(v): mes() の表示と同じ形式で任意の値を描画する。
+	// str(v): msg() の表示と同じ形式で任意の値を描画する。
 	register("str", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		return Str(Stringify(args[0])), nil
 	})
@@ -237,15 +237,6 @@ func init() {
 			return Float(best), nil
 		})
 	}
-
-	// length(a): 最上位の要素数。入れ子は length(a[i]) で取得。
-	register("length", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		arr, err := needArray("length", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		return Int(int64(len(arr.Elems))), nil
-	})
 
 	// rnd(n): 0..n-1 の整数。
 	register("rnd", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {

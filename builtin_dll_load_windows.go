@@ -26,4 +26,3 @@ func dllSym(h *dllHandle, name string) (uintptr, error) {
 	}
 	return p.Addr(), nil
 }
-

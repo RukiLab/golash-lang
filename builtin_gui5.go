@@ -1,4 +1,4 @@
-// GUI組み込み関数（G5フォーム部品：chkbox、combox、mesbox）。
+// GUI組み込み関数（G5フォーム部品：chkbox、combox、msgbox）。
 // 状態の取得・変更は objget/objset、有効・無効は objenable で行う。
 // 常に登録される。GUI呼び出しには
 // ウィンドウ（GUIバックエンド）が必要で、無い場合はエラーを返す。
@@ -78,15 +78,15 @@ func init() {
 		return Null(), nil
 	})
 
-	// mesbox(id, w, h [, text])：pos() の位置に複数行テキストボックスを配置する。配置後は自動で改行する (x=0, y+h)。
-	register("mesbox", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
-		wb, err := guiBE(in, at, "mesbox")
+	// msgbox(id, w, h [, text])：pos() の位置に複数行テキストボックスを配置する。配置後は自動で改行する (x=0, y+h)。
+	register("msgbox", 3, 4, func(in *Interp, args []Value, at Pos) (Value, error) {
+		wb, err := guiBE(in, at, "msgbox")
 		if err != nil {
 			return Null(), err
 		}
 		nums := make([]int, 3)
 		for i := range nums {
-			v, err := needInt("mesbox", args, i, at)
+			v, err := needInt("msgbox", args, i, at)
 			if err != nil {
 				return Null(), err
 			}
@@ -95,7 +95,7 @@ func init() {
 		text := ""
 		if len(args) == 4 {
 			var err error
-			text, err = needString("mesbox", args, 3, at)
+			text, err = needString("msgbox", args, 3, at)
 			if err != nil {
 				return Null(), err
 			}

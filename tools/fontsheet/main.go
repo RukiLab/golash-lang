@@ -24,17 +24,17 @@ import (
 )
 
 type GlyphMetric struct {
-	Rune     string `json:"rune"`
-	X        int    `json:"x"`
-	Y        int    `json:"y"`
-	W        int    `json:"w"`
-	H        int    `json:"h"`
-	Advance  int    `json:"advance"`
-	OffsetX  int    `json:"offsetX"`
-	OffsetY  int    `json:"offsetY"`
-	CellTop  int    `json:"cellTop"`
-	Ascent   int    `json:"ascent"`
-	Descent  int    `json:"descent"`
+	Rune    string `json:"rune"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	W       int    `json:"w"`
+	H       int    `json:"h"`
+	Advance int    `json:"advance"`
+	OffsetX int    `json:"offsetX"`
+	OffsetY int    `json:"offsetY"`
+	CellTop int    `json:"cellTop"`
+	Ascent  int    `json:"ascent"`
+	Descent int    `json:"descent"`
 }
 
 type SheetMeta struct {

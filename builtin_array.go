@@ -1,8 +1,8 @@
-// 配列の組込: スタック/キューと形状変更の操作。
+// 配列の組込: 生成・文字列化・破壊的変更の操作。
 //
 // 配列は参照値である: push/pop/insert/remove/sort/reverse は
-// その場で変更する。問い合わせ系の関数
-// （join/slice）は新しい値を返す。
+// その場で変更する。これらは統合せず、個別の関数のままにする。
+// 非破壊の len/slice/find は文字列と共通のため builtin_seq.go にある。
 package main
 
 import (
@@ -129,7 +129,7 @@ func init() {
 		return args[0], nil
 	})
 
-	// insert(arr, i, v...): インデックス i (0..length) に値を挿入する。
+	// insert(arr, i, v...): インデックス i (0..len) に値を挿入する。
 	register("insert", 2, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		arr, err := needArray("insert", args, 0, at)
 		if err != nil {
@@ -177,51 +177,6 @@ func init() {
 		return ArrayOf(out), nil
 	})
 
-	// slice(arr, start [, end]): 要素 [start, end) の複製。
-	// 負のインデックスは末尾から数える。
-	register("slice", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		arr, err := needArray("slice", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		n := int64(len(arr.Elems))
-		start, err := needInt("slice", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		end := n
-		if len(args) == 3 {
-			var err error
-			end, err = needInt("slice", args, 2, at)
-			if err != nil {
-				return Null(), err
-			}
-		}
-		if start < 0 {
-			start += n
-		}
-		if end < 0 {
-			end += n
-		}
-		if start < 0 || end < 0 || start > n || end > n || start > end {
-			return Null(), argErr("slice", 1, at, "範囲 %d から %d は範囲外です（長さ %d）", args[1].I, end, n)
-		}
-		return ArrayOf(append([]Value(nil), arr.Elems[int(start):int(end)]...)), nil
-	})
-
-	// find(arr, v): == による v のインデックス。無ければ -1。
-	register("find", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
-		arr, err := needArray("find", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		for i, e := range arr.Elems {
-			if valuesEqual(e, args[1]) {
-				return Int(int64(i)), nil
-			}
-		}
-		return Int(-1), nil
-	})
 }
 
 // sortWithIndices は数値（int/float 混合）またはすべて文字列の要素を

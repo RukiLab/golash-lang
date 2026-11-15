@@ -101,7 +101,6 @@ func init() {
 
 	// await([n])：n フレーム待つ（既定は 1）。GUI は Update の
 	// 刻み（vsync）を待ち、CUI は1フレーム約16ms 待つ。
-	// GUI では前後で wbind 変数を同期する（変数→前、変数←後）。
 	register("await", 0, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		n := int64(1)
 		if len(args) == 1 {
@@ -119,17 +118,7 @@ func init() {
 				return Null(), argErr("await", 0, at, "待機tick数が大きすぎます。%d が指定されました", n)
 			}
 		}
-		if len(in.wbinds) > 0 || len(in.wbindItems) > 0 {
-			if err := syncBoundWidgets(in, at); err != nil {
-				return Null(), err
-			}
-		}
 		in.be.Await(n)
-		if len(in.wbinds) > 0 || len(in.wbindItems) > 0 {
-			if err := syncBoundWidgets(in, at); err != nil {
-				return Null(), err
-			}
-		}
 		return Null(), nil
 	})
 
@@ -178,9 +167,9 @@ func init() {
 		return Null(), nil
 	})
 
-	// logmes(args...): mes 形式の出力をエラーストリームに出す（デバッグ用）。
-	// void 引数は mes()/print() と同じく無音でスキップされる。
-	register("logmes", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// logmsg(args...): msg 形式の出力をエラーストリームに出す（デバッグ用）。
+	// void 引数は msg()/print() と同じく無音でスキップされる。
+	register("logmsg", 0, -1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		parts := make([]string, 0, len(args))
 		for _, a := range args {
 			if a.K == KNull {

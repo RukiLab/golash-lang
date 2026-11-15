@@ -42,12 +42,12 @@ func runUnmarshaled(t *testing.T, payload []byte) (string, string, error) {
 // TestCodecRoundtrip は直列化→復元→実行の一致を検証する。
 func TestCodecRoundtrip(t *testing.T) {
 	cases := []string{
-		"x = 10 + 2 * 3\nmes(x)\nmes(\"s\" + 1.5)\n",
-		"def fib(n)\nif n < 2\nreturn n\nend\nreturn fib(n - 1) + fib(n - 2)\nend\nmes(fib(15))\n",
-		"a = [1, [2, 3], \"x\", true]\nrepeat a as i, x\nmes(i)\nmes(x)\nend\n",
-		"switch 2\ncase 1\nmes(1)\ncase 2, 3\nmes(23)\ndefault\nmes(\"d\")\nend\n",
-		"mes(1 / 0)\n",
-		"mes(zzz)\n",
+		"x = 10 + 2 * 3\nmsg(x)\nmsg(\"s\" + 1.5)\n",
+		"def fib(n)\nif n < 2\nreturn n\nend\nreturn fib(n - 1) + fib(n - 2)\nend\nmsg(fib(15))\n",
+		"a = [1, [2, 3], \"x\", true]\nrepeat a as i, x\nmsg(i)\nmsg(x)\nend\n",
+		"switch 2\ncase 1\nmsg(1)\ncase 2, 3\nmsg(23)\ndefault\nmsg(\"d\")\nend\n",
+		"msg(1 / 0)\n",
+		"msg(zzz)\n",
 	}
 	for _, src := range cases {
 		payload := mustMarshal(t, src, "cli")
@@ -84,7 +84,7 @@ func errStr(err error) string {
 
 // TestCodecCorrupt は破損検出を検証する。
 func TestCodecCorrupt(t *testing.T) {
-	payload := mustMarshal(t, "mes(1)\n", "cli")
+	payload := mustMarshal(t, "msg(1)\n", "cli")
 	bad := append([]byte(nil), payload...)
 	bad[len(bad)/2] ^= 0xFF
 	if _, _, err := UnmarshalVMProgram(bad); err == nil {
@@ -102,8 +102,8 @@ func TestBundleTrailer(t *testing.T) {
 	if err := os.WriteFile(fakeExe, []byte("MZ-fake-exe-image"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	p1 := mustMarshal(t, "mes(1)\n", "cli")
-	p2 := mustMarshal(t, "mes(2)\n", "gui")
+	p1 := mustMarshal(t, "msg(1)\n", "cli")
+	p2 := mustMarshal(t, "msg(2)\n", "gui")
 	out := filepath.Join(dir, "app.exe")
 	if _, err := AppendBundle(fakeExe, out, p1); err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestBuildFallback(t *testing.T) {
 	if err := os.WriteFile(fakeExe, []byte("MZ-fake-exe-image"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	p1 := mustMarshal(t, "mes(1)\n", "cli")
+	p1 := mustMarshal(t, "msg(1)\n", "cli")
 	// 通常のパスは要求されたパスを返す。
 	out := filepath.Join(dir, "app.exe")
 	final, err := AppendBundle(fakeExe, out, p1)

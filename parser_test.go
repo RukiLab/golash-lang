@@ -110,16 +110,16 @@ func TestParseParens(t *testing.T) {
 
 func TestParseElseIfChain(t *testing.T) {
 	// elseif 単語のみ連結する（単一 end）。`else if`（スペース区切り）は拒否する。
-	prog := mustParse(t, "if x > 10\nmes(1)\nelseif x > 5\nmes(2)\nelse\nmes(3)\nend\n")
+	prog := mustParse(t, "if x > 10\nmsg(1)\nelseif x > 5\nmsg(2)\nelse\nmsg(3)\nend\n")
 	ifs := prog.Stmts[0].(*IfStmt)
 	if _, ok := ifs.Else.(*IfStmt); !ok {
 		t.Fatalf("elseif should chain, got %T", ifs.Else)
 	}
-	mustFailParse(t, "if x > 10\nmes(1)\nelse if x > 5\nmes(2)\nelse\nmes(3)\nend\n", "else の後に改行が必要")
+	mustFailParse(t, "if x > 10\nmsg(1)\nelse if x > 5\nmsg(2)\nelse\nmsg(3)\nend\n", "else の後に改行が必要")
 }
 
 func TestParseRepeatForms(t *testing.T) {
-	prog := mustParse(t, "repeat 10\nmes(1)\nend\nrepeat 10 as i\nmes(i)\nend\n")
+	prog := mustParse(t, "repeat 10\nmsg(1)\nend\nrepeat 10 as i\nmsg(i)\nend\n")
 	r1 := prog.Stmts[0].(*RepeatStmt)
 	if r1.HasVar {
 		t.Fatal("first repeat should have no counter")
@@ -128,29 +128,29 @@ func TestParseRepeatForms(t *testing.T) {
 	if !r2.HasVar || r2.Var != "i" {
 		t.Fatalf("second repeat should have counter i: %+v", r2)
 	}
-	prog = mustParse(t, "repeat a as i, x\nmes(x)\nend\n")
+	prog = mustParse(t, "repeat a as i, x\nmsg(x)\nend\n")
 	r3 := prog.Stmts[0].(*RepeatStmt)
 	if !r3.HasVar || !r3.HasItem || r3.Var != "i" || r3.Item != "x" {
 		t.Fatalf("index+item repeat: %+v", r3)
 	}
-	if got := r3.String(); got != "repeat a as i, x\n  mes(x)\nend" {
+	if got := r3.String(); got != "repeat a as i, x\n  msg(x)\nend" {
 		t.Fatalf("bad rendering: %q", got)
 	}
 }
 
 func TestParseWhile(t *testing.T) {
-	prog := mustParse(t, "while x < 10\nmes(x)\nend\n")
+	prog := mustParse(t, "while x < 10\nmsg(x)\nend\n")
 	w := prog.Stmts[0].(*WhileStmt)
 	if w.Cond == nil || w.Body == nil || len(w.Body.Stmts) != 1 {
 		t.Fatalf("bad while node: %+v", w)
 	}
-	if w.String() != "while (x < 10)\n  mes(x)\nend" {
+	if w.String() != "while (x < 10)\n  msg(x)\nend" {
 		t.Fatalf("bad while rendering: %q", w.String())
 	}
 }
 
 func TestParseSwitch(t *testing.T) {
-	prog := mustParse(t, "switch x\ncase 1, 2\nmes(1)\ndefault\nmes(0)\nend\n")
+	prog := mustParse(t, "switch x\ncase 1, 2\nmsg(1)\ndefault\nmsg(0)\nend\n")
 	sw := prog.Stmts[0].(*SwitchStmt)
 	if len(sw.Cases) != 2 {
 		t.Fatalf("want 2 cases, got %+v", sw)
@@ -161,7 +161,7 @@ func TestParseSwitch(t *testing.T) {
 	if !sw.Cases[1].Default {
 		t.Fatalf("second case should be default: %+v", sw.Cases[1])
 	}
-	want := "switch x\ncase 1, 2\n  mes(1)\ndefault\n  mes(0)\nend"
+	want := "switch x\ncase 1, 2\n  msg(1)\ndefault\n  msg(0)\nend"
 	if sw.String() != want {
 		t.Fatalf("bad switch rendering: %q", sw.String())
 	}
@@ -172,14 +172,14 @@ func TestParseBitwisePrecedence(t *testing.T) {
 	// 結合する。ビット単位内では | が最も緩く、次に ^、そして &。
 	// << >> は関係演算子より強く、+ より緩い。
 	for _, tc := range []struct{ src, want string }{
-		{"mes(1 | 2 & 3)\n", "(1 | (2 & 3))"},
-		{"mes(6 ^ 3 | 1)\n", "((6 ^ 3) | 1)"},
-		{"mes(1 & 1 == 1)\n", "((1 & 1) == 1)"},
-		{"mes(1 == 2 & 3)\n", "(1 == (2 & 3))"},
-		{"mes(1 << 2 + 1)\n", "(1 << (2 + 1))"},
-		{"mes(1 < 2 << 3)\n", "(1 < (2 << 3))"},
-		{"mes(~5)\n", "(~5)"},
-		{"mes(1 | 2 && 0)\n", "((1 | 2) && 0)"},
+		{"msg(1 | 2 & 3)\n", "(1 | (2 & 3))"},
+		{"msg(6 ^ 3 | 1)\n", "((6 ^ 3) | 1)"},
+		{"msg(1 & 1 == 1)\n", "((1 & 1) == 1)"},
+		{"msg(1 == 2 & 3)\n", "(1 == (2 & 3))"},
+		{"msg(1 << 2 + 1)\n", "(1 << (2 + 1))"},
+		{"msg(1 < 2 << 3)\n", "(1 < (2 << 3))"},
+		{"msg(~5)\n", "(~5)"},
+		{"msg(1 | 2 && 0)\n", "((1 | 2) && 0)"},
 	} {
 		prog := mustParse(t, tc.src)
 		es := prog.Stmts[0].(*ExprStmt)
@@ -217,14 +217,14 @@ func TestParseCompoundAssign(t *testing.T) {
 	mustFailParse(t, "1 += 2\n", "代入できません")
 	mustFailParse(t, "x += \n", "式が必要です")
 	// 組込み名は束縛できない（代入、引数、ループ変数）。
-	mustFailParse(t, "def f(mes)\nend\n", "組み込み関数と同名")
-	mustFailParse(t, "repeat 3 as length\nend\n", "組み込み関数と同名")
+	mustFailParse(t, "def f(msg)\nend\n", "組み込み関数と同名")
+	mustFailParse(t, "repeat 3 as len\nend\n", "組み込み関数と同名")
 	mustFailParse(t, "repeat [1] as i, push\nend\n", "組み込み関数と同名")
 }
 
 func TestParseTryAbolished(t *testing.T) {
 	// try/catch は今や通常の識別子である: 波括弧は廃止され、改行〜end を使う。
-	mustFailParse(t, "try\nmes(1)\nend\ncatch(e)\nmes(e)\nend\n", "予期しない")
+	mustFailParse(t, "try\nmsg(1)\nend\ncatch(e)\nmsg(e)\nend\n", "予期しない")
 	prog := mustParse(t, "try = 5\n")
 	if got := prog.Stmts[0].String(); got != "try = 5" {
 		t.Fatalf("try as ident: %q", got)
@@ -244,7 +244,7 @@ func TestParseConstEnumAbolished(t *testing.T) {
 }
 
 func TestParseTopLevelDef(t *testing.T) {
-	prog := mustParse(t, "def f()\nmes(1)\nend\n")
+	prog := mustParse(t, "def f()\nmsg(1)\nend\n")
 	if _, ok := prog.Stmts[0].(*DefStmt); !ok {
 		t.Fatalf("top def: %T", prog.Stmts[0])
 	}
@@ -272,7 +272,7 @@ func TestParseMapAbolished(t *testing.T) {
 
 func TestParseConditionWithBraceVar(t *testing.T) {
 	// `if x` 改行 ... `end` が条件＋ブロック。
-	prog := mustParse(t, "x = true\nif x\nmes(1)\nend\n")
+	prog := mustParse(t, "x = true\nif x\nmsg(1)\nend\n")
 	ifs := prog.Stmts[1].(*IfStmt)
 	if _, ok := ifs.Cond.(*VarExpr); !ok {
 		t.Fatalf("cond: %T", ifs.Cond)
@@ -284,12 +284,12 @@ func TestParseRejections(t *testing.T) {
 	mustFailParse(t, "mode cli\n", "mode は廃止")
 	mustFailParse(t, "*label\n", "*")
 	mustFailParse(t, "a = [1, 2\n", "']'")
-	mustFailParse(t, "if x\nmes(1)\n", "ブロックが閉じられていません")
+	mustFailParse(t, "if x\nmsg(1)\n", "ブロックが閉じられていません")
 	mustFailParse(t, "x = (1 + 2\n", "')'")
-	mustFailParse(t, "def f()\nmes(1)\n", "ブロックが閉じられていません")
-	mustFailParse(t, "if x\nmes(1)\nend mes(2)\n", "文の後に改行")
+	mustFailParse(t, "def f()\nmsg(1)\n", "ブロックが閉じられていません")
+	mustFailParse(t, "if x\nmsg(1)\nend msg(2)\n", "文の後に改行")
 	mustFailParse(t, "x = 1\nend\n", "予期しない 'end'")
-	mustFailParse(t, "if x\nmes(1)\nend\nelse\nmes(2)\nend\n", "予期しない 'else'")
+	mustFailParse(t, "if x\nmsg(1)\nend\nelse\nmsg(2)\nend\n", "予期しない 'else'")
 }
 
 func TestParseEndKeyword(t *testing.T) {

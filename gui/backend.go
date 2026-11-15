@@ -28,7 +28,7 @@ type WindowBackend struct {
 	w, h int
 	// followWindow は resizable() を反映する: ウィンドウをドラッグできる間、
 	// Layout はウィンドウサイズを返すので、描画解像度がそれに追従する
-	// (canvas はウィンドウサイズで作り直され、1:1 ピクセル)。screen() の
+	// (canvas はウィンドウサイズで作り直され、1:1 ピクセル)。screen(w, h) の
 	// サイズに固定して表示を拡大する方式ではない。
 	followWindow bool
 	// テキスト配置状態 (mu で保護)。テキストは pset()/line()/rect() と
@@ -38,16 +38,16 @@ type WindowBackend struct {
 	// キュー済み描画コマンドが適用されるフレーム境界までは何も描かれない。
 	// テキスト配置状態 (mu で保護)、単位はデバイスピクセル: pos() は
 	// テキスト原点を正確に置き (1px 単位、セル丸めなし)、
-	// 各 mes()/print() 断片は実際に描いた幅だけカーソルを進めるため、
+	// 各 msg()/print() 断片は実際に描いた幅だけカーソルを進めるため、
 	// プロポーショナル書体が自然に流れる。
 	curX float64
 	curY float64
 	// lineStartX は現在のテキスト行が始まった x 座標: 全行改行後は 0、
 	// それ以外は pos() の原点。埋め込み改行
 	// (1つの文字列内の改行) は 0 ではなくここへカーソルを戻すため、
-	// 複数行の mes() は起点からのブロックとして印字される。
+	// 複数行の msg() は起点からのブロックとして印字される。
 	lineStartX float64
-	// textBatch はスクリプト側で連続する mes()/print() 呼出を
+	// textBatch はスクリプト側で連続する msg()/print() 呼出を
 	// スプールし、一塊の出力が1つのキュー済みクロージャを共有し、
 	// 隣接する繰返しスクロールを畳めるようにする（mu で保護）。
 	textBatch *textBatch
@@ -66,7 +66,7 @@ type WindowBackend struct {
 	gx, gy int // テキスト・ウィジェット配置用のピクセルカーソル（pos() の位置）
 	fg     color.NRGBA
 	// フォント状態（mu で保護）: フェイスと、そこから導出される
-	// 行のピッチ（mes()/print() 1行は行高 lineH 分）。サイズは任意。
+	// 行のピッチ（msg()/print() 1行は行高 lineH 分）。サイズは任意。
 	face     *text.GoTextFace
 	fontSize float64
 	lineH    float64
@@ -81,19 +81,19 @@ type WindowBackend struct {
 	targets map[int]*ebiten.Image // id 別の描画バッファ。0 はメイン
 	bufs    map[int]bool          // 確保済み id（mu で保護）
 	// bufSizes は id 別のバッファサイズ（mu で保護）。0 は含めず w/h を
-	// 返す。screen(id, w, h) で作ったバッファと picload()/dropload() の
-	// 画像が自身のサイズを持ち、gsel() だけで確保した id は w/h を既定にする。
+	// 返す。screen(id, w, h) で作ったバッファと gfxfile(path)/dropload(name) の
+	// 画像が自身のサイズを持ち、gfxsel(id) だけで確保した id は w/h を既定にする。
 	bufSizes map[int][2]int
 	sel      int // 現在の描画対象（mu で保護）
-	// pixelImages は gblit() のアップロード先キャッシュ（ゲームスレッドのみ）。
+	// pixelImages は gfxblit() のアップロード先キャッシュ（ゲームスレッドのみ）。
 	// key は DLL バッファ id。サイズが変わったら作り直す。
 	pixelImages map[int]*ebiten.Image
-	// persp は gquad() の透視補正シェーダ（ゲームスレッドのみ）。
+	// persp は gfxquad() の透視補正シェーダ（ゲームスレッドのみ）。
 	persp    *ebiten.Shader
 	perspErr error
 	// flat は tri() の単色塗り用 1x1 白画像（ゲームスレッドのみ）。
 	flat *ebiten.Image
-	// quadBatch/triBatch は gquad()/tri() の内部バッファ（mu で保護）。
+	// quadBatch/triBatch は gfxquad()/tri() の内部バッファ（mu で保護）。
 	// スクリプトスレッドが貯め、適切なタイミング（他描画・読戻し・
 	// フレーム境界・上限）でまとめて1つ以上の Draw へ流す。
 	quadBatch *quadBatchState
@@ -111,7 +111,7 @@ type WindowBackend struct {
 	// 表示される撕裂 (ちらつき) が出ない。await 前のスクリプトは高速に
 	// 全コマンドを積み、次の Update で原子的に適用される。
 	pending []func()
-	// drawSel は Draw が読む公開済み可視バッファ。gsel() の途中切替が
+	// drawSel は Draw が読む公開済み可視バッファ。gfxsel(id) の途中切替が
 	// そのまま画面に出て裏バッファの描きかけが見えるのを防ぐ。
 	drawSel int
 	// 入力ラッチ＋音声（G2）。マウスボタンは 0 左、1 中央、2 右で
@@ -125,17 +125,21 @@ type WindowBackend struct {
 	// ラッチを使わず ebiten を直接読む。
 	keyPrev map[int]bool
 	keyHit  map[int]bool
+	// padPrev/padHit は padbtn(id, btn, 1) の立上り検出用（mu で保護）。
+	// pumpInput が Update ごとにラッチし、PadButtonHit が消費する。
+	padPrev map[padKey]bool
+	padHit  map[padKey]bool
 	audio   *audioState
-	// 描画全体のアルファ 0-255（galpha。図形とブリット）。
+	// 描画全体のアルファ 0-255（図形とブリット）。
 	alpha uint8
 	// await()/tick() 用のフレームカウンタ（mu で保護）。
 	tick     int64
 	tickWait []chan struct{}
 	// closingArmed は閉じるボタンの処理を有効にする（closing()。保護あり）。
 	closingArmed bool
-	// ドロップされたファイル（dropfiles/dropload。mu で保護）。
+	// ドロップされたファイル（dropload()/dropload(name)。mu で保護）。
 	dropNames []string
-	dropFS    fs.FS // 最後のスナップショット（dropload 用に保持）
+	dropFS    fs.FS // 最後のスナップショット（dropload(name) 用に保持）
 	// 即時入力の繰返し状態（input()。保護あり）。
 	charSt charRep
 	ctrlSt []ctrlState // ctrlKeys の各エントリに1スロット
@@ -175,6 +179,8 @@ func New(w, h int) (*WindowBackend, error) {
 		ctrlSt:  make([]ctrlState, len(ctrlKeys)),
 		keyPrev: make(map[int]bool),
 		keyHit:  make(map[int]bool),
+		padPrev: make(map[padKey]bool),
+		padHit:  make(map[padKey]bool),
 		// 白いウィンドウ: 既定のフェイスは白地に黒文字で、
 		// Windows 標準のウィジェットテーマに合わせている。
 		fg:       color.NRGBA{0x00, 0x00, 0x00, 0xFF},
@@ -248,10 +254,10 @@ func (b *WindowBackend) Closed() bool {
 }
 
 // publishFrameLocked は構築中のフレームを確定する: 準備された
-// キャンバス命令（図形も mes()/print() の文字も gquad()/tri() の貯めた分も
+// キャンバス命令（図形も msg()/print() の文字も gfxquad()/tri() の貯めた分も
 // 同様）は1つの塊としてゲームキューへ移り、可視バッファ sel が drawSel に
 // スナップショットされる。呼出し側は mu を保持すること。
-// Draw はスナップショットだけを読むため、進行中の cls()/mes() 列の
+// Draw はスナップショットだけを読むため、進行中の cls()/msg() 列の
 // 作業状態が決して描画されない: フレームはスクリプトの yield 地点
 // （Await/Sleep、すなわちフレームが完成した一度）か、スクリプトがまだ
 // yield していない間は Update によって確定される。
@@ -291,9 +297,9 @@ func (b *WindowBackend) Tick() int64 {
 // Await は n フレーム経過までブロックする。スクリプトのゴルーチン
 // から来るべきで、決してゲームスレッドから来てはならない（起こせない）。
 // この呼出がフレーム境界になる: 前回の await 以降に描かれたものすべて
-// （図形も mes()/print() の文字も同様）がここで確定されるため、Draw は
+// （図形も msg()/print() の文字も同様）がここで確定されるため、Draw は
 // 半描画のフレームを決して観測しない。
-// (cls() 直後や mes() 前の状態が画面に出るちらつきの防止).
+// (cls() 直後や msg() 前の状態が画面に出るちらつきの防止).
 // await(0) はそれゆえ「今すぐこのフレームを表示せよ」という明示的な
 // 指示も兼ねる。
 func (b *WindowBackend) Await(n int64) {
@@ -350,13 +356,13 @@ func (b *WindowBackend) Update() error {
 
 // Draw は確定されたキャンバスフレームに加え自前ウィジェットと入力ボックス
 // を描画する。文字は図形と同じキャンバスバッファに置かれる
-// （mes()/print() のピクセルは applyTextDraw によってそこへ
+// （msg()/print() のピクセルは applyTextDraw によってそこへ
 // ラスタライズされる）ため、Draw は1層だけをブリットする:
 // スクリプトで最後に描かれたものが勝つ。これは HSP とまったく同じ。
 func (b *WindowBackend) Draw(screen *ebiten.Image) {
 	// 白いウィンドウ: 消去（透明）されたキャンバスは白く見える。
 	screen.Fill(color.White)
-	// Visible canvas: the committed buffer (drawSel). gsel() の途中切替が
+	// Visible canvas: the committed buffer (drawSel). gfxsel(id) の途中切替が
 	// そのまま出ると裏バッファの描きかけが1フレーム見えるため、frame 境界で
 	// 公開された面だけを描く。targets 自体は game thread のみが触る。
 	b.mu.Lock()

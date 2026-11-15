@@ -19,14 +19,14 @@ func TestGuiModeBuiltinsRegistered(t *testing.T) {
 		}
 	}
 	// CUI でも動く組込みを GUI 判定に混ぜない。
-	for _, name := range []string{"mes", "print", "input", "pos", "color", "clip"} {
+	for _, name := range []string{"msg", "print", "input", "pos", "color", "clip", "dialog"} {
 		if guiModeBuiltins[name] {
 			t.Errorf("%q は GUI 専用ではありません", name)
 		}
 	}
 }
 
-func TestDialogFileModeDetection(t *testing.T) {
+func TestDialogDoesNotForceGUI(t *testing.T) {
 	dir := t.TempDir()
 	modeOf := func(name, src string) string {
 		t.Helper()
@@ -38,22 +38,19 @@ func TestDialogFileModeDetection(t *testing.T) {
 		}
 		return mode
 	}
-	// ファイル選択 (3/4) は CUI のまま。
-	if m := modeOf("f3.gsh", "mes(dialog(\"G|*.gsh\", 3))\n"); m != "cli" {
-		t.Fatalf("dialog 3 = %q, want cli", m)
-	}
-	if m := modeOf("f4.gsh", "mes(dialog(\"G|*.gsh\", 4))\n"); m != "cli" {
-		t.Fatalf("dialog 4 = %q, want cli", m)
-	}
-	// メッセージ系（省略・0・1・非リテラル）は GUI。
+	// dialog は全モードが OS ネイティブなので、CUI のままで動く。
 	for _, src := range []string{
 		"dialog(\"hi\")\n",
 		"dialog(\"hi\", 0)\n",
 		"dialog(\"hi\", 1)\n",
+		"dialog(\"hi\", 2)\n",
+		"dialog(\"hi\", 3)\n",
+		"dialog(\"f\", 4)\n",
+		"dialog(\"f\", 5)\n",
 		"dialog(\"f\", 1 + 2)\n",
 	} {
-		if m := modeOf("g.gsh", src); m != "gui" {
-			t.Fatalf("src %q: mode = %q, want gui", src, m)
+		if m := modeOf("g.gsh", src); m != "cli" {
+			t.Fatalf("src %q: mode = %q, want cli", src, m)
 		}
 	}
 }

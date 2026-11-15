@@ -589,7 +589,7 @@ func (p *parser) parseRepeat() (Stmt, error) {
 		}
 		stmt.Var = v.Lit
 		stmt.HasVar = true
-		// `repeat arr as i, item`: インデックス＋要素（配列のみ）。
+		// `repeat seq as i, item`: インデックス＋要素（配列・文字列）。
 		if p.peek().Type == TokComma {
 			p.next()
 			w, err := p.expect(TokIdent)

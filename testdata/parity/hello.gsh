@@ -1,8 +1,8 @@
-mes("Hello")
-mes("World")
+msg("Hello")
+msg("World")
 x = 10 + 2 * 3
-mes(x)
-mes((10 + 2) * 3)
+msg(x)
+msg((10 + 2) * 3)
 name = "Alice"
-mes("Hello, " + name)
-mes("x = " + str(x) + " y = " + str(20))
+msg("Hello, " + name)
+msg("x = " + str(x) + " y = " + str(20))

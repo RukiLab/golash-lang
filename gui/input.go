@@ -216,6 +216,13 @@ func keyEdgeNext(prev, down, hit bool) (bool, bool) {
 	}
 	return down, hit
 }
+
+// padKey はパッド本体と標準ボタン番号の組（立上りラッチのキー）。
+type padKey struct {
+	gid ebiten.GamepadID
+	btn int
+}
+
 func shiftHeld() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
@@ -260,6 +267,18 @@ func (b *WindowBackend) pumpInput() {
 		down, _ := keyDownNow(code)
 		samples = append(samples, keySample{code, down})
 	}
+	// パッドボタンも同様にラッチする（padbtn(id, btn, 1) 用）。
+	type padSample struct {
+		key  padKey
+		down bool
+	}
+	var padSamples []padSample
+	for _, gid := range ebiten.AppendGamepadIDs(nil) {
+		for btn := 0; btn <= 16; btn++ {
+			down := ebiten.StandardGamepadButtonValue(gid, ebiten.StandardGamepadButton(btn)) > 0.5
+			padSamples = append(padSamples, padSample{padKey{gid: gid, btn: btn}, down})
+		}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.dialogActiveLocked() {
@@ -278,6 +297,16 @@ func (b *WindowBackend) pumpInput() {
 				b.keyHit = make(map[int]bool)
 			}
 			b.keyHit[s.code] = false
+		}
+		for _, s := range padSamples {
+			if b.padPrev == nil {
+				b.padPrev = make(map[padKey]bool)
+			}
+			b.padPrev[s.key] = s.down
+			if b.padHit == nil {
+				b.padHit = make(map[padKey]bool)
+			}
+			b.padHit[s.key] = false
 		}
 		return
 	}
@@ -298,6 +327,17 @@ func (b *WindowBackend) pumpInput() {
 		prev := b.keyPrev[s.code]
 		hit := b.keyHit[s.code]
 		b.keyPrev[s.code], b.keyHit[s.code] = keyEdgeNext(prev, s.down, hit)
+	}
+	if b.padPrev == nil {
+		b.padPrev = make(map[padKey]bool)
+	}
+	if b.padHit == nil {
+		b.padHit = make(map[padKey]bool)
+	}
+	for _, s := range padSamples {
+		prev := b.padPrev[s.key]
+		hit := b.padHit[s.key]
+		b.padPrev[s.key], b.padHit[s.key] = keyEdgeNext(prev, s.down, hit)
 	}
 }
 
@@ -369,6 +409,27 @@ func (b *WindowBackend) PadButton(id, btn int) (bool, error) {
 		return false, err
 	}
 	return ebiten.StandardGamepadButtonValue(gid, ebiten.StandardGamepadButton(btn)) > 0.5, nil
+}
+
+// PadButtonHit は最後の呼出以降に押されたボタンを報告する（消費型）。
+// 押下中も2回目以降は 0 を返し、次に押し直すまで 1 に戻らない。
+func (b *WindowBackend) PadButtonHit(id, btn int) (bool, error) {
+	if btn < 0 || btn > 16 {
+		return false, fmt.Errorf("パッドボタンは 0 から 16 の範囲で指定してください。%d が指定されました", btn)
+	}
+	gid, err := b.padID(id)
+	if err != nil {
+		return false, err
+	}
+	k := padKey{gid: gid, btn: btn}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.padHit == nil {
+		b.padHit = make(map[padKey]bool)
+	}
+	hit := b.padHit[k]
+	b.padHit[k] = false
+	return hit, nil
 }
 
 // PadAxis はスティックの軸 0-3（左 X/Y、右 X/Y）を -1..1 で報告する。

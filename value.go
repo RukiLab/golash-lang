@@ -74,7 +74,7 @@ func IntOfBool(v bool) Value {
 	return Int(0)
 }
 
-// Stringify は値を mes() 出力やエラーメッセージ用に描画する。
+// Stringify は値を msg() 出力やエラーメッセージ用に描画する。
 // 文字列はそのまま印字され、浮動小数点は最短のラウンドトリップ形式を使う。
 func Stringify(v Value) string {
 	switch v.K {

@@ -6,15 +6,15 @@
 // 失敗は実行時エラーになる。
 //
 // GUI ワードは builtin_gui*.go（G1-G6）にある：
-// screen, gsel, pset, pget, line, rect, ellipse, gcopy, gblit, gmode,
-// picload, pngsave, font,
-// gquad, tri,
-// getkey, mouse, touch,
-// mmload, mmplay, mmstop, mmvol, mmpitch, button, inputbox,
-// listbox, clrobj, dialog,
-// chkbox, combox, mesbox, objset, objget, objenable。
+// screen, gfxsel, pset, pget, line, rect, ellipse, gfxcopy, gfxblit, gfxmode,
+// gfxfile, font,
+// gfxquad, tri,
+// getkey, mouse, touch, dropload,
+// sndload, sndplay, sndstop, sndvol, sndpitch, button, inputbox,
+// listbox, objdel,
+// chkbox, combox, msgbox, objset, objget, objenable。
+// OS ネイティブの dialog は builtin_dialog.go にある。
 // palette は意図的に未対応（truecolor バックエンドにパレットがないため）。
-// 将来用に予約：mplay。
 package main
 
 import (
@@ -34,9 +34,10 @@ type Backend interface {
 	ReadLine(prompt string) (line string, ok bool)
 	Clear()
 	SetColor(r, g, b, a int)
-	ResetColor()
+	Color() [4]int
 	SetTitle(s string)
 	MoveTo(x, y int)
+	Position() (x, y int)
 	Sleep(ms int64)
 	// Awaitはnフレーム分待機する（GUI：Update刻み、CUI：1回約16ms）。
 	Await(n int64)
@@ -59,11 +60,14 @@ type immediateReader interface {
 type ConsoleBackend struct {
 	out io.Writer
 	in  *bufio.Reader
+	fg  [4]int
+	x   int
+	y   int
 }
 
 // NewConsoleBackendはスクリプト入出力用にout/inを包む。
 func NewConsoleBackend(out io.Writer, in io.Reader) *ConsoleBackend {
-	return &ConsoleBackend{out: out, in: bufio.NewReader(in)}
+	return &ConsoleBackend{out: out, in: bufio.NewReader(in), fg: [4]int{0, 0, 0, 255}}
 }
 
 func (b *ConsoleBackend) Print(s string) {
@@ -98,20 +102,27 @@ func (b *ConsoleBackend) ReadLine(prompt string) (string, bool) {
 func (b *ConsoleBackend) Clear() { fmt.Fprint(b.out, "\x1b[2J\x1b[H") }
 
 // SetColorは以降のテキスト色を設定する（チャンネル毎0-255）。
-// 端末にテキストの透明度はないため、aは受け取って無視する。
+// 端末にテキストの透明度はないためaは描画に使わないが、color()の
+// 取得値にはそのまま保持する。
 func (b *ConsoleBackend) SetColor(r, g, b2, a int) {
-	_ = a
-	fmt.Fprintf(b.out, "\x1b[38;2;%d;%d;%dm", clamp8(r), clamp8(g), clamp8(b2))
+	b.fg = [4]int{clamp8(r), clamp8(g), clamp8(b2), clamp8(a)}
+	fmt.Fprintf(b.out, "\x1b[38;2;%d;%d;%dm", b.fg[0], b.fg[1], b.fg[2])
 }
 
-// ResetColorは既定のテキスト色に戻す。
-func (b *ConsoleBackend) ResetColor() { fmt.Fprint(b.out, "\x1b[0m") }
+// Colorは現在のテキスト色を[r, g, b, a]で返す。
+func (b *ConsoleBackend) Color() [4]int { return b.fg }
 
 // SetTitleは端末にタイトル変更を依頼する（ベストエフォート）。
 func (b *ConsoleBackend) SetTitle(s string) { fmt.Fprintf(b.out, "\x1b]0;%s\x07", s) }
 
 // MoveToはカーソルを0始まりの(x, y)に置く。
-func (b *ConsoleBackend) MoveTo(x, y int) { fmt.Fprintf(b.out, "\x1b[%d;%dH", y+1, x+1) }
+func (b *ConsoleBackend) MoveTo(x, y int) {
+	b.x, b.y = x, y
+	fmt.Fprintf(b.out, "\x1b[%d;%dH", y+1, x+1)
+}
+
+// Positionは最後にMoveToで設定した位置を返す。
+func (b *ConsoleBackend) Position() (int, int) { return b.x, b.y }
 
 // Sleepはmsミリ秒だけ停止する。
 func (b *ConsoleBackend) Sleep(ms int64) { time.Sleep(time.Duration(ms) * time.Millisecond) }
@@ -230,10 +241,10 @@ func needArray(name string, args []Value, i int, at Pos) (*Array, error) {
 	return args[i].Arr, nil
 }
 
-// mes は基本出力関数（単一引数＋改行）。
+// msg は基本出力関数（単一引数＋改行）。
 // void 引数は無音でスキップされる（改行のみ出力）。
 func init() {
-	register("mes", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
+	register("msg", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		if args[0].K == KNull {
 			in.be.Println("")
 			return Null(), nil

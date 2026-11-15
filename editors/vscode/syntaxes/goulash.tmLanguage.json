@@ -113,7 +113,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.goulash",
-          "match": "\\b(abs|args|asc|assert|atan|await|bcopy|bload|bsave|button|chkbox|chr|clip|closing|clrobj|cls|color|combox|cursor|cwd|delete|dialog|dim|direxe|dirlist|dropfiles|dropload|ellipse|env|exec|exit|exp|find|float|font|fullscreen|galpha|gblit|gcopy|gquad|getkey|getpath|gettime|gmode|gsel|homedir|http|ime|input|inputbox|insert|instr|int|join|length|limit|line|listbox|log|logmes|lower|max|mes|mesbox|mkdir|min|mmload|mmplay|mmpitch|mmstop|mmvol|mouse|mousewheel|nanotime|noteadd|notedel|noteget|noteload|notemax|notesave|objenable|objget|objset|open|padaxis|padbtn|padcount|padname|picload|pipeexec|pngsave|pop|pos|pow|print|pget|pset|push|randomize|rect|remove|replace|resizable|reverse|rnd|screen|sleep|slice|sort|split|sqrt|str|strf|strlen|strmid|strtrim|strwidth|tick|title|tmpdir|touch|tri|upper|vartype)\\b"
+          "match": "\\b(abs|args|asc|assert|atan|await|binfile|button|chkbox|chr|clip|closing|cls|color|combox|curdir|cursor|dialog|dim|dirlist|dirmake|dropload|ellipse|env|exec|exedir|exit|exp|filecopy|filedel|find|float|font|fullscreen|getkey|getpath|gettime|gfxblit|gfxcopy|gfxfile|gfxmode|gfxquad|homedir|http|ime|input|inputbox|insert|int|join|len|limit|line|listbox|log|logmsg|lower|max|msg|msgbox|min|sndload|sndplay|sndpitch|sndstop|sndvol|mouse|mousewheel|nanotime|objdel|objenable|objget|objset|open|pad|padaxis|padbtn|pipeexec|pop|pos|pow|print|pget|pset|push|randomize|rect|remove|replace|resizable|reverse|rnd|screen|gfxsel|sleep|slice|sort|split|sqrt|str|strf|strtrim|strwidth|tick|title|tmpdir|touch|tri|txtfile|upper|vartype)\\b"
         }
       ]
     },

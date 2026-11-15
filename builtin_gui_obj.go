@@ -5,10 +5,11 @@ package main
 import "strconv"
 
 func init() {
-	// objset(id, val)：ウィジェットの内容を変える。val の型で動作が決まる。
+	// objset(id, val)：ウィジェットの内容を変える。val は値そのもの
+	// （変数参照ではない）で、型で動作が決まる。
 	// button: 文字列/数値→表示文字列の変更
 	// chkbox: 整数→チェックのオン・オフ（0=オフ、非0=オン）、文字列→表示文字列の変更
-	// inputbox/mesbox: 文字列/数値→内容の変更
+	// inputbox/msgbox: 文字列/数値→内容の変更
 	// listbox/combox: 整数→選択項目の変更（-1 は未選択）、配列→項目全体の変更
 	register("objset", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objset")
@@ -56,7 +57,7 @@ func init() {
 			default:
 				return Null(), argErr("objset", 1, at, "chkbox には整数（0=false、非0=true）・文字列が必要です。%s が指定されました", typeNameOf(v))
 			}
-		case "inputbox", "mesbox":
+		case "inputbox", "msgbox":
 			var s string
 			switch v.K {
 			case KString:
@@ -118,7 +119,7 @@ func init() {
 
 	// objget(id)：ウィジェットの内容を返す。
 	// button: 押下イベント（呼び出しで消費、1/0）、chkbox: チェック状態（1/0）、
-	// inputbox/mesbox: 内容文字列、listbox/combox: 選択インデックス。
+	// inputbox/msgbox: 内容文字列、listbox/combox: 選択インデックス。
 	register("objget", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objget")
 		if err != nil {
@@ -151,7 +152,7 @@ func init() {
 				return Null(), rtErrf(at, "%s", err.Error())
 			}
 			return Str(s), nil
-		case "mesbox":
+		case "msgbox":
 			s, err := wb.AreaText(int(id))
 			if err != nil {
 				return Null(), rtErrf(at, "%s", err.Error())
@@ -167,9 +168,10 @@ func init() {
 		return Null(), rtErrf(at, "objget：不明なウィジェット %d です", int(id))
 	})
 
-	// objenable(id, flag)：ウィジェットの有効・無効を切り替える。
+	// objenable(id): ウィジェットの有効状態（1/0）を返す。
+	// objenable(id, flag): ウィジェットの有効・無効を切り替える。
 	// flag は整数。0 で無効、非0 で有効。
-	register("objenable", 2, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
+	register("objenable", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		wb, err := guiBE(in, at, "objenable")
 		if err != nil {
 			return Null(), err
@@ -177,6 +179,13 @@ func init() {
 		id, err := needInt("objenable", args, 0, at)
 		if err != nil {
 			return Null(), err
+		}
+		if len(args) == 1 {
+			on, err := wb.Enabled(int(id))
+			if err != nil {
+				return Null(), rtErrf(at, "%s", err.Error())
+			}
+			return IntOfBool(on), nil
 		}
 		on, err := needTruthy("objenable", args, 1, at)
 		if err != nil {

@@ -19,12 +19,12 @@ func (b *WindowBackend) Out() io.Writer {
 	return os.Stdout
 }
 
-// tabSpaces は mes()/print() におけるタブの GUI 描画: 半角セル4つ分の
+// tabSpaces は msg()/print() におけるタブの GUI 描画: 半角セル4つ分の
 // 空白。固定の送り幅でありタブストップではないため、セルの計算は現在の
 // 桁位置に依存しない。
 const tabSpaces = "    "
 
-// textOp は1回の mes()/print() 呼出の順序付き1ステップ: 任意の
+// textOp は1回の msg()/print() 呼出の順序付き1ステップ: 任意の
 // バッファ消去または上方スクロール、その後ろに任意のテキスト断片。
 // 呼出1回全体は順序どおり1つのゲームスレッド・クロージャとして
 // 適用されるため、文字は pset()/line()/rect() とキャンバス層を共有する:
@@ -52,7 +52,7 @@ type textDraw struct {
 }
 
 // textBatch はゲームスレッドへ渡される前の連続する Print/Println 呼出
-// を蓄える。mes()/print() 呼出の一塊は1つの順序付き操作列（通常は1つの
+// を蓄える。msg()/print() 呼出の一塊は1つの順序付き操作列（通常は1つの
 // キュー済みクロージャ）に統合されるが、他の描画・即時のフレーム読み
 // 出し・yield・対象切り替えは先にフラッシュし、スクリプトの呼出順が
 // 保たれるようにする。まとめた呼出はアトミックではない: 繰返しのための
@@ -93,14 +93,14 @@ func (b *WindowBackend) Print(s string) {
 }
 
 // Println は末尾改行付きでテキストを追加し、他の描画と同じく現在の
-// キャンバスバッファにラスタライズする。mes() は常に自動で改行する。
+// キャンバスバッファにラスタライズする。msg() は常に自動で改行する。
 func (b *WindowBackend) Println(s string) {
 	b.printRaw(s, true)
 }
 
 // printRaw は1回の呼出をセルグリッド上に配置し、保留中のテキスト
 // バッチに準備する（何も見えない場合は nil）。描画を返すため、テストは
-// 断片の位置を検査できる。貯めた gquad()/tri() を先に流して呼出順を保つ。
+// 断片の位置を検査できる。貯めた gfxquad()/tri() を先に流して呼出順を保つ。
 func (b *WindowBackend) printRaw(s string, newline bool) *textDraw {
 	b.mu.Lock()
 	b.flushQuadBatchLocked()
@@ -138,7 +138,7 @@ func (b *WindowBackend) flushTextBatchLocked() {
 // font()/color() 呼出が既にキュー済みの文字に影響することはない。
 func (b *WindowBackend) layoutTextLocked(s string, newline bool) *textDraw {
 	sel := b.sel
-	// 文字は自身のアルファに全体のアルファ（galpha）を掛けたものを
+	// 文字は自身のアルファに全体のアルファを掛けたものを
 	// 尊重する。図形に対する fillColor() とまったく同じである。
 	fg := color.NRGBA{R: b.fg.R, G: b.fg.G, B: b.fg.B,
 		A: uint8(uint16(b.fg.A) * uint16(b.alpha) / 255)}
@@ -226,7 +226,7 @@ func (b *WindowBackend) layoutTextLocked(s string, newline bool) *textDraw {
 		}
 	}
 	if newline {
-		// mes() は常に自動で改行する。テキスト・グラフィックス両カーソルを
+		// msg() は常に自動で改行する。テキスト・グラフィックス両カーソルを
 		// 次行の x=0 へ移す。
 		b.curY += lineH
 		b.curX, b.lineStartX = 0, 0
@@ -364,7 +364,7 @@ func (b *WindowBackend) ReadLine(prompt string) (string, bool) {
 
 // Clear は現在のキャンバスバッファを消去する（文字は他の描画と同じく
 // そこに焼き込まれるため、一緒に消える）。ウィジェットは生き残る:
-// それらは clrobj() でのみ削除されるため、描画ループは生きた
+// それらは objdel() でのみ削除されるため、描画ループは生きた
 // ウィジェットとともに毎フレーム cls() できる。キャンバスの削除は
 // enqueue 経由でゲームスレッドで実行されるため、最初の yield 以降は
 // pending に準備され、フレームの残りとともに
@@ -388,11 +388,11 @@ func (b *WindowBackend) SetColor(r, g, bl, a int) {
 	b.fg = color.NRGBA{R: uint8(clamp(r)), G: uint8(clamp(g)), B: uint8(clamp(bl)), A: uint8(clamp(a))}
 }
 
-// ResetColor は黒文字（白いウィンドウの既定）に戻す。
-func (b *WindowBackend) ResetColor() {
+// Color は現在の文字/描画色を [r, g, b, a] で返す（スクリプトスレッド安全）。
+func (b *WindowBackend) Color() [4]int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.fg = color.NRGBA{0x00, 0x00, 0x00, 0xFF}
+	return [4]int{int(b.fg.R), int(b.fg.G), int(b.fg.B), int(b.fg.A)}
 }
 
 // IsFullscreen は全画面状態を報告する（スクリプトスレッド安全）。
@@ -432,7 +432,7 @@ func (b *WindowBackend) IsResizable() bool {
 // する。リサイズが許可されている間は描画解像度がウィンドウに追従する:
 // キャンバスはウィンドウサイズで作り直される（1:1 ピクセル、スケーリング
 // なし）ため、広げたウィンドウは固定キャンバスを拡大するのではなく
-// 描画領域を広げる。オフにすると現在の解像度が凍結される。screen() が
+// 描画領域を広げる。オフにすると現在の解像度が凍結される。screen(w, h) が
 // 論理サイズを再確立する。
 func (b *WindowBackend) SetResizable(on bool) {
 	b.mu.Lock()
@@ -442,7 +442,7 @@ func (b *WindowBackend) SetResizable(on bool) {
 }
 
 // WindowSize は OS のウィンドウサイズをピクセルで報告する: 論理的な
-// screen() キャンバスでもモニタでもなく、実際のウィンドウである。
+// screen(w, h) キャンバスでもモニタでもなく、実際のウィンドウである。
 // ドラッグによるリサイズ（SetResizable を参照）の後では、ウィンドウと
 // キャンバスは同じピクセルになる。テストではヘッドレスでも安全に
 // 呼べる（Ebiten は実行中のループがなくてもサイズを追跡する）。
@@ -456,7 +456,7 @@ func (b *WindowBackend) SetTitle(s string) {
 }
 
 // SetFontSize は文字フェイスのサイズをピクセル（8..64）で変更する。
-// 行のピッチもそれに応じてスケールするため、mes()/print() の行は
+// 行のピッチもそれに応じてスケールするため、msg()/print() の行は
 // 間隔を保つ。ウィジェットは uiFace 経由で追従する。スクリプトスレッド
 // 安全（フェイス/バッファの入れ替えはミューテックスで保護される）。
 func (b *WindowBackend) SetFontSize(size int) error {
@@ -495,7 +495,7 @@ func (b *WindowBackend) FontFile() string {
 
 // TextWidth は s を現在のフェイスでピクセル測定する（文字列全体。
 // エディタはふつうキャレット位置決め用に1行を渡す）。タブは
-// mes()/print() のキャンバス描画とまったく同じく tabSpaces として数える。
+// msg()/print() のキャンバス描画とまったく同じく tabSpaces として数える。
 func (b *WindowBackend) TextWidth(s string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -518,7 +518,7 @@ func (b *WindowBackend) textWidthLocked(s string) int {
 	return int(w + 0.5)
 }
 
-// expandTabs はすべてのタブを tabSpaces（mes()/print() が描画し、
+// expandTabs はすべてのタブを tabSpaces（msg()/print() が描画し、
 // strwidth() が測定する固定の4セル送り）に置き換える。
 func expandTabs(s string) string {
 	if strings.ContainsRune(s, '\t') {
@@ -552,9 +552,9 @@ func (b *WindowBackend) SetFontFile(spec string, size int, extraDirs ...string) 
 }
 
 // MoveTo はカーソルを設定する。GUI では両方のカーソルがピクセル基準:
-// ウィジェット配置原点と mes()/print() のテキスト原点で、
+// ウィジェット配置原点と msg()/print() のテキスト原点で、
 // 後者はピクセルをそのまま使う（1px 刻み。文字セルへの丸めはしない）。
-// 図形描画（pset/line/rect/ellipse/gcopy/gblit 等）は引数で起点を指定するため
+// 図形描画（pset/line/rect/ellipse/gfxcopy/gfxblit 等）は引数で起点を指定するため
 // このカーソルを使わない。
 // CUI ではコンソールバックエンドが文字セル単位で動かす。
 func (b *WindowBackend) MoveTo(x, y int) {
@@ -566,6 +566,13 @@ func (b *WindowBackend) MoveTo(x, y int) {
 	// pos() 呼出は行を再アンカーする: これ以降の埋め込み改行は
 	// この x に戻る。
 	b.lineStartX = b.curX
+}
+
+// Position は現在の描画/テキスト基準位置を返す（スクリプトスレッド安全）。
+func (b *WindowBackend) Position() (int, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.gx, b.gy
 }
 
 // Sleep はスクリプトを一時停止する。ウィンドウは描画を続ける。

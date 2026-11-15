@@ -1,5 +1,5 @@
 def banner(text)
-    mes("=== " + text + " ===")
+    msg("=== " + text + " ===")
 end
 
 def add3(a, b, c)

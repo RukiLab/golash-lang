@@ -94,7 +94,7 @@ func TestDllLegacyRemoved(t *testing.T) {
 		mustErrIO(t, src, "廃止されました")
 	}
 	// 隠し組込は字句で書けない。
-	mustErrIO(t, "mes($dllinvoke)\n", "不正な文字")
+	mustErrIO(t, "msg($dllinvoke)\n", "不正な文字")
 }
 
 // 相対パスの DLL はスクリプト隣、次にカレントディレクトリの順で
@@ -208,7 +208,7 @@ func TestDllLiveCall(t *testing.T) {
 		writeFile(t, filepath.Join(dir, name), src)
 		return runFile(t, filepath.Join(dir, name))
 	}
-	out, err := runMain("live.gsh", "dll \""+lib+"\"\ndlldef cnt \""+countFn+"\" \"int()\"\ndlldef slen \""+strlenFn+"\" \"int(string)\"\nmes(cnt() >= 0)\nmes(slen(\"abc\"))\n")
+	out, err := runMain("live.gsh", "dll \""+lib+"\"\ndlldef cnt \""+countFn+"\" \"int()\"\ndlldef slen \""+strlenFn+"\" \"int(string)\"\nmsg(cnt() >= 0)\nmsg(slen(\"abc\"))\n")
 	if err != nil || out != "1\n3\n" {
 		t.Fatalf("dlldef live = %q, %v", out, err)
 	}
@@ -256,7 +256,7 @@ func TestDllLiveArray(t *testing.T) {
 	out, err := runMain("arr_read.gsh",
 		"dll \""+lib+"\"\n"+
 			"dlldef slen \""+strlenFn+"\" \"int(int[])\"\n"+
-			"mes(slen([65, 0]))\nmes(slen([0, 0]))\nmes(slen([]))\n")
+			"msg(slen([65, 0]))\nmsg(slen([0, 0]))\nmsg(slen([]))\n")
 	if err != nil || out != "1\n0\n0\n" {
 		t.Fatalf("dlldef array read = %q, %v", out, err)
 	}
@@ -264,7 +264,7 @@ func TestDllLiveArray(t *testing.T) {
 	out, err = runMain("arr_readf.gsh",
 		"dll \""+lib+"\"\n"+
 			"dlldef slenf \""+strlenFn+"\" \"int(float[])\"\n"+
-			"mes(slenf([]))\nmes(slenf([0.0]))\n")
+			"msg(slenf([]))\nmsg(slenf([0.0]))\n")
 	if err != nil || out != "0\n0\n" {
 		t.Fatalf("dlldef float array read = %q, %v", out, err)
 	}
@@ -272,7 +272,7 @@ func TestDllLiveArray(t *testing.T) {
 	out, err = runMain("arr_write.gsh",
 		"dll \""+lib+"\"\n"+
 			"dlldef cpy \""+strcpyFn+"\" \"string(int[],string)\"\n"+
-			"d = [0, 0]\nmes(cpy(d, \"hi\"))\nmes(d[0])\nmes(d[1])\n")
+			"d = [0, 0]\nmsg(cpy(d, \"hi\"))\nmsg(d[0])\nmsg(d[1])\n")
 	if err != nil || out != "hi\n26984\n0\n" {
 		t.Fatalf("dlldef array write = %q, %v", out, err)
 	}
@@ -320,22 +320,22 @@ func TestDllDirectives(t *testing.T) {
 		return runFile(t, filepath.Join(dir, name))
 	}
 	// 宣言と呼び出し。
-	out, err := runMain("ok.gsh", "dll \""+lib+"\"\ndlldef cnt \""+countFn+"\" \"int()\"\ndlldef slen \""+strlenFn+"\" \"int(string)\"\nmes(cnt() >= 0)\nmes(slen(\"abcdef\"))\n")
+	out, err := runMain("ok.gsh", "dll \""+lib+"\"\ndlldef cnt \""+countFn+"\" \"int()\"\ndlldef slen \""+strlenFn+"\" \"int(string)\"\nmsg(cnt() >= 0)\nmsg(slen(\"abcdef\"))\n")
 	if err != nil || out != "1\n6\n" {
 		t.Fatalf("dlldef live = %q, %v", out, err)
 	}
 	// 0引数・空白つき署名も通る。
-	out, err = runMain("ws.gsh", "dll \""+lib+"\"\ndlldef c \""+countFn+"\" \" int( ) \"\nmes(c() >= 0)\n")
+	out, err = runMain("ws.gsh", "dll \""+lib+"\"\ndlldef c \""+countFn+"\" \" int( ) \"\nmsg(c() >= 0)\n")
 	if err != nil || out != "1\n" {
 		t.Fatalf("dlldef ws = %q, %v", out, err)
 	}
 	// 途中で対象 DLL を切り替えられる。
-	out, err = runMain("sw.gsh", "dll \""+lib+"\"\ndlldef c \""+countFn+"\" \"int()\"\ndll \""+lib+"\"\ndlldef s \""+strlenFn+"\" \"int(string)\"\nmes(c() >= 0)\nmes(s(\"abcd\"))\n")
+	out, err = runMain("sw.gsh", "dll \""+lib+"\"\ndlldef c \""+countFn+"\" \"int()\"\ndll \""+lib+"\"\ndlldef s \""+strlenFn+"\" \"int(string)\"\nmsg(c() >= 0)\nmsg(s(\"abcd\"))\n")
 	if err != nil || out != "1\n4\n" {
 		t.Fatalf("dlldef switch = %q, %v", out, err)
 	}
 	// 同じ DLL の関数は繰り返し呼べる (開き直さず共用)。
-	out, err = runMain("cache.gsh", "dll \""+lib+"\"\ndlldef c1 \""+countFn+"\" \"int()\"\ndlldef c2 \""+countFn+"\" \"int()\"\nmes(c1() >= 0)\nmes(c2() >= 0)\nmes(c1() >= 0)\n")
+	out, err = runMain("cache.gsh", "dll \""+lib+"\"\ndlldef c1 \""+countFn+"\" \"int()\"\ndlldef c2 \""+countFn+"\" \"int()\"\nmsg(c1() >= 0)\nmsg(c2() >= 0)\nmsg(c1() >= 0)\n")
 	if err != nil || out != "1\n1\n1\n" {
 		t.Fatalf("dlldef cache = %q, %v", out, err)
 	}

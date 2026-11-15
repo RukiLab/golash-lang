@@ -20,7 +20,7 @@ import (
 // maxBuffers はウィンドウ id の上限（メモリ保護）。
 const maxBuffers = 16
 
-// MaxImageDim は screen()/picload 画像の一辺の上限。大きな画像は
+// MaxImageDim は screen(w, h)/gfxfile 画像の一辺の上限。大きな画像は
 // ループ goroutine 内のエンジン内部でパニックし（goroutine をまたいで捕捉できない）、スクリプト側は通常のエラーを受け取る。
 const MaxImageDim = 4096
 
@@ -28,7 +28,7 @@ const MaxImageDim = 4096
 // キューへ直接行く（まだフレーム境界がない）。以降は pending に準備
 // され、await()/sleep()/end で1つのフレームとしてフラッシュされるため、
 // Draw が半完成のキャンバスを決して観測しない（cls 直後の空白1フレーム
-// 防止）。保留中の mes()/print() の一塊・gquad()/tri() の貯めた分が先に
+// 防止）。保留中の msg()/print() の一塊・gfxquad()/tri() の貯めた分が先に
 // フラッシュされ、スクリプトの呼出順（図形と文字）が保たれる。
 func (b *WindowBackend) enqueue(cmd func()) {
 	b.mu.Lock()
@@ -57,11 +57,11 @@ func (b *WindowBackend) drainQueue() {
 	}
 }
 
-// runOnLoop は fn をゲームスレッドで実行して待つ（picload のアップロード
+// runOnLoop は fn をゲームスレッドで実行して待つ（gfxfile のアップロード
 // 用）。順序が保たれるよう準備されたフレーム命令が先にフラッシュされる:
 // 例: バッファ 1 に描画してから button(..., 1, 0, 0) すると新しいピクセルが
-// スナップショットされ、pget/pngsave はそれまでに構築したフレームを
-// 読み戻す。貯めた gquad()/tri() も先に流す。
+// スナップショットされ、pget/gfxfile(path, id) はそれまでに構築したフレームを
+// 読み戻す。貯めた gfxquad()/tri() も先に流す。
 func (b *WindowBackend) runOnLoop(fn func()) {
 	done := make(chan struct{})
 	b.mu.Lock()
@@ -87,7 +87,7 @@ func (b *WindowBackend) ensureTarget(id int) *ebiten.Image {
 	}
 	img, ok := b.targets[id]
 	if !ok || img == nil {
-		// w/h は script の screen() が mu 下で書くため、game thread からは
+		// w/h は script の screen(w, h) が mu 下で書くため、game thread からは
 		// ロックして読む (ロックなし読みは競合し、確保サイズが撕裂く)。
 		// 遅延生成した画像のサイズは screen(id) 用に記録する。
 		b.mu.Lock()
@@ -121,7 +121,7 @@ func (b *WindowBackend) allocBuf(id int) {
 }
 
 // NewBuffer は w x h のオフスクリーン・バッファを作成（または置換）
-// する: スクリプトが gsel() して描画できる（文字も含む）空の完全透明
+// する: スクリプトが gfxsel(id) して描画できる（文字も含む）空の完全透明
 // 画像。可視キャンバス（id 0）は screen(w, h) に属するため、NewBuffer は
 // オフスクリーンの id のみを取る。id を置き換えるとそれが保持していた
 // ものは破棄され、描画ループが毎フレームのスクラッチバッファを
@@ -175,10 +175,10 @@ func (b *WindowBackend) Foreground() [4]int {
 	return [4]int{int(b.fg.R), int(b.fg.G), int(b.fg.B), int(b.fg.A)}
 }
 
-// SetAlpha は描画全体のアルファ 0-255（galpha）を設定する。
+// SetAlpha は描画全体のアルファ 0-255 を設定する。
 func (b *WindowBackend) SetAlpha(a int) error {
 	if a < 0 || a > 255 {
-		return fmt.Errorf("galpha：不透明度は 0 から 255 の範囲で指定してください。%d が指定されました", a)
+		return fmt.Errorf("gfxmode：不透明度は 0 から 255 の範囲で指定してください。%d が指定されました", a)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -193,7 +193,7 @@ func (b *WindowBackend) alphaScale() float32 {
 	return float32(b.alpha) / 255
 }
 
-// fillColor は自身のアルファに全体のアルファ（galpha）を掛けた描画色。
+// fillColor は自身のアルファに全体のアルファを掛けた描画色。
 func (b *WindowBackend) fillColor(fg [4]int) color.NRGBA {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -210,7 +210,7 @@ func (b *WindowBackend) CanvasSize() (int, int) {
 
 // BufferSize は描画バッファ id のサイズを返す（スクリプトスレッド安全）。
 // 0 はメインキャンバス（screen(w, h) の論理サイズ）。screen(id, w, h) で
-// 作ったバッファと picload()/dropload() の画像は自身のサイズを、gsel()
+// 作ったバッファと gfxfile(path)/dropload(name) の画像は自身のサイズを、gfxsel(id)
 // だけで確保した id は遅延生成されるメインキャンバスと同じサイズを返す。
 func (b *WindowBackend) BufferSize(id int) (int, int, error) {
 	if id < 0 || id >= maxBuffers {
@@ -237,12 +237,12 @@ func (b *WindowBackend) CursorPixels() (int, int) {
 	return b.gx, b.gy
 }
 
-// SelectTarget は描画バッファを切り替える（gsel）。まとめたテキストが
+// SelectTarget は描画バッファを切り替える（gfxsel(id)）。まとめたテキストが
 // それが配置されたバッファに留まるよう、保留中のテキストが先に
 // フラッシュされる。
 func (b *WindowBackend) SelectTarget(id int) error {
 	if id < 0 || id >= maxBuffers {
-		return fmt.Errorf("gsel：id は 0 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
+		return fmt.Errorf("gfxsel：id は 0 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
 	}
 	b.allocBuf(id)
 	b.mu.Lock()
@@ -255,7 +255,7 @@ func (b *WindowBackend) SelectTarget(id int) error {
 // ResizeCanvas は screen(w, h) のために再初期化する。ウィンドウの
 // リサイズは直接適用される（Ebiten がキューに入れる）。キャンバスの
 // リセットはゲームスレッドで実行される。メインバッファ（0）のみが
-// 新しいサイズで作り直され、他のバッファ（picload 等）は保持される。
+// 新しいサイズで作り直され、他のバッファ（gfxfile 等）は保持される。
 // そのサイズはウィンドウに依存せず、消すと読み込んだ画像が白紙の
 // キャンバスになってしまうため。
 func (b *WindowBackend) ResizeCanvas(w, h int) {
@@ -267,9 +267,9 @@ func (b *WindowBackend) ResizeCanvas(w, h int) {
 }
 
 // resizeMainCanvas はメインバッファ（id 0）を w x h のものに入れ替える。
-// 他のバッファは自身のサイズ（picload 画像）を保つため、動くのは id 0
+// 他のバッファは自身のサイズ（gfxfile 画像）を保つため、動くのは id 0
 // のみ。preserve はウィンドウのドラッグでキャンバスが大きくなったとき
-// 古いピクセルを左上揃えで保持する。screen()/cls() 相当の新規開始では
+// 古いピクセルを左上揃えで保持する。screen(w, h)/cls() 相当の新規開始では
 // false を渡す。テキストカーソルとスクロール状態はリセットされる
 // （セルグリッドが変わったため）。サイズごとのスクロール用スクラッチは
 // 破棄される。ゲームスレッドのみ: 呼出し側は描画キュー内または Layout
@@ -310,7 +310,7 @@ func (b *WindowBackend) SetBlend(mode int) error {
 	case 2:
 		m = ebiten.CompositeModeMultiply
 	default:
-		return fmt.Errorf("gmode：サポートされていないモード %d です（0、1、2 が必要です）", mode)
+		return fmt.Errorf("gfxmode：サポートされていないモード %d です（0、1、2 が必要です）", mode)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -323,6 +323,21 @@ func (b *WindowBackend) currentBlend() ebiten.CompositeMode {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.blend
+}
+
+// Mode は現在の合成モード（0=通常、1=加算、2=乗算）と
+// 描画全体のアルファ（0-255）を返す。
+func (b *WindowBackend) Mode() (int, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	mode := 0
+	switch b.blend {
+	case ebiten.CompositeModeLighter:
+		mode = 1
+	case ebiten.CompositeModeMultiply:
+		mode = 2
+	}
+	return mode, int(b.alpha)
 }
 
 // SetPixel は現在の対象に1ピクセル描画する。
@@ -417,11 +432,14 @@ func (b *WindowBackend) Circle(x, y, r int, fill bool, fg [4]int) {
 // fill が真なら塗り潰し、偽なら1pxの輪郭）。w == h で真円になる。
 // 中心基準のため負の w/h は絶対値と同じ形になる。
 // 縮退（w または h が 0）は何も描画しない。
-func (b *WindowBackend) Ellipse(cx, cy, w, h int, fill bool, fg [4]int) {
+// Ellipse は (x, y) を左上とする w x h の楕円を描く。
+func (b *WindowBackend) Ellipse(x, y, w, h int, fill bool, fg [4]int) {
 	if w < 0 {
+		x += w
 		w = -w
 	}
 	if h < 0 {
+		y += h
 		h = -h
 	}
 	if w == 0 || h == 0 {
@@ -431,7 +449,7 @@ func (b *WindowBackend) Ellipse(cx, cy, w, h int, fill bool, fg [4]int) {
 	c := b.fillColor(fg)
 	b.enqueue(func() {
 		var path vector.Path
-		ellipsePath(&path, float32(cx), float32(cy), float32(w)/2, float32(h)/2)
+		ellipsePath(&path, float32(x)+float32(w)/2, float32(y)+float32(h)/2, float32(w)/2, float32(h)/2)
 		var cs ebiten.ColorScale
 		cs.ScaleWithColor(c)
 		opts := &vector.DrawPathOptions{ColorScale: cs}
@@ -470,10 +488,10 @@ func (b *WindowBackend) ClearCanvas() {
 // gzoom コピー先負値の反転と同様）。w/h が 0 はエラー。
 func (b *WindowBackend) Blit(src, sx, sy, w, h, dx, dy int) error {
 	if !b.hasBuf(src) {
-		return fmt.Errorf("gcopy：不明なバッファ %d です", src)
+		return fmt.Errorf("gfxcopy：不明なバッファ %d です", src)
 	}
 	if w == 0 || h == 0 {
-		return fmt.Errorf("gcopy のサイズは 0 以外である必要があります。%d x %d が指定されました", w, h)
+		return fmt.Errorf("gfxcopy のサイズは 0 以外である必要があります。%d x %d が指定されました", w, h)
 	}
 	// コピー先の角を正規化し、負辺は反転フラグにする。
 	dxn, dyn := dx, dy
@@ -522,16 +540,16 @@ func (b *WindowBackend) Blit(src, sx, sy, w, h, dx, dy int) error {
 func (b *WindowBackend) PicLoad(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, fmt.Errorf("picload：%s", err.Error())
+		return 0, fmt.Errorf("gfxfile：%s", err.Error())
 	}
 	defer f.Close()
 	src, _, err := image.Decode(f)
 	if err != nil {
-		return 0, fmt.Errorf("picload：%s", err.Error())
+		return 0, fmt.Errorf("gfxfile：%s", err.Error())
 	}
 	id, err := b.allocUpload(src)
 	if err != nil {
-		return 0, fmt.Errorf("picload：%s", err.Error())
+		return 0, fmt.Errorf("gfxfile：%s", err.Error())
 	}
 	return id, nil
 }
@@ -560,7 +578,7 @@ func (b *WindowBackend) allocUpload(src image.Image) (int, error) {
 	// id を予約する前に検査する: 拒否が id を漏らしてはならない。
 	size := src.Bounds().Size()
 	if size.X > MaxImageDim || size.Y > MaxImageDim {
-		return 0, fmt.Errorf("picload：画像が大きすぎます（上限 %d x %d）", MaxImageDim, MaxImageDim)
+		return 0, fmt.Errorf("gfxfile：画像が大きすぎます（上限 %d x %d）", MaxImageDim, MaxImageDim)
 	}
 	id, err := b.allocImageID()
 	if err != nil {
@@ -586,13 +604,13 @@ func (b *WindowBackend) allocUpload(src image.Image) (int, error) {
 // スクリプトスレッドはエンキューし、Update が適用する。
 func (b *WindowBackend) BlitScaled(src, sx, sy, w, h, dw, dh, dx, dy int) error {
 	if !b.hasBuf(src) {
-		return fmt.Errorf("gcopy：不明なバッファ %d です", src)
+		return fmt.Errorf("gfxcopy：不明なバッファ %d です", src)
 	}
 	if w == 0 || h == 0 {
-		return fmt.Errorf("gcopy のサイズは 0 以外である必要があります。%d x %d が指定されました", w, h)
+		return fmt.Errorf("gfxcopy のサイズは 0 以外である必要があります。%d x %d が指定されました", w, h)
 	}
 	if dw == 0 || dh == 0 {
-		return fmt.Errorf("gcopy のコピー先サイズは 0 以外である必要があります。%d x %d が指定されました", dw, dh)
+		return fmt.Errorf("gfxcopy のコピー先サイズは 0 以外である必要があります。%d x %d が指定されました", dw, dh)
 	}
 	// 絶対サイズで倍率を作り、コピー先の負辺は反転で表す。
 	// コピー元の負辺は切り出しの正規化のみ（image.Rect が吸収する）。
@@ -654,16 +672,16 @@ func (b *WindowBackend) BlitScaled(src, sx, sy, w, h, dw, dh, dx, dy int) error 
 // させる）。
 func (b *WindowBackend) SavePNG(path string, id int) error {
 	if id < 0 || id >= maxBuffers {
-		return fmt.Errorf("pngsave：id は 0 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
+		return fmt.Errorf("gfxfile：id は 0 から %d の範囲で指定してください。%d が指定されました", maxBuffers-1, id)
 	}
 	if path == "" {
-		return fmt.Errorf("pngsave：パスが空です")
+		return fmt.Errorf("gfxfile：パスが空です")
 	}
 	b.mu.Lock()
 	allocated := id == 0 || b.bufs[id]
 	b.mu.Unlock()
 	if !allocated {
-		return fmt.Errorf("pngsave：不明なバッファ %d です", id)
+		return fmt.Errorf("gfxfile：不明なバッファ %d です", id)
 	}
 	var opErr error
 	b.runOnLoop(func() {
@@ -675,11 +693,11 @@ func (b *WindowBackend) SavePNG(path string, id int) error {
 		// 不透明なキャンバスピクセルは正確にラウンドトリップする。
 		// 半透明は ebiten の読み戻し規約に従う。
 		if err := png.Encode(&buf, &image.NRGBA{Pix: px, Stride: 4 * bw, Rect: image.Rect(0, 0, bw, bh)}); err != nil {
-			opErr = fmt.Errorf("pngsave：エンコードエラー：%s", err.Error())
+			opErr = fmt.Errorf("gfxfile：エンコードエラー：%s", err.Error())
 			return
 		}
 		if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
-			opErr = fmt.Errorf("pngsave：%s", err.Error())
+			opErr = fmt.Errorf("gfxfile：%s", err.Error())
 		}
 	})
 	return opErr

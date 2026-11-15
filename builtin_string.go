@@ -1,9 +1,11 @@
 // P2 組み込み関数：文字列操作。
 //
+// 文字列と配列に共通する非破壊の操作（len/slice/find）は builtin_seq.go。
+//
 // HSP との違い（文書化・現代化済み）：
 //   - 長さとインデックスはバイトではなく文字（ルーン）単位で数えるため、日本語
 //     テキストは1グリフ＝1文字として扱われる。
-//   - instr は絶対インデックスを返す（HSP は開始位置からの相対インデックスを返す）。
+//   - find は絶対インデックスを返す（HSP の instr は開始位置からの相対）。
 //   - split/getpath/strf は out 引数への書き込みではなく戻り値を返す。
 package main
 
@@ -15,82 +17,6 @@ import (
 )
 
 func init() {
-	// strlen(s)：文字数を数える。
-	register("strlen", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("strlen", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		return Int(int64(len([]rune(s)))), nil
-	})
-
-	// strmid(s, start, count)：文字インデックス（0始まり）で部分文字列を取り出す。
-	// 負の start は末尾からの位置になる（HSP と同様）。
-	register("strmid", 3, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("strmid", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		start, err := needInt("strmid", args, 1, at)
-		if err != nil {
-			return Null(), err
-		}
-		count, err := needInt("strmid", args, 2, at)
-		if err != nil {
-			return Null(), err
-		}
-		if count < 0 {
-			return Null(), argErr("strmid", 2, at, "count は 0 以上である必要があります。%d が指定されました", count)
-		}
-		r := []rune(s)
-		if start < 0 {
-			start += int64(len(r))
-		}
-		if start < 0 || start > int64(len(r)) {
-			return Null(), argErr("strmid", 1, at, "start %d は範囲外です（長さ %d）", args[1].I, len(r))
-		}
-		end := start + count
-		// 長さを超えた終端はエラーにし、黙って切り詰めない
-		//（end < start は start+count が巨大な count で桁あふれしたことを意味する）。
-		if end > int64(len(r)) || end < start {
-			return Null(), argErr("strmid", 2, at, "start %d から count %d は長さ %d を超えています", args[1].I, count, len(r))
-		}
-		return Str(string(r[start:end])), nil
-	})
-
-	// instr(s, sub)／instr(s, start, sub)：start 以降で最初に sub が現れる
-	// 絶対インデックスを返す。見つからない場合は -1。
-	register("instr", 2, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
-		s, err := needString("instr", args, 0, at)
-		if err != nil {
-			return Null(), err
-		}
-		var start int64
-		subIdx := 1
-		if len(args) == 3 {
-			start, err = needInt("instr", args, 1, at)
-			if err != nil {
-				return Null(), err
-			}
-			subIdx = 2
-		}
-		sub, err := needString("instr", args, subIdx, at)
-		if err != nil {
-			return Null(), err
-		}
-		r := []rune(s)
-		// 範囲外の start はエラーにし、黙って切り詰めない
-		//（2引数形式は既定で 0 になるため常に有効）。
-		if start < 0 || start > int64(len(r)) {
-			return Null(), argErr("instr", 1, at, "start %d は範囲外です（長さ %d）", start, len(r))
-		}
-		rel := strings.Index(string(r[start:]), sub)
-		if rel < 0 {
-			return Int(-1), nil
-		}
-		return Int(start + int64(len([]rune(string(r[start:])[:rel])))), nil
-	})
-
 	// strtrim(s [, chars] [, mode])：両端から文字を取り除く（mode が
 	// 0 の場合は両端、1 は左のみ、2 は右のみ）。chars 省略時は空白文字。
 	register("strtrim", 1, 3, func(in *Interp, args []Value, at Pos) (Value, error) {
@@ -159,7 +85,8 @@ func init() {
 		return Str(strings.ReplaceAll(s, old, nw)), nil
 	})
 
-	// upper(s)／lower(s)：ASCII の大文字・小文字変換（日本語テキストには影響しない）。
+	// upper(s)／lower(s)：Unicode の大文字・小文字変換
+	//（日本語テキストには影響しない）。
 	register("upper", 1, 1, func(in *Interp, args []Value, at Pos) (Value, error) {
 		s, err := needString("upper", args, 0, at)
 		if err != nil {

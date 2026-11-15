@@ -12,8 +12,8 @@
 // float[](f64 配列)・void(戻り値のみ)。例:
 //
 //	dll "user32.dll"
-//	dlldef msgbox "MessageBoxA" "int(int,string,string,int)"
-//	r = msgbox(0, "本文", "標題", 0)
+//	dlldef winmsgbox "MessageBoxA" "int(int,string,string,int)"
+//	r = winmsgbox(0, "本文", "標題", 0)
 //
 // int[]/float[] は Golash の配列をそのまま渡す。呼び出し時に連続した
 // C バッファへ写し、ポインタを DLL へ渡す。DLL が書き込んだ内容は
@@ -68,7 +68,7 @@ func legacyDllErr(at Pos, name string) error {
 	case "bufnewf", "bufnewi", "bufpackf", "bufpacki":
 		return rtErrf(at, "%s は廃止されました。dim(n) などで配列を作り、dlldef の int[]/float[] 引数へ直接渡してください", name)
 	case "buflen", "bufget", "bufset", "bufunpack":
-		return rtErrf(at, "%s は廃止されました。配列と length()・添字で操作し、dlldef の int[]/float[] 引数へ直接渡してください", name)
+		return rtErrf(at, "%s は廃止されました。配列と len()・添字で操作し、dlldef の int[]/float[] 引数へ直接渡してください", name)
 	}
 	return rtErrf(at, "%s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", name)
 }

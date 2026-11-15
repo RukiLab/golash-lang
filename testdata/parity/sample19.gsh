@@ -1,6 +1,6 @@
 // HSP後継言語 v0.2 サンプル (§19)
 def greet(p)
-    mes("Hello, " + p[0])
+    msg("Hello, " + p[0])
 end
 
 people = [
@@ -15,7 +15,7 @@ end
 x = 15
 
 if x % 2 == 0
-    mes("even")
+    msg("even")
 else
-    mes("odd")
+    msg("odd")
 end

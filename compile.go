@@ -559,10 +559,10 @@ func (f *fcomp) repeat(n *RepeatStmt) error {
 	if err != nil {
 		return err
 	}
-	arrayPath := f.nextLabel()
+	seqPath := f.nextLabel()
 	afterAll := f.nextLabel()
-	// REPDISP：配列なら arrayPath、整数なら継続、それ以外はエラー（Count 位置）。
-	f.emitJump(OpRepDisp, cv, arrayPath, n.Count.Pos())
+	// REPDISP：配列・文字列なら seqPath、整数なら継続、それ以外はエラー（Count 位置）。
+	f.emitJump(OpRepDisp, cv, seqPath, n.Count.Pos())
 	if n.HasItem {
 		// 整数形の as i,x は無条件エラー（n.At 位置）。
 		f.emit(OpRepIntErr, 0, 0, 0, 0, n.At)
@@ -610,8 +610,8 @@ func (f *fcomp) repeat(n *RepeatStmt) error {
 	f.emit(OpPopLoop, 0, 0, 0, 0, n.At)
 	f.emitJump(OpJmp, 0, afterAll, n.At)
 
-	// 配列形。
-	f.bindLabel(arrayPath)
+	// 配列・文字列形。
+	f.bindLabel(seqPath)
 	f.emit(OpForAPrep, cv, 0, 0, 0, n.Count.Pos())
 	indexVar, elemVar := "", ""
 	if n.HasItem {
@@ -1427,7 +1427,7 @@ func (f *fcomp) logical(n *BinaryExpr) (uint8, error) {
 }
 
 // call は呼出を発行する。引数は左→右に連続レジスタへ評価する。
-// void 検査は mes/print/logmes 以外の組込・ユーザ関数で各引数位置に発行する。
+// void 検査は msg/print/logmsg 以外の組込・ユーザ関数で各引数位置に発行する。
 func (f *fcomp) call(n *CallExpr) (uint8, error) {
 	dst, err := f.alloc()
 	if err != nil {
@@ -1439,7 +1439,7 @@ func (f *fcomp) call(n *CallExpr) (uint8, error) {
 			return 0, fmt.Errorf("%s: %s は廃止されました。dll \"path\" / dlldef NAME \"symbol\" \"sig\" を使ってください", n.At.String(), v.Name)
 		}
 		checkVoid := true
-		if isBuiltin(v.Name) && (v.Name == "mes" || v.Name == "print" || v.Name == "logmes") {
+		if isBuiltin(v.Name) && (v.Name == "msg" || v.Name == "print" || v.Name == "logmsg") {
 			checkVoid = false
 		}
 		// CKCALL：解決順序（関数→変数→組込→未定義）と arity を

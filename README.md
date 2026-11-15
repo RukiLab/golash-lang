@@ -38,7 +38,7 @@ gsh run examples/falling.gsh
 
 ## モード・定数・include
 
-実行モードは完全自動判定です。GUI 専用の組込み（`screen` / `gsel` / `button` など）が
+実行モードは完全自動判定です。GUI 専用の組込み（`screen` / `gfxsel` / `button` など）が
 main から到達可能なコードにあれば GUI、なければ CUI になります。モードを固定する
 宣言も判定クエリもありません。
 
@@ -53,7 +53,7 @@ HIGH = 11
 
 include "lib.gsh"
 dll "user32.dll"
-dlldef msgbox "MessageBoxA" "int(int,string,string,int)"
+dlldef winmsgbox "MessageBoxA" "int(int,string,string,int)"
 ```
 
 `#define` / `#ifdef` / `#mode` などの旧ディレクティブは廃止されました。
