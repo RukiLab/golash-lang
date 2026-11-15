@@ -1,7 +1,7 @@
 // Golash バイトコード逆アセンブラ。
 //
 // `gsh disasm <file.gsh>` が定数プール・レジスタ数・ソース位置付きで出力する。
-// GOULASH_TRACE=1 の実行時トレースも同一フォーマッタを使う。
+// GOLASH_TRACE=1 の実行時トレースも同一フォーマッタを使う。
 package main
 
 import (

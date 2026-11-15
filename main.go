@@ -59,7 +59,7 @@ var usage = `gsh: Golash v` + golashVersion + ` インタプリタ
   gsh version                           版を出力します
 
 既定はレジスタVMバックエンドです（コンパイルして実行）。
-GOULASH_TRACE=1 でVM命令トレースを標準エラー出力します。
+GOLASH_TRACE=1 でVM命令トレースを標準エラー出力します。
 
 実行モードは完全自動判定です（GUI専用組込みが到達可能なら gui、なければ cli）。
 mode 宣言による固定はありません。`

@@ -179,7 +179,7 @@ func (m *vmachine) giveRO(ro []bool) {
 
 func newVmachine(in *Interp) *vmachine {
 	m := &vmachine{in: in, funcs: map[string]*VMProto{}, fastOK: map[string]bool{}}
-	if os.Getenv("GOULASH_TRACE") == "1" {
+	if os.Getenv("GOLASH_TRACE") == "1" {
 		m.trace = true
 	}
 	return m

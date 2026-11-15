@@ -214,7 +214,7 @@ BRKTOP CONTTOP RETTOP HALT`
 - `TestVMSpeedup`（中央値、実測例）：`fib(24)` 約5.3倍、
   100万回 `while` 加算 約3.7～4.3倍。
 - `gsh disasm`：定数・名前・レジスタ数・位置付き逆アセンブル。
-  `GOULASH_TRACE=1`：命令トレース（stderr）。
+  `GOLASH_TRACE=1`：命令トレース（stderr）。
 - 既存全テストは無修正で全緑（VM は追加経路）。
 
 ---

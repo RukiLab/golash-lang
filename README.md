@@ -36,6 +36,8 @@ gsh parse <file.gsh>                   構文木を出力します（デバッ�
 gsh run examples/falling.gsh
 ```
 
+ソースは UTF-8（先頭の BOM 可）として読み込みます。
+
 ## モード・定数・include
 
 実行モードは完全自動判定です。GUI 専用の組込み（`screen` / `gfxsel` / `button` など）が

@@ -1,12 +1,43 @@
 # CHANGELOG
 
 Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで、git の
-タグ（`v0.9`）と `VERSION` ファイルが対応します。`[Unreleased]` は次の版に
-入る予定の変更で、版上げは README の「バージョン管理」または
-`go run ./tools/bumpver.go` を参照してください。
+タグ（`v0.9`）と `VERSION` ファイルが対応します。版上げは README の
+「バージョン管理」または `go run ./tools/bumpver.go` を参照してください。
 なお 0.8 以前は SemVer（`MAJOR.MINOR.PATCH`）で管理していました。
 
-## [Unreleased]
+## [0.9] - 2026-11-15
+
+### 移行ガイド（0.8 → 0.9）
+
+0.8 からの移行で特に影響の大きい変更です。個別の詳細はこの節の各項目にあります。
+
+| 0.8 | 0.9 |
+| --- | --- |
+| `def f() { ... }` / `if ... { ... }` | `def f()` ... `end` / `if ...` ... `end`（`{` は構文エラー） |
+| `end(code)`（終了） | `exit(code)`（`end` はブロック終端） |
+| `#mode cli` / `#mode gui` | 宣言なし。main から到達可能な GUI 組込で自動判定 |
+| `#define NAME value` / `#ifdef` | `NAME = value`。前処理は `include` のみ |
+| `true` / `false` / `bool` | `1` / `0`（整数） |
+| `msg(a, b)` / `print(a, b)` | `msg(v)` / `print(v)` の1引数。連結は `+ str()` |
+| `sort(a)` がソート済み配列を返す | `sort(a)` は元インデックスを返す（`a` 自体はソート済み） |
+| `getpath(p, 9)` などのビットフラグ | `getpath(p, "dir", "base")` などの部位キーワード |
+| `strlen` / `length` | `len` |
+| `strmid(s, start, count)` | `slice(s, start, end)`（第3引数は終端） |
+| `instr(s, start, sub)` | `find(s, sub, start)` |
+| `mes` / `mesbox` / `logmes` | `msg` / `msgbox` / `logmsg` |
+| `mmload` / `mmplay` / `mmstop` / `mmvol` / `mmpitch` | `sndload` / `sndplay` / `sndstop` / `sndvol` / `sndpitch` |
+| `gcopy` / `gmode` / `gquad` / `gblit` / `gsel` | `gfxcopy` / `gfxmode` / `gfxquad` / `gfxblit` / `gfxsel` |
+| `buffer` / `screensize` / `winmove` | `screen`（`winmove` は廃止） |
+| `clrobj` | `objdel` |
+| `delete` / `bcopy` | `filedel` / `filecopy` |
+| `noteload` / `notesave` / `bload` / `bsave` | `txtfile` / `binfile` |
+| `cwd` / `direxe` / `mkdir` | `curdir` / `exedir` / `dirmake` |
+| `clipget` / `clipset` / `getenv` / `setenv` / `httpget` / `httppost` / `getcwd` / `chdir` | `clip` / `env` / `http` / `curdir`（引数の有無で get/set） |
+| `wbind` / `wbind_items` / `wunbind` / `wsync` | 廃止。`objset` / `objget` / `objenable` |
+| `peek` / `poke` / `wpeek` / `wpoke` / `lpeek` / `lpoke` | 廃止。`binfile` / `buf*` |
+| `srcanalyze` / `lextokens` / `parsetree` | 廃止。エディタは `lex.gsh` の `lx_lex` を使う |
+| `GOULASH_FONT` / `GOULASH_TRACE` | `GOLASH_FONT` / `GOLASH_TRACE` |
+| UTF-8 BOM は字句エラー | 先頭の BOM を読み飛ばす |
 
 ### 追加
 - 文字列の添字アクセス `s[i]` を追加（rune 単位で1文字の文字列を返す。読み取り専用で、`s[0] = "x"` はエラー）。
@@ -24,6 +55,9 @@ Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで
 - 組込 `picload` / `pngsave` を廃止し、`gfxfile` に統合（未定義関数になる）。
 
 ### 変更
+- ブロック構文を `{ }` から `end` に変更（`def` / `if` / `while` / `repeat` / `switch`）。`{` は「`{` は使用できません。改行と end を使用してください」エラーになる。
+- 組込 `end(code)` を `exit(code)` に改名（`end` はブロック終端）。`#define` / `#ifdef` / `#mode` などの旧ディレクティブを廃止し、`#` で始まる行は移行エラーになる。
+- ソース先頭の UTF-8 BOM を読み飛ばす（Windows のエディタが付ける BOM 対策）。
 - ディレクトリ系組込の命名を統一：`cwd([path])` を `curdir([path])`、`direxe()` を `exedir()`、`mkdir(path)` を `dirmake(path)` に改名。旧名は未定義関数になる。
 - `button` の引数順を `button(id, w, h, label)` に変更（ラベルを末尾へ移動）。
 - `objset(id, val)` は変数ではなく値そのものを設定する（変数バインドを廃止）。
@@ -48,10 +82,10 @@ Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで
 - 描画関数のサイズに負値を許容。`rect(x,y,w,h)` は従来通り逆向きに正規化、`ellipse(x,y,w,h)` は左上原点のため `rect` と同じく負の `w`・`h` を左上へ拡張する向きに正規化（`0` は無描画）。`gfxcopy` はコピー元を逆向きに正規化し、コピー先サイズの負は逆向きに正規化＋反転描画（等倍時は `w`・`h` の負が反転）。`gfxblit` は `w`・`h` の負を絶対値で解釈し、コピー先サイズの負は反転描画。いずれも `0` はエラー（`ellipse` の `0` は無描画のまま）。
 - 画面サイズの取得・変更・バッファ作成を `screen` に集約：`screen()` は OS ウィンドウ、`screen(id)` は描画バッファ（`0` はメインキャンバス）の `[幅, 高さ]`。`screen(w, h)` はウィンドウ／メインキャンバスのリサイズ、`screen(id, w, h)` はバッファの作成・置換（`id` が `0` ならメインのリサイズ）。描画バッファの選択は `screen(id)` から分離した `gfxsel(id)` で行う。
 - get/set 系を `val` の有無で統合：`clip([s])`・`env(name [, val])`・`http(url [, val])`・`curdir([path])` に一本化。`val`（`s`・`val`・`path`）があれば set（設定・送信・変更）、なければ get（取得）になる。旧 `clipget` / `clipset`・`getenv` / `setenv`・`httpget` / `httppost`・`getcwd` / `chdir` は廃止し、未定義関数になる。`http` の送信は `application/json` 固定で、`val` は文字列で渡す。応答は常に本文を文字列で返す（JSON の解釈はしない）。ファイル保存（`path`）・`contentType` 指定は廃止し、保存は `txtfile(path, http(url))` を使うこと。
-- 版管理を SemVer（`MAJOR.MINOR.PATCH`）から `MAJOR.MINOR` のドット1つに変更し、`0.9` を採用。`VERSION`・処理系の `golashVersion`・ルート `package.json`・VS Code 拡張の `package.json`・各ドキュメントの `v<X.Y>` 表記を `TestVersionPinnedEverywhere` が検査します。`tools/bumpver.go` は `-bump major|minor` のみ（`-bump patch` 廃止）。`gsh version` の出力から `(SemVer)` 表示と `-json` の `"semver"` 欄を廃止（例 `Golash v0.9`・`{"name":"Golash","version":"0.9"}`）。0.8 以前の `## [0.8.x]` 見出しは履歴として残します。
+- 版管理を SemVer（`MAJOR.MINOR.PATCH`）から `MAJOR.MINOR` のドット1つに変更し、`0.9` を採用。`VERSION`・処理系の `golashVersion`・ルート `package.json`・各ドキュメントの `v<X.Y>` 表記を `TestVersionPinnedEverywhere` が検査します（VS Code 拡張の manifest だけは3桁 SemVer が必要なため `0.9.0`）。`tools/bumpver.go` は `-bump major|minor` のみ（`-bump patch` 廃止）。`gsh version` の出力から `(SemVer)` 表示と `-json` の `"semver"` 欄を廃止（例 `Golash v0.9`・`{"name":"Golash","version":"0.9"}`）。0.8 以前の `## [0.8.x]` 見出しは履歴として残します。
 - `bool` 型を廃止。`true` は整数 `1`、`false` は整数 `0` の糖衣構文になり、比較・論理演算・条件式・真偽を返す組込はすべて `int` の `1`/`0` を返す。条件式と論理演算子の左右は整数（`0`=偽、非0=真）。二値引数（`cursor([v])`・`fullscreen([v])`・`resizable([v])`・`ime([v])`・`getkey(code [, mode])`・`ellipse(x, y, w, h [, fill])`・`sndplay(id [, loop])`・`objset(id, val)` の `chkbox` 状態変更・`objenable`・`chkbox`）は整数で指定し、状態は `1`/`0` で返す。`getkey` の `mode` は省略・0 = レベル検出、非0 = 立上り検出。`dialog` の `mode`（`0`〜`5`）など多値の引数は従来通り整数。`dlldef` の旧 `bool` 型は `int` の別名として受理する。
-- `srcanalyze(src)` を廃止し、エディタ支援は字句解析の `lextokens(src)`（`[エラー文字列, トークン列]` を値で返す）に一本化。構文木の返却は行わず、エディタのアウトライン・診断はトークン列から組み立てる。旧名の呼出しは未定義エラーになる。
-- ブロックコメント（`/* */`、入れ子可）を廃止。`/*` はコメントではなく `SLASH` + `STAR` の2トークンとして扱う。`lextokens(src)` 組込も廃止し、字句解析は Golash 自体で書く（`GolashProjects/golash-editor/lex.gsh` の `lx_lex`）。エディタは Go 側の字句解析器を使わず、すべて `lx_lex` で解析する。
+- `srcanalyze(src)` / `lextokens(src)` / `parsetree(src)` を廃止（未定義エラー）。字句解析は Golash 自体で書く（`GolashProjects/golash-editor/lex.gsh` の `lx_lex`）。エディタは Go 側の字句解析器を使わず、すべて `lx_lex` で解析する。
+- ブロックコメント（`/* */`、入れ子可）を廃止。`/*` はコメントではなく `SLASH` + `STAR` の2トークンとして扱う。
 - エディタの再解析は画面に表示されている行のみ字句解析するように変更（`hl_vis_rows` 行の窓解析。スクロール・リサイズは即時再解析）。アウトラインは全行走査の `hl_scan_defs` で保つため表示外の定義も消えず、保存・実行時の診断（`hl_check_mem`）も従来通り全文で行う。
 - エディタの include行走査を版数キャッシュ化（`hl_buffer_includes`）。`hl_build_funcs` が毎回全行を走査していたのを同タブ・同版・同パスなら使い回し、スクロール時の再解析を軽くする。
 - エディタの再解析はスクロール・リサイズだけなら構造（アウトライン・関数・変数）を作り直さず窓のハイライトだけ更新するように変更。版数不変では定義が変わり得ないため。併せてアウトライン走査（`hl_scan_defs`）は `"def "/"def\t"` を含む行だけ精査する事前絞り込みを追加。画面内ハイライトは 8ms 以内（1585行で実測 5ms）。
