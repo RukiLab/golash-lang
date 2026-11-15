@@ -18,6 +18,16 @@ func lexTypes(t *testing.T, src string) []TokenType {
 	return types
 }
 
+func TestLexUTF8BOM(t *testing.T) {
+	toks, err := Lex("\ufeffmsg(\"hi\")\n")
+	if err != nil {
+		t.Fatalf("BOM should be ignored: %v", err)
+	}
+	if len(toks) == 0 || toks[0].Type != TokIdent || toks[0].Lit != "msg" {
+		t.Fatalf("first token: got %+v, want IDENT msg", toks[0])
+	}
+}
+
 func TestLexBasic(t *testing.T) {
 	types := lexTypes(t, "x = 10\n")
 	want := []TokenType{TokIdent, TokAssign, TokInt, TokNewline, TokEOF}

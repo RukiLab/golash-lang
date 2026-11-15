@@ -136,7 +136,9 @@ var keywords = map[string]TokenType{
 }
 
 // Lex は src をトークン化する。トークン列（末尾は EOF）を返すか、エラーを返す。
+// 先頭の UTF-8 BOM は読み飛ばす（Windows のエディタが付ける BOM 対策）。
 func Lex(src string) ([]Token, error) {
+	src = strings.TrimPrefix(src, "\ufeff")
 	l := &lexer{runes: []rune(src), line: 1, col: 1}
 	var toks []Token
 	for {
