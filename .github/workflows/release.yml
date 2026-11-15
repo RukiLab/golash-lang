@@ -100,7 +100,11 @@ jobs:
         run: |
           set -euo pipefail
           ver="$(tr -d ' \t\r\n' < VERSION)"
-          "./gsh-$ver-${{ matrix.asset }}" version
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a -s "-screen 0 1024x768x24" "./gsh-$ver-${{ matrix.asset }}" version
+          else
+            "./gsh-$ver-${{ matrix.asset }}" version
+          fi
 
       - name: 成果物をアップロード
         uses: actions/upload-artifact@v4

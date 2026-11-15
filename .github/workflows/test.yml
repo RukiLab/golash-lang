@@ -43,7 +43,13 @@ jobs:
         run: go vet ./...
 
       - name: 版を確認
-        run: go run . version
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a -s "-screen 0 1024x768x24" go run . version
+          else
+            go run . version
+          fi
 
       - name: go test（Linux / GUI込み）
         if: runner.os == 'Linux'

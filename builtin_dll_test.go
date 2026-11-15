@@ -110,6 +110,17 @@ func TestResolveDllPath(t *testing.T) {
 	if err := os.WriteFile(localCwd, []byte("not a dll"), 0o666); err != nil {
 		t.Fatal(err)
 	}
+	// macOS の t.TempDir() は /var 配下を返すが、getcwd は /private/var を
+	// 返す。どちらでも同じファイルを指すため、シンボリックリンク解決後の
+	// パスも比較対象に含める。
+	localCanon, err := filepath.EvalSymlinks(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localCwdCanon, err := filepath.EvalSymlinks(localCwd)
+	if err != nil {
+		t.Fatal(err)
+	}
 	old, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -124,11 +135,11 @@ func TestResolveDllPath(t *testing.T) {
 	}()
 	in := NewInterp(io.Discard)
 	in.SetScriptDir(dirScript)
-	if got := in.resolveDllPath("local_test.dll"); got != local {
-		t.Fatalf("script dir: got %q, want %q", got, local)
+	if got := in.resolveDllPath("local_test.dll"); got != local && got != localCanon {
+		t.Fatalf("script dir: got %q, want %q or %q", got, local, localCanon)
 	}
-	if got := in.resolveDllPath("cwd_test.dll"); got != localCwd {
-		t.Fatalf("cwd: got %q, want %q", got, localCwd)
+	if got := in.resolveDllPath("cwd_test.dll"); got != localCwd && got != localCwdCanon {
+		t.Fatalf("cwd: got %q, want %q or %q", got, localCwd, localCwdCanon)
 	}
 	const missing = "zz_no_such_dll_12345.dll"
 	if got := in.resolveDllPath(missing); got != missing {
