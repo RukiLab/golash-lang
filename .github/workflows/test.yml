@@ -63,4 +63,5 @@ jobs:
         run: go test -skip 'TestVMZeroAllocLoop' .
 
       - name: GUI テストをコンパイル
-        run: go test ./gui -run '^$'
+        shell: bash
+        run: go test -c ./gui -o "${RUNNER_TEMP:-/tmp}/gui.test"
