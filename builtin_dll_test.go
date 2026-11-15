@@ -263,20 +263,32 @@ func TestDllLiveArray(t *testing.T) {
 		return runFile(t, filepath.Join(dir, name))
 	}
 	// int32 65 ('A') は先頭バイト 0x41 の後に 0x00 が続くため長さ 1。
-	// int32 0 は先頭が NUL のため長さ 0。空配列は NULL のため長さ 0。
-	out, err := runMain("arr_read.gsh",
-		"dll \""+lib+"\"\n"+
-			"dlldef slen \""+strlenFn+"\" \"int(int[])\"\n"+
-			"msg(slen([65, 0]))\nmsg(slen([0, 0]))\nmsg(slen([]))\n")
-	if err != nil || out != "1\n0\n0\n" {
+	// int32 0 は先頭が NUL のため長さ 0。
+	// 空配列は NULL を渡すが、libc の strlen(NULL) は未定義（SIGSEGV）なので
+	// Windows の lstrlenA のみ検証する。
+	head := "dll \"" + lib + "\"\n" +
+		"dlldef slen \"" + strlenFn + "\" \"int(int[])\"\n"
+	src := head + "msg(slen([65, 0]))\nmsg(slen([0, 0]))\n"
+	want := "1\n0\n"
+	if runtime.GOOS == "windows" {
+		src += "msg(slen([]))\n"
+		want += "0\n"
+	}
+	out, err := runMain("arr_read.gsh", src)
+	if err != nil || out != want {
 		t.Fatalf("dlldef array read = %q, %v", out, err)
 	}
-	// float[] の空配列も NULL で渡せる。
-	out, err = runMain("arr_readf.gsh",
-		"dll \""+lib+"\"\n"+
-			"dlldef slenf \""+strlenFn+"\" \"int(float[])\"\n"+
-			"msg(slenf([]))\nmsg(slenf([0.0]))\n")
-	if err != nil || out != "0\n0\n" {
+	// float[] の空配列も NULL を渡す。strlen(NULL) は Windows のみ検証する。
+	headF := "dll \"" + lib + "\"\n" +
+		"dlldef slenf \"" + strlenFn + "\" \"int(float[])\"\n"
+	srcF := headF + "msg(slenf([0.0]))\n"
+	wantF := "0\n"
+	if runtime.GOOS == "windows" {
+		srcF = headF + "msg(slenf([]))\nmsg(slenf([0.0]))\n"
+		wantF = "0\n0\n"
+	}
+	out, err = runMain("arr_readf.gsh", srcF)
+	if err != nil || out != wantF {
 		t.Fatalf("dlldef float array read = %q, %v", out, err)
 	}
 	// 書き戻し: dest に "hi" を書くと int32[0] が 26984 ('h'+'i'*256) になる。
