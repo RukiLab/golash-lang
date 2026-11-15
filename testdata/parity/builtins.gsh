@@ -19,8 +19,8 @@ msg("pi=" + str(3.14159))
 msg("abs=" + str(abs(-7)) + " sqrt=" + str(sqrt(2)))
 msg("clamp=" + str(limit(99, 0, 10)))
 
-msg("path base=" + getpath("C:\\work\\app.gsh", "base"))
-msg("path ext=" + getpath("C:\\work\\app.gsh", "ext"))
+msg("path base=" + getpath("C:\\work\\app.gsh", 9))
+msg("path ext=" + getpath("C:\\work\\app.gsh", 2))
 msg("year=" + str(gettime(0)) + " month=" + str(gettime(1)))
 
 buf = [0, 0, 0, 0]

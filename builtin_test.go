@@ -206,14 +206,18 @@ func TestBuiltinStrings(t *testing.T) {
 }
 
 func TestGetpath(t *testing.T) {
-	mustOutIO(t, "p = \"C:\\\\a\\\\b.exe\"\nmsg(getpath(p))\nmsg(getpath(p, \"dir\", \"base\"))\nmsg(getpath(p, \"ext\"))\nmsg(getpath(p, \"file\"))\nmsg(getpath(p, \"base\"))\nmsg(getpath(p, \"dir\"))\nmsg(getpath(p, \"lower\"))\n", "",
-		"C:\\a\\b.exe\nC:\\a\\b\n.exe\nb.exe\nb\nC:\\a\\\nc:\\a\\b.exe\n")
-	mustOutIO(t, "msg(getpath(\"/x/y.txt\", \"file\"))\nmsg(getpath(\"/x/y.txt\", \"dir\"))\n", "", "y.txt\n/x/\n")
-	// 合成: dir+file、base+ext (= file)、dir を小文字化。
-	mustOutIO(t, "msg(getpath(\"/x/y.txt\", \"dir\", \"file\"))\nmsg(getpath(\"/x/y.txt\", \"base\", \"ext\"))\nmsg(getpath(\"/X/Y.TXT\", \"dir\", \"lower\"))\n", "", "/x/y.txt\ny.txt\n/x/\n")
-	mustErrIO(t, "msg(getpath(\"a\", \"bogus\"))\n", "dir/file/base/ext/lower")
-	mustErrIO(t, "msg(getpath(\"a\", \"file\", \"base\"))\n", "同時に指定できません")
-	mustErrIO(t, "msg(getpath(\"a\", 8))\n", "文字列である必要があります")
+	// mode は HSP 準拠のビットフラグ：1=拡張子除去、2=拡張子のみ、
+	// 8=ディレクトリ除去、16=小文字化、32=ディレクトリのみ。
+	mustOutIO(t, "p = \"C:\\\\a\\\\b.exe\"\nmsg(getpath(p))\nmsg(getpath(p, 0))\nmsg(getpath(p, 1))\nmsg(getpath(p, 2))\nmsg(getpath(p, 8))\nmsg(getpath(p, 9))\nmsg(getpath(p, 32))\nmsg(getpath(p, 16))\n", "",
+		"C:\\a\\b.exe\nC:\\a\\b.exe\nC:\\a\\b\n.exe\nb.exe\nb\nC:\\a\\\nc:\\a\\b.exe\n")
+	// 16 は他のモードへの修飾子。
+	mustOutIO(t, "p = \"C:\\\\A\\\\B.EXE\"\nmsg(getpath(p, 17))\nmsg(getpath(p, 24))\nmsg(getpath(p, 48))\n", "", "c:\\a\\b\nb.exe\nc:\\a\\\n")
+	mustOutIO(t, "msg(getpath(\"/x/y.txt\", 1))\nmsg(getpath(\"/x/y.txt\", 8))\nmsg(getpath(\"/x/y.txt\", 32))\n", "", "/x/y\ny.txt\n/x/\n")
+	mustErrIO(t, "msg(getpath(\"a\", 4))\n", "1/2/8/16/32")
+	mustErrIO(t, "msg(getpath(\"a\", 64))\n", "1/2/8/16/32")
+	mustErrIO(t, "msg(getpath(\"a\", -1))\n", "1/2/8/16/32")
+	mustErrIO(t, "msg(getpath(\"a\", \"dir\"))\n", "整数である必要があります")
+	mustErrIO(t, "msg(getpath(1, 0))\n", "文字列である必要があります")
 }
 
 func TestGettimeRanges(t *testing.T) {

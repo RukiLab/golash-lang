@@ -11,7 +11,7 @@ package main
 
 import (
 	"fmt"
-	"path"
+	"path/filepath"
 	"strings"
 	"unicode"
 )
@@ -171,55 +171,51 @@ func init() {
 		return Str(fmt.Sprintf(format, fargs...)), nil
 	})
 
-	// getpath(path [, part...])：パスを部位キーワードで分解・変換する。
-	// part は dir / file / base / ext / lower。dir は他の部位に前置でき、
-	// base と ext は合成して file になる。file は base / ext と同時に
-	// 指定できない。part を省略すると元のパスをそのまま返す。
-	register("getpath", 1, 6, func(in *Interp, args []Value, at Pos) (Value, error) {
+	// getpath(path [, mode])：パス分解。mode は HSP 準拠のビットフラグで
+	// 加算して組み合わせる：1 は拡張子除去、2 は拡張子のみ（ドット付き）、
+	// 8 はディレクトリ除去、16 は小文字化（修飾子）、32 はディレクトリのみ。
+	// 0 または省略時は全体を返す。32 > 2 > 8 > 1 の優先順で、16 は結果に適用する。
+	register("getpath", 1, 2, func(in *Interp, args []Value, at Pos) (Value, error) {
 		p, err := needString("getpath", args, 0, at)
 		if err != nil {
 			return Null(), err
 		}
-		want := map[string]bool{}
-		for i := 1; i < len(args); i++ {
-			part, err := needString("getpath", args, i, at)
+		mode := 0
+		if len(args) == 2 {
+			v, err := needInt("getpath", args, 1, at)
 			if err != nil {
 				return Null(), err
 			}
-			switch part {
-			case "dir", "file", "base", "ext", "lower":
-				want[part] = true
-			default:
-				return Null(), argErr("getpath", i, at, "dir/file/base/ext/lower のいずれかを指定してください。%q が指定されました", part)
-			}
+			mode = int(v)
 		}
-		if want["file"] && (want["base"] || want["ext"]) {
-			return Null(), rtErrf(at, "getpath：file と base/ext は同時に指定できません")
+		if mode < 0 || mode&^(1|2|8|16|32) != 0 {
+			return Null(), argErr("getpath", 1, at, "mode は 1/2/8/16/32 の組み合わせである必要があります。%d が指定されました", mode)
 		}
 		// 分解用に区切り文字を正規化し、その後で元の形式に戻す。
 		win := strings.Contains(p, "\\")
 		slash := strings.ReplaceAll(p, "\\", "/")
-		dir, file := path.Split(slash)
-		ext := path.Ext(file)
+		dir, file := filepath.Split(slash)
+		ext := filepath.Ext(file)
 		base := strings.TrimSuffix(file, ext)
 
-		out := p
+		var out string
 		switch {
-		case want["file"]:
-			out = file
-		case want["base"] && want["ext"]:
-			out = file
-		case want["base"]:
-			out = base
-		case want["ext"]:
-			out = ext
-		case want["dir"]:
+		case mode&32 != 0:
 			out = dir
+		case mode&2 != 0:
+			out = ext
+		case mode&8 != 0:
+			if mode&1 != 0 {
+				out = base
+			} else {
+				out = file
+			}
+		case mode&1 != 0:
+			out = joinDir(dir, base)
+		default:
+			out = p
 		}
-		if want["dir"] && out != dir {
-			out = joinDir(dir, out)
-		}
-		if want["lower"] {
+		if mode&16 != 0 {
 			out = strings.ToLower(out)
 		}
 		if win {

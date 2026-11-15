@@ -20,7 +20,6 @@ Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで
 | `true` / `false` / `bool` | `1` / `0`（整数） |
 | `msg(a, b)` / `print(a, b)` | `msg(v)` / `print(v)` の1引数。連結は `+ str()` |
 | `sort(a)` がソート済み配列を返す | `sort(a)` は元インデックスを返す（`a` 自体はソート済み） |
-| `getpath(p, 9)` などのビットフラグ | `getpath(p, "dir", "base")` などの部位キーワード |
 | `strlen` / `length` | `len` |
 | `strmid(s, start, count)` | `slice(s, start, end)`（第3引数は終端） |
 | `instr(s, start, sub)` | `find(s, sub, start)` |
@@ -58,6 +57,7 @@ Golash 処理系の変更履歴です。版は `MAJOR.MINOR` のドット1つで
 - ブロック構文を `{ }` から `end` に変更（`def` / `if` / `while` / `repeat` / `switch`）。`{` は「`{` は使用できません。改行と end を使用してください」エラーになる。
 - 組込 `end(code)` を `exit(code)` に改名（`end` はブロック終端）。`#define` / `#ifdef` / `#mode` などの旧ディレクティブを廃止し、`#` で始まる行は移行エラーになる。
 - ソース先頭の UTF-8 BOM を読み飛ばす（Windows のエディタが付ける BOM 対策）。
+- `getpath()` はビットフラグ方式（`0` / `1` / `2` / `8` / `16` / `32`）を維持し、`mode` 省略時は `0`（全体）とする。
 - ディレクトリ系組込の命名を統一：`cwd([path])` を `curdir([path])`、`direxe()` を `exedir()`、`mkdir(path)` を `dirmake(path)` に改名。旧名は未定義関数になる。
 - `button` の引数順を `button(id, w, h, label)` に変更（ラベルを末尾へ移動）。
 - `objset(id, val)` は変数ではなく値そのものを設定する（変数バインドを廃止）。
